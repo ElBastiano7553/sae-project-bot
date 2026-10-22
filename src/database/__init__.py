@@ -16,6 +16,7 @@ from src.database.repositories import (
     ManagedMessage,
     ManagedMessageRepository,
 )
+from src.database.meetings import MeetingDetail, MeetingRepository
 
 __all__ = [
     "AdminAction",
@@ -32,4 +33,6 @@ __all__ = [
     "KeyValueRepository",
     "ManagedMessage",
     "ManagedMessageRepository",
+    "MeetingDetail",
+    "MeetingRepository",
 ]

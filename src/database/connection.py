@@ -139,6 +139,97 @@ MIGRATIONS: list[str] = [
     CREATE INDEX ai_requests_at ON ai_requests (at);
     CREATE INDEX ai_requests_user ON ai_requests (user_id, at);
     """,
+    # v7 (Samae 2.0, lot 1) : réunions, participants, ordre du jour, décisions, réserves,
+    # actions et historique. Uniquement des créations de tables : rien d'existant n'est modifié.
+    # ``revision`` augmente à chaque modification : un bouton d'un panneau périmé est refusé.
+    """
+    CREATE TABLE meetings (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        title              TEXT    NOT NULL,
+        description        TEXT    NOT NULL DEFAULT '',
+        objectives         TEXT    NOT NULL DEFAULT '',
+        leader_id          INTEGER NOT NULL,
+        leader_name        TEXT    NOT NULL,
+        status             TEXT    NOT NULL DEFAULT 'planned'
+                                   CHECK (status IN ('planned', 'running', 'finished', 'cancelled')),
+        planned_minutes    INTEGER,
+        channel_id         INTEGER,
+        panel_message_id   INTEGER,
+        report             TEXT,
+        report_channel_id  INTEGER,
+        report_message_ids TEXT,
+        revision           INTEGER NOT NULL DEFAULT 0,
+        created_by         INTEGER NOT NULL,
+        created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+        started_at         TEXT,
+        ended_at           TEXT,
+        updated_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX meetings_status ON meetings (status, id);
+    CREATE INDEX meetings_channel ON meetings (channel_id, status);
+
+    CREATE TABLE meeting_participants (
+        meeting_id INTEGER NOT NULL REFERENCES meetings (id),
+        user_id    INTEGER NOT NULL,
+        user_name  TEXT    NOT NULL,
+        joined_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (meeting_id, user_id)
+    );
+    CREATE INDEX meeting_participants_user ON meeting_participants (user_id);
+
+    CREATE TABLE meeting_steps (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings (id),
+        position   INTEGER NOT NULL,
+        title      TEXT    NOT NULL,
+        status     TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'current', 'done')),
+        added_by   INTEGER NOT NULL,
+        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        started_at TEXT,
+        done_at    TEXT,
+        UNIQUE (meeting_id, position)
+    );
+    -- Au plus une étape en cours par réunion, garanti par la base elle-même.
+    CREATE UNIQUE INDEX meeting_steps_current ON meeting_steps (meeting_id) WHERE status = 'current';
+
+    CREATE TABLE meeting_notes (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id    INTEGER NOT NULL REFERENCES meetings (id),
+        kind          TEXT    NOT NULL CHECK (kind IN ('decision', 'reserve', 'disagreement')),
+        content       TEXT    NOT NULL,
+        rationale     TEXT,
+        step_position INTEGER,
+        author_id     INTEGER NOT NULL,
+        author_name   TEXT    NOT NULL,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX meeting_notes_meeting ON meeting_notes (meeting_id, id);
+
+    CREATE TABLE meeting_actions (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id    INTEGER NOT NULL REFERENCES meetings (id),
+        description   TEXT    NOT NULL,
+        assignee_id   INTEGER NOT NULL,
+        assignee_name TEXT    NOT NULL,
+        due_date      TEXT,
+        status        TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
+        created_by    INTEGER NOT NULL,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX meeting_actions_meeting ON meeting_actions (meeting_id, id);
+    CREATE INDEX meeting_actions_assignee ON meeting_actions (assignee_id, status);
+
+    CREATE TABLE meeting_log (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES meetings (id),
+        at         TEXT    NOT NULL DEFAULT (datetime('now')),
+        user_id    INTEGER NOT NULL,
+        user_name  TEXT    NOT NULL,
+        action     TEXT    NOT NULL,
+        detail     TEXT    NOT NULL DEFAULT ''
+    );
+    CREATE INDEX meeting_log_meeting ON meeting_log (meeting_id, id);
+    """,
 ]
 
 

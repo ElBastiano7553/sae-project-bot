@@ -26,6 +26,7 @@ from src.database import (
     GitLabEventRepository,
     KeyValueRepository,
     ManagedMessageRepository,
+    MeetingRepository,
 )
 from src.discord_bot.alerts import send_alert
 from src.discord_bot.embeds import error_embed
@@ -40,6 +41,7 @@ from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
 from src.services.backup import BackupError, BackupInfo, create_backup, list_backups
 from src.services.content import Announcement, EmbedField, MessagePayload, load_message_templates, render_message
+from src.services.meetings import MeetingService
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
 from src.services.monitoring import ErrorRecord, RecentErrors
 from src.services.permanent_messages import PermanentMessageService, SyncAction
@@ -53,6 +55,7 @@ EXTENSIONS = (
     "src.discord_bot.cogs.general",
     "src.discord_bot.cogs.activity",
     "src.discord_bot.cogs.ai",
+    "src.discord_bot.cogs.meetings",
     "src.discord_bot.cogs.admin",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
@@ -89,6 +92,8 @@ class SaeBot(commands.Bot):
         self.bot_errors_repo = BotErrorRepository(database)
         self.alerts = AlertManager(self.bot_errors_repo)
         self.ai_requests_repo = AIRequestRepository(database)
+        # Samae 2.0 : réunions (règles et permissions dans services.meetings).
+        self.meetings = MeetingService(MeetingRepository(database))
         # IA (lot 3) : None si désactivée. Aucun appel n'est fait au démarrage.
         self.ai_provider = build_provider(settings.ai_provider, settings.ai_api_key, settings.ai_model)
         self.assistant = (
