@@ -1,4 +1,4 @@
-from src.gitlab.security import clean_text, first_line, plain_text, safe_url, token_matches
+from src.gitlab.security import clean_text, describe, first_line, inline_code, plain_text, safe_url, token_matches
 
 
 def test_token_matches_only_exact_secret():
@@ -62,3 +62,29 @@ def test_safe_url():
     assert safe_url("https://gitlab.com/a b") is None
     assert safe_url("https://x.example/)[y](https://evil)") is None
     assert safe_url(None) is None
+
+
+def test_inline_code_cannot_escape_the_code_span():
+    assert inline_code("feature/mon_menu", 50) == "`feature/mon_menu`"  # pas de « \_ » visible
+    assert inline_code("a`@everyone`b", 50) == "`a'@​everyone'b`"
+    assert inline_code("", 50) == "`?`"
+
+
+def test_safe_url_rejects_credentials():
+    assert safe_url("https://user:motdepasse@gitlab.com/a") is None
+    assert safe_url("https://") is None
+
+
+def test_describe_is_short_and_single_line():
+    text = describe("x" * 10_000 + "\nfausse ligne de journal")
+    assert len(text) <= 50
+    assert "\n" not in text
+
+
+def test_demo_never_sends_the_secret_in_clear_over_the_internet():
+    from src.gitlab.demo import is_safe_target
+
+    assert is_safe_target("http://127.0.0.1:8080/webhooks/gitlab")
+    assert is_safe_target("https://abc.trycloudflare.com/webhooks/gitlab")
+    assert not is_safe_target("http://abc.trycloudflare.com/webhooks/gitlab")
+    assert not is_safe_target("ftp://127.0.0.1/")

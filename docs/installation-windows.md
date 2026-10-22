@@ -235,10 +235,25 @@ jamais inventées : elles viennent uniquement de `config/planning.toml`.
 
 ## 12. Notifications GitLab (V2)
 
-Une fois les étapes 1 à 11 validées, suivez le guide
-[gitlab-webhooks.md](gitlab-webhooks.md) : secret dans `.env`, test local avec
-`python -m src.gitlab.demo push`, tunnel, puis webhook dans GitLab.
-Tant que `GITLAB_WEBHOOK_SECRET` est vide, la V2 reste désactivée.
+Une fois les étapes 1 à 11 validées, suivez le guide détaillé
+[gitlab-webhooks.md](gitlab-webhooks.md). En résumé, dans l'ordre :
+
+1. générer un secret (`python -c "import secrets; print(secrets.token_urlsafe(32))"`)
+   et le mettre dans `GITLAB_WEBHOOK_SECRET` du fichier `.env`, puis relancer le bot
+   (**terminal 1**) : `/health` doit afficher GitLab ✅ ;
+2. tester sans GitLab (**terminal 3**) : `python -m src.gitlab.demo push` doit
+   publier un exemple dans `#gitlab-activite`, et `--wrong-secret` doit être refusé (401) ;
+3. installer et lancer le tunnel HTTPS (**terminal 2**) :
+   `winget install --id Cloudflare.cloudflared`, rouvrir VS Code, puis
+   `cloudflared tunnel --url http://127.0.0.1:8080` et noter l'adresse
+   `https://….trycloudflare.com` affichée ;
+4. vérifier le tunnel : `curl.exe -i https://ADRESSE/webhooks/gitlab` doit répondre 405 ;
+5. créer le webhook dans GitLab (Settings > Webhooks) avec l'URL
+   `https://ADRESSE/webhooks/gitlab` et le même secret, puis **Test > Push events** ;
+6. dérouler le tableau « Tests réels, à cocher » du guide.
+
+Tant que `GITLAB_WEBHOOK_SECRET` est vide, la V2 reste désactivée. Une erreur de
+configuration GitLab désactive seulement la V2 : la V1 continue de fonctionner.
 
 ## 13 et 14. Commandes GitLab et IA
 

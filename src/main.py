@@ -25,10 +25,16 @@ log = logging.getLogger("sae_bot")
 
 
 def check_content_files(*, gitlab_enabled: bool = False) -> None:
-    """Vérifie les fichiers de config/ et content/ avant de se connecter (erreurs claires au démarrage)."""
+    """Vérifie les fichiers de config/ et content/ avant de se connecter (erreurs claires au démarrage).
+
+    Une erreur dans config/gitlab.toml est seulement signalée : elle désactive la V2, pas le bot.
+    """
     layout = load_server_layout()
     if gitlab_enabled:
-        load_gitlab_rules(channel_keys=layout.channels.keys())
+        try:
+            load_gitlab_rules(channel_keys=layout.channels.keys())
+        except ConfigError as exc:
+            log.error("Webhooks GitLab désactivés : %s", exc)
     load_links()
     load_planning()
     for template in load_message_templates():
@@ -48,6 +54,8 @@ def main() -> int:
         return 2
 
     setup_logging(settings.log_level, PROJECT_ROOT / "logs")
+    if settings.gitlab_config_error:
+        log.error("Webhooks GitLab désactivés, configuration invalide : %s", settings.gitlab_config_error)
     try:
         check_content_files(gitlab_enabled=settings.gitlab_webhooks_enabled)
     except ConfigError as exc:

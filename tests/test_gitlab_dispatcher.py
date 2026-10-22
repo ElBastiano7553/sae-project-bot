@@ -11,12 +11,15 @@ BINDINGS = {"gitlab_activite": 100, "builds": 200}
 
 
 class FakeSender:
-    def __init__(self, fail: bool = False) -> None:
+    def __init__(self, fail: bool = False, fail_times: int = 0) -> None:
         self.sent: list[tuple[int, object]] = []
         self.fail = fail
+        self.fail_times = fail_times
+        self.attempts = 0
 
     async def send_notification(self, channel_id, notification):
-        if self.fail:
+        self.attempts += 1
+        if self.fail or self.attempts <= self.fail_times:
             raise RuntimeError("Discord indisponible")
         self.sent.append((channel_id, notification))
 
@@ -26,8 +29,10 @@ def repo(db):
     return GitLabEventRepository(db)
 
 
-def make(repo, sender=None, bindings=BINDINGS, queue_size=10):
-    return NotificationDispatcher(repo, RULES, sender or FakeSender(), lambda: dict(bindings), queue_size=queue_size)
+def make(repo, sender=None, bindings=BINDINGS, queue_size=10, retry_delays=()):
+    return NotificationDispatcher(
+        repo, RULES, sender or FakeSender(), lambda: dict(bindings), queue_size=queue_size, retry_delays=retry_delays
+    )
 
 
 async def test_event_is_routed_to_the_right_channel(repo):
@@ -112,3 +117,82 @@ async def test_run_waits_until_ready_then_delivers(repo):
         await asyncio.sleep(0)
     assert len(sender.sent) == 1
     task.cancel()
+
+
+async def test_transient_discord_error_is_retried(repo):
+    sender = FakeSender(fail_times=1)
+    dispatcher = make(repo, sender, retry_delays=(0,))
+    dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload()))
+    await dispatcher.drain()
+    assert sender.attempts == 2
+    assert len(sender.sent) == 1
+    assert repo.get_status("push:uuid-1") == EventStatus.SENT
+
+
+async def test_failure_after_all_retries(repo):
+    sender = FakeSender(fail=True)
+    dispatcher = make(repo, sender, retry_delays=(0, 0))
+    dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload()))
+    await dispatcher.drain()
+    assert sender.attempts == 3
+    assert repo.get_status("push:uuid-1") == EventStatus.FAILED
+    # GitLab qui renverrait le même événement ne provoque pas de doublon.
+    assert dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload())) is SubmitStatus.DUPLICATE
+
+
+async def test_worker_survives_unexpected_errors(repo):
+    import asyncio
+
+    calls = {"n": 0}
+
+    def flaky_bindings():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("base verrouillée")
+        return BINDINGS
+
+    sender = FakeSender()
+    dispatcher = NotificationDispatcher(repo, RULES, sender, flaky_bindings, retry_delays=())
+    task = asyncio.create_task(dispatcher.run())
+    dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload()))
+    dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload()))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert not task.done()
+    assert len(sender.sent) == 1
+    assert repo.get_status("push:uuid-2") == EventStatus.SENT
+    task.cancel()
+
+
+async def test_notifications_not_sent_before_a_stop_are_replayed(db, repo):
+    stopped = make(repo)
+    stopped.submit(IncomingEvent("push", "uuid-1", push_payload()))
+    stopped.submit(IncomingEvent("pipeline", "uuid-2", pipeline_payload()))
+    # le bot s'arrête ici : rien n'a été envoyé
+
+    sender = FakeSender()
+    restarted = make(GitLabEventRepository(db), sender)
+    assert restarted.restore_pending() == 2
+    await restarted.drain()
+    assert [channel for channel, _ in sender.sent] == [100, 200]
+    assert sender.sent[0][1].title.startswith("📤 2 commits")
+    assert make(GitLabEventRepository(db)).restore_pending() == 0  # rien n'est renvoyé deux fois
+
+
+async def test_old_or_corrupted_pending_notifications_are_abandoned(db, repo):
+    make(repo).submit(IncomingEvent("push", "old", push_payload()))
+    repo.claim("push:corrupted", "push", "{pas du json")
+    db.conn.execute("UPDATE gitlab_events SET received_at = datetime('now', '-2 days') WHERE event_key = 'push:old'")
+    sender = FakeSender()
+    dispatcher = make(repo, sender)
+    assert dispatcher.restore_pending() == 0
+    assert repo.get_status("push:old") == EventStatus.FAILED
+    assert repo.get_status("push:corrupted") == EventStatus.FAILED
+
+
+async def test_notification_json_round_trip():
+    from src.gitlab.dispatcher import notification_from_json, notification_to_json
+    from src.gitlab.events import format_pipeline
+
+    notification = format_pipeline(pipeline_payload(), RULES)
+    assert notification_from_json(notification_to_json(notification)) == notification

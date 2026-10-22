@@ -258,3 +258,19 @@ async def test_demo_script_payloads_are_accepted(client, dispatcher, sender):
         assert (status, body["status"]) == (200, "queued")
     await dispatcher.drain()
     assert len(sender.sent) == 3
+
+
+async def test_error_responses_do_not_reflect_large_or_multiline_input(client, caplog):
+    status, data = await post(client, {"object_kind": "x" * 100_000 + "\nINFO faux journal"}, event="Push Hook")
+    assert status == 400
+    assert len(json.dumps(data)) < 300
+    assert "faux journal" not in caplog.text
+
+
+async def test_secret_never_appears_in_any_response_or_log(client, caplog):
+    for kwargs in ({}, {"token": "x"}, {"event": "Issue Hook"}):
+        for payload in (push_payload(), b"{oops", {"object_kind": "push"}):
+            response = await client.post(WEBHOOK_PATH, data=payload if isinstance(payload, bytes) else json.dumps(payload), headers=headers(**kwargs))
+            assert SECRET not in await response.text()
+            assert SECRET not in str(response.headers)
+    assert SECRET not in caplog.text

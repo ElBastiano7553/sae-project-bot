@@ -49,6 +49,10 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX gitlab_events_received_at ON gitlab_events (received_at);
     """,
+    # Version 3 : contenu de la notification, pour la renvoyer après un arrêt du bot.
+    """
+    ALTER TABLE gitlab_events ADD COLUMN notification TEXT;
+    """,
 ]
 
 

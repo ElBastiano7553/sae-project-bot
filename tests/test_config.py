@@ -151,18 +151,35 @@ def test_webhook_secret_is_never_in_repr():
     assert GITLAB_SECRET not in repr(settings)
 
 
-def test_short_webhook_secret_is_refused():
-    with pytest.raises(ConfigError, match="trop court") as exc:
-        Settings.from_env({**VALID_ENV, "GITLAB_WEBHOOK_SECRET": "court"})
-    assert "court'" not in str(exc.value)  # la valeur du secret n'est pas recopiée dans le message
+def test_short_webhook_secret_disables_v2_without_blocking_v1():
+    settings = Settings.from_env({**VALID_ENV, "GITLAB_WEBHOOK_SECRET": "court-mais-secret"[:10]})
+    assert settings.gitlab_webhooks_enabled is False
+    assert settings.gitlab_requested is True
+    assert "trop court" in settings.gitlab_config_error
+    assert "court-mais" not in settings.gitlab_config_error  # la valeur du secret n'est jamais recopiée
+    assert settings.gitlab_webhook_secret == ""
 
 
 @pytest.mark.parametrize("port", ["0", "70000", "http", "-1"])
-def test_invalid_webhook_port(port):
-    with pytest.raises(ConfigError, match="WEBHOOK_PORT"):
-        Settings.from_env({**VALID_ENV, "WEBHOOK_PORT": port})
+def test_invalid_webhook_port_disables_v2(port):
+    settings = Settings.from_env({**VALID_ENV, "GITLAB_WEBHOOK_SECRET": GITLAB_SECRET, "WEBHOOK_PORT": port})
+    assert settings.gitlab_webhooks_enabled is False
+    assert "WEBHOOK_PORT" in settings.gitlab_config_error
 
 
-def test_invalid_project_id():
-    with pytest.raises(ConfigError, match="GITLAB_PROJECT_ID"):
-        Settings.from_env({**VALID_ENV, "GITLAB_PROJECT_ID": "epita/sae-game"})
+def test_invalid_project_id_disables_v2():
+    settings = Settings.from_env({**VALID_ENV, "GITLAB_WEBHOOK_SECRET": GITLAB_SECRET, "GITLAB_PROJECT_ID": "epita/sae-game"})
+    assert settings.gitlab_webhooks_enabled is False
+    assert "GITLAB_PROJECT_ID" in settings.gitlab_config_error
+
+
+def test_gitlab_variables_are_ignored_while_v2_is_not_requested():
+    settings = Settings.from_env({**VALID_ENV, "WEBHOOK_PORT": "abc", "GITLAB_PROJECT_ID": "x"})
+    assert settings.gitlab_config_error is None
+    assert settings.gitlab_requested is False
+
+
+def test_gitlab_errors_are_reported_with_v1_errors_only_for_v1():
+    with pytest.raises(ConfigError) as exc:
+        Settings.from_env({"GITLAB_WEBHOOK_SECRET": "court"})
+    assert "GITLAB" not in str(exc.value)

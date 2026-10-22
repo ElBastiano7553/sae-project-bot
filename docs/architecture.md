@@ -133,16 +133,19 @@ GitLab ──HTTPS──► tunnel (Cloudflare / ngrok) ──► aiohttp 127.0.
    4. project.id = GITLAB_PROJECT_ID si défini → sinon 403
    5. events.format_* : filtres de config/gitlab.toml, textes nettoyés et tronqués
    6. SQLite gitlab_events : clé Idempotency-Key ou X-Gitlab-Event-UUID déjà vue → « duplicate »
-   7. file asyncio (100 max, sinon 503 et l'événement est oublié pour que GitLab réessaie)
+   7. file asyncio (100 max, sinon 503 et l'événement est oublié pour que GitLab réessaie) ;
+      la notification est enregistrée avec la clé, pour être republiée si le bot s'arrête avant l'envoi
                                                      │ réponse 200 immédiate à GitLab
                                                      ▼
    tâche de fond ──► channel_bindings (salon associé au /setup) ──► Discord
-                     statut enregistré : sent / failed / skipped
+                     3 essais (0, 2, 10 s) ; statut enregistré : sent / failed / skipped
+                     au démarrage : notifications « queued » de moins de 24 h remises en file
 ```
 
 Le serveur ne démarre que si `GITLAB_WEBHOOK_SECRET` est défini. S'il ne peut pas
-démarrer (port occupé, `config/gitlab.toml` invalide), l'erreur est journalisée et
-affichée par `/health`, mais la V1 continue de fonctionner.
+démarrer (variable `GITLAB_*`/`WEBHOOK_*` invalide, port occupé, `config/gitlab.toml`
+invalide, erreur inattendue), l'erreur est journalisée et affichée par `/health`,
+mais la V1 continue de fonctionner.
 
 ### V3 et V4 : API GitLab et IA (prévu)
 
@@ -203,7 +206,7 @@ liste et de nouveaux cogs.
 | `managed_messages` | clé du message, salon, identifiant du message, empreinte du contenu, date |
 | `channel_bindings` | fonction du bot → identifiant du salon (enregistré au `/setup` confirmé) |
 | `kv_store` | état divers, par exemple la date du dernier `/setup` confirmé |
-| `gitlab_events` | (V2) clé de livraison GitLab, type, statut (`queued`, `sent`, `failed`, `skipped`), date ; purgée après 30 jours |
+| `gitlab_events` | (V2) clé de livraison GitLab, type, statut (`queued`, `sent`, `failed`, `skipped`), notification en JSON (migration 3), date ; purgée après 30 jours |
 
 La version du schéma est stockée dans `PRAGMA user_version` ; les migrations sont
 appliquées automatiquement au démarrage.

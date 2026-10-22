@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.gitlab.rules import GitLabRules
-from src.gitlab.security import clean_text, first_line, plain_text, safe_url
+from src.gitlab.security import clean_text, describe, first_line, inline_code, plain_text, safe_url
 from src.services import text_limits as limits
 from src.services.content import EmbedField
 
@@ -125,14 +125,14 @@ def format_push(payload: dict, rules: GitLabRules) -> Notification | None:
     total = payload.get("total_commits_count", len(commits))
     total = total if isinstance(total, int) and total >= 0 else len(commits)
     user = clean_text(payload.get("user_name") or payload.get("user_username"), 100, single_line=True) or "Quelqu'un"
-    branch_txt = clean_text(branch, 100, single_line=True)
+    branch_txt = inline_code(branch, 100)
     branch_plain = plain_text(branch, 100)
 
     if after == ZERO_SHA:
         return Notification(
             kind="push",
             title=limits.truncate(f"🗑️ Branche supprimée : {branch_plain} · {project.name_plain}", limits.EMBED_TITLE),
-            description=f"**{user}** a supprimé la branche `{branch_txt}`.",
+            description=f"**{user}** a supprimé la branche {branch_txt}.",
             color=COLOR_NEUTRAL,
             url=project.url,
             footer=project.footer,
@@ -154,18 +154,18 @@ def format_push(payload: dict, rules: GitLabRules) -> Notification | None:
     for commit in reversed(shown):
         if not isinstance(commit, dict):
             raise InvalidPayload("chaque commit doit être un objet")
-        sha = str(commit.get("id") or "")[:8]
+        sha = plain_text(str(commit.get("id") or "")[:8], 20).replace("`", "")
         message = clean_text(first_line(commit.get("title") or commit.get("message")), 120, single_line=True)
         author = commit.get("author") if isinstance(commit.get("author"), dict) else {}
         author_txt = clean_text(author.get("name"), 60, single_line=True)
         commit_url = safe_url(commit.get("url"))
-        ref_txt = f"[`{sha}`]({commit_url})" if commit_url and sha else f"`{sha}`"
+        ref_txt = f"[`{sha}`]({commit_url})" if commit_url and sha else f"`{sha or '?'}`"
         lines.append(f"{ref_txt} {message or '*(sans message)*'}" + (f" — {author_txt}" if author_txt else ""))
     hidden = total - len(shown)
     if hidden > 0:
         lines.append(f"… et {hidden} autre(s) commit(s)")
 
-    intro = f"**{user}** a créé la branche `{branch_txt}`" if created else f"**{user}** a poussé sur `{branch_txt}`"
+    intro = f"**{user}** a créé la branche {branch_txt}" if created else f"**{user}** a poussé sur {branch_txt}"
     description = intro + ("\n\n" + "\n".join(lines) if lines else ".")
 
     url = project.url
@@ -211,9 +211,9 @@ def format_merge_request(payload: dict, rules: GitLabRules) -> Notification | No
     icon, label, color = MR_LABELS[action]
     draft = bool(attrs.get("draft") or attrs.get("work_in_progress"))
 
-    source = clean_text(attrs.get("source_branch"), 100, single_line=True)
-    target = clean_text(attrs.get("target_branch"), 100, single_line=True)
-    fields = [EmbedField("Branches", f"`{source or '?'}` → `{target or '?'}`", inline=True)]
+    source = inline_code(attrs.get("source_branch"), 100)
+    target = inline_code(attrs.get("target_branch"), 100)
+    fields = [EmbedField("Branches", f"{source} → {target}", inline=True)]
     fields.append(EmbedField("Par", user_txt, inline=True))
     if draft:
         fields.append(EmbedField("État", "brouillon (draft)", inline=True))
@@ -254,7 +254,7 @@ def format_pipeline(payload: dict, rules: GitLabRules) -> Notification | None:
     project = _project(payload)
     icon, label, color = PIPELINE_LABELS.get(status, ("ℹ️", status, COLOR_NEUTRAL))
 
-    fields = [EmbedField("Branche", f"`{clean_text(ref, 100, single_line=True) or '?'}`", inline=True)]
+    fields = [EmbedField("Branche", inline_code(ref, 100), inline=True)]
     duration = attrs.get("duration")
     if isinstance(duration, (int, float)) and duration >= 0:
         minutes, seconds = divmod(int(duration), 60)
@@ -265,10 +265,10 @@ def format_pipeline(payload: dict, rules: GitLabRules) -> Notification | None:
         fields.append(EmbedField("Lancé par", user_txt, inline=True))
 
     commit = payload.get("commit") if isinstance(payload.get("commit"), dict) else {}
-    sha = str(commit.get("id") or attrs.get("sha") or "")[:8]
+    sha = plain_text(str(commit.get("id") or attrs.get("sha") or "")[:8], 20).replace("`", "")
     commit_title = clean_text(first_line(commit.get("title") or commit.get("message")), 150, single_line=True)
     if sha or commit_title:
-        fields.append(EmbedField("Commit", f"`{sha}` {commit_title}".strip(), inline=False))
+        fields.append(EmbedField("Commit", f"`{sha or '?'}` {commit_title}".strip(), inline=False))
 
     builds = payload.get("builds") if isinstance(payload.get("builds"), list) else []
     failed = [b for b in builds if isinstance(b, dict) and b.get("status") == "failed" and not b.get("allow_failure")]
@@ -315,7 +315,7 @@ def _project(payload: dict) -> _Project:
 
 def _expect_kind(payload: dict, kind: str) -> None:
     if payload.get("object_kind") != kind:
-        raise InvalidPayload(f"object_kind « {payload.get('object_kind')} » ne correspond pas à l'en-tête ({kind})")
+        raise InvalidPayload(f"object_kind {describe(payload.get('object_kind'))} ne correspond pas à l'en-tête ({kind})")
 
 
 def _require_str(payload: dict, key: str) -> str:

@@ -64,15 +64,26 @@ class SaeBot(commands.Bot):
 
     async def start_gitlab_webhooks(self) -> None:
         """Démarre la V2 si elle est configurée. Une erreur ici n'empêche jamais la V1 de fonctionner."""
+        if self.settings.gitlab_config_error:
+            self.gitlab_error = f"configuration invalide : {self.settings.gitlab_config_error}"
+            log.error("Webhooks GitLab désactivés, %s", self.gitlab_error)
+            return
         if not self.settings.gitlab_webhooks_enabled:
             log.info("Webhooks GitLab désactivés : GITLAB_WEBHOOK_SECRET n'est pas défini.")
             return
         try:
-            rules = load_gitlab_rules(channel_keys=load_server_layout().channels.keys())
+            await self._start_gitlab_webhooks()
         except ConfigError as exc:
             self.gitlab_error = str(exc)
             log.error("Webhooks GitLab désactivés : %s", exc)
-            return
+        except Exception as exc:
+            self.gitlab_error = f"erreur inattendue au démarrage ({type(exc).__name__}), voir logs/bot.log"
+            log.exception("Webhooks GitLab désactivés : erreur inattendue au démarrage")
+        if self.gitlab_error and self.gitlab_server is not None:
+            await self.gitlab_server.stop()
+
+    async def _start_gitlab_webhooks(self) -> None:
+        rules = load_gitlab_rules(channel_keys=load_server_layout().channels.keys())
         purged = self.gitlab_events_repo.purge_older_than(RETENTION_DAYS)
         if purged:
             log.info("%d ancien(s) événement(s) GitLab oublié(s)", purged)
@@ -89,10 +100,17 @@ class SaeBot(commands.Bot):
             dispatcher=dispatcher,
         )
         self.gitlab_server = GitLabWebhookServer(app, self.settings.webhook_host, self.settings.webhook_port)
-        if await self.gitlab_server.start():
-            self._gitlab_task = asyncio.create_task(dispatcher.run(), name="gitlab-notifications")
-        else:
+        if not await self.gitlab_server.start():
             self.gitlab_error = self.gitlab_server.error
+            return
+        dispatcher.restore_pending()
+        self._gitlab_task = asyncio.create_task(dispatcher.run(), name="gitlab-notifications")
+        self._gitlab_task.add_done_callback(self._on_gitlab_task_done)
+
+    def _on_gitlab_task_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            self.gitlab_error = "la tâche d'envoi des notifications s'est arrêtée, voir logs/bot.log"
+            log.error("Tâche des notifications GitLab arrêtée", exc_info=task.exception())
 
     async def close(self) -> None:
         if self._gitlab_task is not None:

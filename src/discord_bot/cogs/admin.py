@@ -139,7 +139,7 @@ class AdminCog(commands.Cog):
             structure=report,
             setup_confirmed=self.bot.setup_confirmed_at is not None,
             ai_provider=self.bot.settings.ai_provider,
-            gitlab_enabled=self.bot.settings.gitlab_webhooks_enabled,
+            gitlab_enabled=self.bot.settings.gitlab_requested,
             gitlab_listening=self.bot.gitlab_server is not None and self.bot.gitlab_server.listening,
             gitlab_error=self.bot.gitlab_error,
             gitlab_last_event_at=self.bot.gitlab_events_repo.last_received_at(),
@@ -149,6 +149,8 @@ class AdminCog(commands.Cog):
 
     def _gitlab_config_line(self) -> str:
         settings = self.bot.settings
+        if settings.gitlab_config_error:
+            return "Webhooks GitLab : configuration invalide, désactivés (détails dans /health)"
         if not settings.gitlab_webhooks_enabled:
             return "Webhooks GitLab : désactivés (GITLAB_WEBHOOK_SECRET vide)"
         project = f"projet `{settings.gitlab_project_id}`" if settings.gitlab_project_id else "tout projet (GITLAB_PROJECT_ID vide)"

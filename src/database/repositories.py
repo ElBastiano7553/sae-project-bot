@@ -110,14 +110,29 @@ class GitLabEventRepository:
     def __init__(self, db: Database) -> None:
         self._conn = db.conn
 
-    def claim(self, event_key: str, event_type: str) -> bool:
-        """Enregistre l'événement. Retourne ``False`` s'il avait déjà été reçu (doublon)."""
+    def claim(self, event_key: str, event_type: str, notification: str | None = None) -> bool:
+        """Enregistre l'événement. Retourne ``False`` s'il avait déjà été reçu (doublon).
+
+        ``notification`` (JSON) permet de renvoyer la notification si le bot s'arrête avant l'envoi.
+        """
         with self._conn:
             cursor = self._conn.execute(
-                "INSERT OR IGNORE INTO gitlab_events (event_key, event_type) VALUES (?, ?)",
-                (event_key, event_type),
+                "INSERT OR IGNORE INTO gitlab_events (event_key, event_type, notification) VALUES (?, ?, ?)",
+                (event_key, event_type, notification),
             )
         return cursor.rowcount == 1
+
+    def pending(self, max_age_hours: int) -> list[tuple[str, str | None]]:
+        """Événements acceptés mais jamais envoyés (bot arrêté entre-temps), du plus ancien au plus récent."""
+        rows = self._conn.execute(
+            """
+            SELECT event_key, notification FROM gitlab_events
+            WHERE status = 'queued' AND received_at >= datetime('now', ?)
+            ORDER BY received_at, rowid
+            """,
+            (f"-{int(max_age_hours)} hours",),
+        ).fetchall()
+        return [(row["event_key"], row["notification"]) for row in rows]
 
     def release(self, event_key: str) -> None:
         """Oublie un événement qui n'a pas pu être pris en charge, pour que GitLab puisse le renvoyer."""
@@ -134,6 +149,18 @@ class GitLabEventRepository:
     def get_status(self, event_key: str) -> str | None:
         row = self._conn.execute("SELECT status FROM gitlab_events WHERE event_key = ?", (event_key,)).fetchone()
         return row["status"] if row else None
+
+    def expire_queued(self, max_age_hours: int) -> int:
+        """Abandonne les notifications trop anciennes pour être encore utiles (statut ``failed``)."""
+        with self._conn:
+            cursor = self._conn.execute(
+                """
+                UPDATE gitlab_events SET status = 'failed', updated_at = datetime('now')
+                WHERE status = 'queued' AND received_at < datetime('now', ?)
+                """,
+                (f"-{int(max_age_hours)} hours",),
+            )
+        return cursor.rowcount
 
     def last_received_at(self) -> str | None:
         row = self._conn.execute("SELECT MAX(received_at) AS last FROM gitlab_events").fetchone()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hmac
 import re
+from urllib.parse import urlsplit
 
 from src.services import text_limits as limits
 
@@ -49,6 +50,22 @@ def plain_text(value: object, limit: int) -> str:
     return limits.truncate(text, limit)
 
 
+def inline_code(value: object, limit: int, default: str = "?") -> str:
+    """Texte affiché entre accents graves (nom de branche…).
+
+    Discord n'interprète pas le Markdown dans un bloc de code : on ne l'échappe donc
+    pas (sinon les « \\ » s'afficheraient), on retire seulement les accents graves
+    qui permettraient d'en sortir.
+    """
+    text = plain_text(value, limit).replace("`", "'")
+    return f"`{text or default}`"
+
+
+def describe(value: object, limit: int = 40) -> str:
+    """Représentation courte et sur une ligne d'une valeur reçue, pour les journaux et les erreurs."""
+    return repr(value if not isinstance(value, str) else value[:limit])[: limit + 10]
+
+
 def first_line(value: object) -> str:
     """Première ligne non vide d'un message (le titre d'un commit)."""
     if not isinstance(value, str):
@@ -68,4 +85,10 @@ def safe_url(value: object) -> str | None:
         return None
     if any(ch.isspace() or ch in "<>\"'()" for ch in url):
         return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if not parts.hostname or "@" in parts.netloc:
+        return None  # pas d'identifiants dans un lien affiché publiquement
     return url

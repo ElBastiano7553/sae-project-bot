@@ -18,6 +18,7 @@ import asyncio
 import json
 import sys
 import uuid
+from urllib.parse import urlsplit
 
 import aiohttp
 from dotenv import load_dotenv
@@ -45,6 +46,12 @@ async def send(url: str, event: str, secret: str, payload: dict) -> tuple[int, s
             return response.status, await response.text()
 
 
+def is_safe_target(url: str) -> bool:
+    """Le secret ne part en clair (http://) que vers ce PC lui-même."""
+    parts = urlsplit(url)
+    return parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in {"127.0.0.1", "localhost", "::1"})
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Envoie un faux webhook GitLab au bot.")
     parser.add_argument("event", choices=sorted(EVENTS))
@@ -64,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
 
     host = "127.0.0.1" if settings.webhook_host in {"0.0.0.0", "::"} else settings.webhook_host
     url = args.url or f"http://{host}:{settings.webhook_port}{WEBHOOK_PATH}"
+    if not is_safe_target(url):
+        print("❌ Pour une adresse distante, utilisez https:// : le secret ne doit jamais circuler en clair.", file=sys.stderr)
+        return 2
     event, build = EVENTS[args.event]
     payload = build()
     if settings.gitlab_project_id is not None:
