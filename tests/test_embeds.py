@@ -59,7 +59,7 @@ def test_gitlab_notification_embeds_respect_discord_limits():
     from src.discord_bot.embeds import notification_to_embed
     from src.gitlab.events import format_merge_request, format_pipeline, format_push
     from src.gitlab.rules import GitLabRules
-    from tests.gitlab_samples import merge_request_payload, pipeline_payload, push_payload
+    from src.gitlab.samples import merge_request_payload, pipeline_payload, push_payload
 
     rules = GitLabRules(routes={"push": "a", "merge_request": "a", "pipeline": "b"})
     for notification in (

@@ -4,7 +4,7 @@ from src.database import GitLabEventRepository
 from src.gitlab.dispatcher import EventStatus, IncomingEvent, NotificationDispatcher, SubmitStatus
 from src.gitlab.events import InvalidPayload
 from src.gitlab.rules import GitLabRules
-from tests.gitlab_samples import pipeline_payload, push_payload
+from src.gitlab.samples import pipeline_payload, push_payload
 
 RULES = GitLabRules(routes={"push": "gitlab_activite", "merge_request": "gitlab_activite", "pipeline": "builds"})
 BINDINGS = {"gitlab_activite": 100, "builds": 200}

@@ -1,4 +1,4 @@
-"""Exemples de JSON GitLab (réduits aux champs utiles), inspirés de la documentation officielle."""
+"""Exemples de JSON GitLab (réduits aux champs utiles), pour les tests et `python -m src.gitlab.demo`."""
 
 from __future__ import annotations
 

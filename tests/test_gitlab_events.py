@@ -2,7 +2,7 @@ import pytest
 
 from src.gitlab.events import ZERO_SHA, InvalidPayload, format_event, format_merge_request, format_pipeline, format_push, project_id_of
 from src.gitlab.rules import GitLabRules
-from tests.gitlab_samples import merge_request_payload, pipeline_payload, push_payload
+from src.gitlab.samples import merge_request_payload, pipeline_payload, push_payload
 
 RULES = GitLabRules(routes={"push": "a", "merge_request": "a", "pipeline": "b"})
 

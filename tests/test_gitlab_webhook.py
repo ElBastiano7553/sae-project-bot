@@ -9,7 +9,7 @@ from src.database import GitLabEventRepository
 from src.gitlab.dispatcher import NotificationDispatcher
 from src.gitlab.rules import GitLabRules
 from src.gitlab.webhook import MAX_BODY_BYTES, WEBHOOK_PATH, GitLabWebhookServer, create_webhook_app
-from tests.gitlab_samples import merge_request_payload, pipeline_payload, push_payload
+from src.gitlab.samples import merge_request_payload, pipeline_payload, push_payload
 
 SECRET = "secret-de-test-0123456789"
 RULES = GitLabRules(routes={"push": "gitlab_activite", "merge_request": "gitlab_activite", "pipeline": "builds"})
@@ -248,3 +248,13 @@ async def test_port_already_in_use_is_reported_without_crashing(dispatcher, unus
         assert not second.listening
     finally:
         await first.stop()
+
+
+async def test_demo_script_payloads_are_accepted(client, dispatcher, sender):
+    from src.gitlab.demo import EVENTS
+
+    for index, (event, build) in enumerate(EVENTS.values()):
+        status, body = await post(client, build(), event=event, uuid=f"demo-{index}")
+        assert (status, body["status"]) == (200, "queued")
+    await dispatcher.drain()
+    assert len(sender.sent) == 3

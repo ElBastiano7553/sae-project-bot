@@ -1,8 +1,8 @@
-# Guide d'installation sous Windows (V1)
+# Guide d'installation sous Windows (V1 et V2)
 
 Ce guide part de zéro. Les commandes sont à copier-coller dans le **terminal
-PowerShell de VS Code**. Les étapes 12 à 14 (GitLab et IA) seront ajoutées avec
-les versions V2 à V4.
+PowerShell de VS Code**. La configuration des notifications GitLab (V2) est
+dans [gitlab-webhooks.md](gitlab-webhooks.md) ; l'IA arrivera en V4.
 
 > 🔒 **Règle d'or** : vos tokens et secrets ne doivent apparaître que dans le
 > fichier `.env` de votre ordinateur. Ne les envoyez à personne, pas même à un
@@ -233,11 +233,17 @@ relancez `/setup`.
 Les textes se modifient dans `content/messages/*.toml`. Les échéances ne sont
 jamais inventées : elles viennent uniquement de `config/planning.toml`.
 
-## 12 à 14. GitLab et IA
+## 12. Notifications GitLab (V2)
 
-Ces étapes seront ajoutées avec les versions V2 (webhooks GitLab), V3 (commandes
-de consultation) et V4 (IA). Ne configurez pas encore les variables `GITLAB_*` et
-`AI_*`. L'IA ne sera activée qu'une fois les autres fonctions validées.
+Une fois les étapes 1 à 11 validées, suivez le guide
+[gitlab-webhooks.md](gitlab-webhooks.md) : secret dans `.env`, test local avec
+`python -m src.gitlab.demo push`, tunnel, puis webhook dans GitLab.
+Tant que `GITLAB_WEBHOOK_SECRET` est vide, la V2 reste désactivée.
+
+## 13 et 14. Commandes GitLab et IA
+
+Elles seront ajoutées avec les versions V3 (commandes de consultation) et V4 (IA).
+Ne configurez pas encore `GITLAB_ACCESS_TOKEN` ni les variables `AI_*`.
 
 ## 15. Diagnostiquer les erreurs fréquentes
 
