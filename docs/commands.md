@@ -1,7 +1,7 @@
 # Commandes du bot et permissions
 
 Toutes les réponses sont **éphémères** : seule la personne qui lance la commande
-les voit. Aucune commande ne peut notifier `@everyone`, un rôle ou un membre :
+les voit (exceptions : le panneau et le compte rendu des réunions, publics). Aucune commande ne peut notifier `@everyone`, un rôle ou un membre :
 les mentions sont désactivées pour tous les messages du bot.
 
 « Admins du bot » : membres ayant la permission Discord **Gérer le serveur**, ou
@@ -45,6 +45,27 @@ Configuration, coûts et sécurité : [ai.md](ai.md).
 Quotas : `AI_DAILY_LIMIT` demandes par jour pour l'équipe, `AI_COOLDOWN_SECONDS` entre
 deux demandes d'un membre, une demande en cours par membre.
 
+## Réunions (Samae 2.0, lot 1)
+
+Guide complet : [meetings.md](meetings.md). L'option `reunion` est facultative : par
+défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes participant).
+
+| Commande | Qui | Effet |
+|---|---|---|
+| `/reunion creer titre [objectifs] [etapes] [responsable] [participants] [duree] [description]` | tous | Crée la réunion et publie son panneau dans le salon courant. Étapes séparées par « ; », participants mentionnés avec `@`. |
+| `/reunion voir [reunion] [publier]` | tous ; `publier` : responsable ou admin | Affiche la réunion ; `publier:True` déplace le panneau dans ce salon (nouveau panneau publié avant la suppression de l'ancien). |
+| `/reunion liste [statut]` | tous | Réunions prévues ou en cours, terminées, annulées ou toutes. |
+| `/reunion rejoindre` · `quitter` | tous | Rejoindre ou quitter (aussi par les boutons du panneau). |
+| `/reunion inviter membre` | responsable ou admin | Ajoute un participant. |
+| `/reunion demarrer` · `suivante` · `precedente` | responsable ou admin | Déroulement de l'ordre du jour (aussi par les boutons). |
+| `/reunion progression` | tous | Étapes traitées, étape en cours, temps écoulé et durée prévue. |
+| `/reunion point texte` | participants | Ajoute un point à la fin de l'ordre du jour. |
+| `/reunion decision texte [motif]` | responsable ou admin | Enregistre une décision (réunion en cours). |
+| `/reunion reserve texte [type]` | participants | Enregistre une réserve ou un désaccord (réunion en cours). |
+| `/reunion action description responsable [echeance]` | participants | Ajoute une action à faire et son responsable (réunion en cours). |
+| `/reunion terminer` · `annuler` | responsable ou admin | Clôture après confirmation (2 min) ; `terminer` fige et publie le compte rendu. |
+| `/reunion compte-rendu [reunion] [publier]` | tous ; `publier` : responsable ou admin | Compte rendu paginé (aperçu provisoire avant la fin) ; `publier:True` republie un compte rendu supprimé. |
+
 ## Administration (admins du bot)
 
 | Commande | Effet | Confirmation |
@@ -68,5 +89,6 @@ Le bot n'a **pas** besoin de la permission Administrateur ni d'aucun intent priv
 | Salons des messages permanents (`#bienvenue`, `#annonces`, `#planning-et-deadlines`, `#decisions-et-comptes-rendus`, `#documentation-et-preuves`) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages, Épingler des messages (si `PIN_PERMANENT_MESSAGES=true`) |
 | Salons des notifications GitLab (`#gitlab-activite`, `#builds-et-tests`) | Voir le salon, Envoyer des messages, Intégrer des liens (et Voir les anciens messages, Épingler pour le tableau de bord de `#gitlab-activite`) |
 | Salon des alertes (`ALERTS_CHANNEL`, facultatif) | Voir le salon, Envoyer des messages, Intégrer des liens |
+| Salons où sont créées les réunions, et `#decisions-et-comptes-rendus` (comptes rendus) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
 
 `/admin diagnostic` indique, salon par salon, les permissions qui manquent.

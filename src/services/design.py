@@ -8,7 +8,8 @@ les embeds, ``gitlab.events`` pour choisir la couleur d'une notification.
 Règle des couleurs :
 
 * vert : réussite ; rouge : échec ; orange : avertissement ; bleu : information ;
-* violet : fusion d'une merge request ; gris : événement neutre (fermeture, annulation).
+* violet : fusion d'une merge request ; gris : événement neutre (fermeture, annulation) ;
+* Samae 2.0 (réunions) : violet = prévue, carmin = en cours, violet sombre = terminée, gris = annulée.
 """
 
 from __future__ import annotations
@@ -28,6 +29,10 @@ class Color(IntEnum):
     INFO = 0x3498DB  # bleu
     MERGED = 0x9B59B6  # violet
     NEUTRAL = 0x95A5A6  # gris
+    # Accents de Samae (Samae 2.0) : rouge carmin et violet, sur le thème sombre de Discord.
+    SAMAE_CRIMSON = 0xD7263D  # réunion en cours
+    SAMAE_VIOLET = 0x7B2FBE  # réunion prévue
+    SAMAE_NIGHT = 0x4A2C6D  # réunion terminée (violet sombre)
 
 
 class Tone:
@@ -72,6 +77,8 @@ ICONS = {
     "history": "🕘",
     "announce": "📣",
     "message": "📌",
+    "meeting": "🗓️",
+    "report": "📝",
 }
 
 SEPARATOR = " · "

@@ -33,6 +33,8 @@ Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste 
 | 2 | Historique GitLab consultable, statistiques, leaderboard, tableau de bord permanent, alertes | ✅ livré (version 0.4.0) |
 | 3 | `src/ai/` multi-fournisseurs, `/ask` (recherche documentaire simple), `/summary`, `/review` | ✅ livré (version 0.5.0) |
 | 4 | Fiabilité (arrêt propre, heartbeat), sauvegardes SQLite (`services/backup.py`), sécurité, Docker (`Dockerfile`, `docker-compose.yml`, `src/healthcheck.py`) et guide de déploiement Linux | ✅ livré (version 1.0.0) ; déploiement La Banquise à faire |
+| Samae 2.0 · 1 | Réunions : `database/meetings.py`, `services/meetings.py`, `cogs/meetings.py`, `meeting_ui.py` (boutons persistants), migration v7 | ✅ livré (version 1.1.0) |
+| Samae 2.0 · 2 à 4 | Idées et tier lists, débat et communauté, finitions : voir [samae-2-plan.md](samae-2-plan.md) | ⏳ à faire |
 
 Principes ajoutés au lot 1 :
 
@@ -91,7 +93,8 @@ sae-project-bot/
 │   ├── logging_setup.py       Journaux console + fichier
 │   ├── database/
 │   │   ├── connection.py      Connexion SQLite et migrations versionnées
-│   │   └── repositories.py    Seul endroit où l'on écrit du SQL métier
+│   │   ├── repositories.py    Seul endroit où l'on écrit du SQL métier
+│   │   └── meetings.py        SQL des réunions, transactions avec révision (Samae 2.0)
 │   ├── services/              Logique métier, sans dépendance à Discord
 │   │   ├── server_structure.py   Reconnaissance des catégories et salons existants
 │   │   ├── content.py            Chargement et rendu des messages permanents
@@ -106,12 +109,15 @@ sae-project-bot/
 │   │   ├── alerts.py             Regroupement des erreurs et décision d'alerte (lot 2)
 │   │   ├── knowledge.py          Recherche des passages utiles pour /ask (lot 3)
 │   │   ├── ai_assistant.py       Consignes, quotas, masquage des secrets, journal des demandes (lot 3)
+│   │   ├── meetings.py           Réunions : règles, permissions, compte rendu, limites (Samae 2.0)
 │   │   └── text_limits.py        Respect des limites de taille de Discord
 │   ├── discord_bot/           Tout ce qui dépend de discord.py
 │   │   ├── bot.py             Client, synchronisation des commandes, événements
 │   │   ├── cogs/general.py    Commandes /help, /status, /health, /project (lot 1)
 │   │   ├── cogs/activity.py   Commandes /events, /stats, /leaderboard (lot 2)
 │   │   ├── cogs/ai.py         Commandes /ask, /summary, /review (lot 3)
+│   │   ├── cogs/meetings.py   Groupe /reunion et boutons du panneau (Samae 2.0)
+│   │   ├── meeting_ui.py      Panneau, compte rendu paginé, boutons persistants (Samae 2.0)
 │   │   ├── alerts.py          Publication des alertes dans ALERTS_CHANNEL (lot 2)
 │   │   ├── cogs/admin.py      Commandes /setup, /refresh, /config, /announce, /admin …
 │   │   ├── gateway.py         Opérations Discord utilisées par les services
@@ -279,7 +285,7 @@ Chaque étape s'appuie sur la précédente sans la réécrire : de nouveaux modu
 (`src/gitlab/`, `src/ai/`), de nouvelles migrations SQLite ajoutées à la fin de la
 liste et de nouveaux cogs.
 
-## 6. Schéma de la base (version 6)
+## 6. Schéma de la base (version 7)
 
 | Table | Rôle |
 |---|---|
@@ -290,6 +296,7 @@ liste et de nouveaux cogs.
 | `admin_actions` | (v4) journal des actions d'administration : date, identifiant et nom du membre, action, cible, résultat |
 | `gitlab_users` | (v5) identifiant GitLab → dernier nom et pseudo reçus (affichage de `/leaderboard`) |
 | `ai_requests` | (v6) une ligne par demande à l'IA : date, membre, commande, modèle, tokens, résultat (jamais le texte) |
+| `meetings`, `meeting_participants`, `meeting_steps`, `meeting_notes`, `meeting_actions`, `meeting_log` | (v7, Samae 2.0) réunions, participants, ordre du jour, décisions et réserves, actions, historique ; détail dans [meetings.md](meetings.md) |
 | `bot_errors` | (v5) erreurs regroupées par empreinte : source, dernier message, première et dernière occurrence, nombre, date de la dernière alerte |
 
 Migrations : chaque migration est exécutée dans **une seule transaction** avec la
@@ -299,7 +306,7 @@ migration 4 n'ajoute que des colonnes, un index et une table : aucune donnée
 existante n'est modifiée ni supprimée (le titre et le lien des événements V2 sont
 recopiés depuis leur notification JSON). La migration 5 ajoute des colonnes, des
 index et deux tables, et remplit seulement la nouvelle colonne `event_at` à partir
-des dates existantes. Une base plus récente que le code est
+des dates existantes. La migration 7 ne crée que des tables. Une base plus récente que le code est
 refusée au démarrage plutôt qu'utilisée à l'aveugle.
 
 La version du schéma est stockée dans `PRAGMA user_version` ; les migrations sont
