@@ -164,6 +164,6 @@ python -m pytest -q
 python -m src.main
 ```
 
-Au démarrage, le bot synchronise ses commandes sur le serveur `DISCORD_GUILD_ID` :
+Au démarrage, le bot synchronise ses commandes sur le serveur `DISCORD_GUILD_ID` (depuis 1.2.1, seulement si elles ont changé) :
 `/refonte`, `/help section:` et `/reunion help` apparaissent tout de suite. Si une
 commande n'apparaît pas, redémarrez Discord (Ctrl+R).

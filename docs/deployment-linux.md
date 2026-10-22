@@ -59,7 +59,7 @@ docker compose ps        # « healthy » après une à deux minutes
 docker compose logs -f   # Ctrl+C pour quitter l'affichage, le bot continue
 ```
 
-Sur Discord, `/status` doit afficher la connexion, la base (schéma v6), les salons
+Sur Discord, `/status` doit afficher la connexion, la base (schéma v7), les salons
 reconnus et les sauvegardes. Si c'est la première installation, lancez `/setup`.
 
 ### Ce que fait `docker-compose.yml`
@@ -171,6 +171,12 @@ history-and-stats.md §5). Si le bot est complètement arrêté, il ne peut pas 
 seule une surveillance externe le détecterait (à voir avec La Banquise).
 
 ## 8. Sans Docker (service systemd)
+
+> **Installation actuelle de l'équipe (VPS Debian, projet dans le dossier personnel) :
+> suivez [deployment-vps.md](deployment-vps.md).** Ses scripts (`deploy/`) installent le
+> service, les sauvegardes avant mise à jour, le retour arrière et la surveillance.
+> L'exemple ci-dessous vaut seulement pour un projet installé dans `/opt` : avec
+> `ProtectHome=true`, un projet placé dans `/home` serait invisible pour le service.
 
 Si Docker n'est pas disponible, vous pouvez lancer le bot comme service système. Il faut
 Python 3.11 ou plus récent.

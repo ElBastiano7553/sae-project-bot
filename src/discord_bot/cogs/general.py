@@ -50,7 +50,7 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
         alerts=AlertsSummary(
             channel_key=bot.settings.alerts_channel,
             channel_bound=bot.settings.alerts_channel in bot.bindings_repo.get_all() if bot.settings.alerts_channel else False,
-            errors_24h=len(bot.bot_errors_repo.recent(_hours_ago(24), limit=1000)),
+            errors_24h=bot.bot_errors_repo.count_since(_hours_ago(24)),
         ),
         history=_history_summary(bot),
         backups=None if bot.database.in_memory else _backup_summary(bot),
@@ -62,6 +62,7 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             daily_limit=bot.settings.ai_daily_limit,
             gitlab_api=bot.gitlab_api is not None,
         ),
+        interactions=bot.interaction_stats.summary(),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at
     return health_embed(
@@ -85,7 +86,7 @@ def _history_summary(bot: SaeBot) -> HistorySummary:
         retention_days=bot.settings.history_retention_days,
         events=total,
         first_event_at=first,
-        deployments=len(bot.gitlab_events_repo.in_period(None, ("deployment",))),
+        deployments=bot.gitlab_events_repo.count(("deployment",)),
     )
 
 

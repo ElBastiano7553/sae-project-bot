@@ -1,0 +1,67 @@
+# Service systemd de Samae. NE PAS copier ce fichier à la main :
+# deploy/install-service.sh remplace @USER@, @APP_DIR@ et @RW_PATHS@ par les valeurs du serveur.
+# Guide : docs/deployment-vps.md
+[Unit]
+Description=Samae, bot Discord de l'équipe SAE
+Documentation=file://@APP_DIR@/docs/deployment-vps.md
+After=network-online.target
+Wants=network-online.target
+# Au plus 5 démarrages en 15 minutes : au-delà, le service reste arrêté (et samae-check prévient).
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/python -m src.main
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+# Redémarrage automatique après un crash ou un blocage, jamais en boucle sur une erreur de configuration :
+# code 2 = .env ou config/ à corriger, code 3 = une autre instance tourne déjà (voir src/main.py).
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=2 3
+# Chien de garde : le bot envoie un signe de vie chaque minute ; sans signe pendant 3 minutes,
+# systemd considère qu'il est bloqué et le relance.
+WatchdogSec=180
+NotifyAccess=main
+# Arrêt propre : SIGTERM, le bot ferme ses connexions et la base, puis 30 s au plus.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Ressources : le bot utilise d'ordinaire 80 à 150 Mo.
+MemoryHigh=400M
+MemoryMax=512M
+TasksMax=128
+
+# Sécurité : aucun privilège, système en lecture seule, écriture limitée aux données et aux journaux.
+NoNewPrivileges=true
+ProtectSystem=strict
+# Le projet est dans /home : lecture seule (et non « true », qui masquerait le projet lui-même).
+ProtectHome=read-only
+ReadWritePaths=@RW_PATHS@
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

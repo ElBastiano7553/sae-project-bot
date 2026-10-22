@@ -477,7 +477,9 @@ async def test_admin_backup_creates_a_verified_copy(file_bot):
     admin = cog(file_bot, "AdminCog")
     interaction = FakeInteraction(file_bot)
     await admin.admin_backup.callback(admin, interaction)
-    embed = interaction.response.sent[0]["embed"]
+    # Réponse différée d'abord (la copie peut dépasser 3 s), résultat ensuite.
+    assert interaction.response.is_done() and not interaction.response.sent
+    embed = interaction.followup.sent[0]["embed"]
     assert "Sauvegarde créée" in embed.title and "vérifiée" in embed.description
     assert file_bot.last_backup() is not None
     assert file_bot.admin_log.recent(1)[0].action == "admin backup"

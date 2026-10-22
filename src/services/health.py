@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from src.services.monitoring import SLOW_INTERACTION_MS, InteractionSummary
 from src.services.server_structure import StructureReport
 
 
@@ -56,6 +57,7 @@ def build_health_checks(
     history: HistorySummary | None = None,
     ai: AISummary | None = None,
     backups: BackupSummary | None = None,
+    interactions: InteractionSummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -80,7 +82,23 @@ def build_health_checks(
         checks.append(_alerts_check(alerts))
     if backups is not None:
         checks.append(_backup_check(backups))
+    if interactions is not None:
+        checks.append(_interactions_check(interactions))
     return checks
+
+
+def _interactions_check(summary: InteractionSummary) -> HealthCheck:
+    name = "Réactivité"
+    if not summary.total:
+        return HealthCheck(name, HealthStatus.OK, "aucune commande depuis le démarrage")
+    detail = f"{summary.total} commande(s) depuis le démarrage, médiane {summary.median_ms} ms"
+    if summary.slow:
+        detail += f", {summary.slow} lente(s) (> {SLOW_INTERACTION_MS / 1000:.1f} s, la plus lente : {summary.slowest})"
+    if summary.errors:
+        detail += f", {summary.errors} en erreur (surtout /{summary.failing})"
+    # Quelques lenteurs isolées (réseau) sont normales ; une sur dix mérite d'être regardée.
+    worrying = summary.total >= 5 and (summary.slow + summary.errors) * 10 > summary.total
+    return HealthCheck(name, HealthStatus.WARNING if worrying else HealthStatus.OK, detail)
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,14 @@
 Lancement (depuis le dossier du projet, environnement virtuel activé) :
 
     python -m src.main
+
+Codes de sortie (utilisés par le service systemd, voir deploy/samae.service.in) :
+
+* 0 : arrêt demandé (Ctrl+C, ``systemctl stop``) ;
+* 1 : erreur passagère (réseau, erreur inattendue) : systemd relance le bot ;
+* 2 : configuration à corriger (.env, fichiers de config/, token refusé, base inutilisable) :
+  relancer ne servirait à rien, systemd ne relance pas ;
+* 3 : une autre instance tourne déjà sur la même base : systemd ne relance pas.
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ from src.config import (
 )
 from src.database import Database
 from src.discord_bot.bot import SaeBot
+from src.instance_lock import LOCK_NAME, AlreadyRunning, InstanceLock
 from src.gitlab.rules import load_gitlab_rules
 from src.logging_setup import setup_logging
 from src.services.backup import BackupError
@@ -33,6 +42,8 @@ from src.services.content import load_message_templates
 from src.services.monitoring import RecentErrors
 
 log = logging.getLogger("sae_bot")
+
+EXIT_OK, EXIT_RETRY, EXIT_CONFIG, EXIT_ALREADY_RUNNING = 0, 1, 2, 3
 
 
 def check_content_files(*, gitlab_enabled: bool = False) -> None:
@@ -62,7 +73,7 @@ def main() -> int:
         settings = Settings.from_env()
     except ConfigError as exc:
         print(f"\n❌ {exc}\n\nCorrigez le fichier .env puis relancez le bot.", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG
 
     errors = RecentErrors()
     setup_logging(settings.log_level, PROJECT_ROOT / "logs", secrets=secret_values(), errors=errors)
@@ -72,8 +83,24 @@ def main() -> int:
         check_content_files(gitlab_enabled=settings.gitlab_webhooks_enabled)
     except ConfigError as exc:
         log.error("%s", exc)
-        return 2
+        return EXIT_CONFIG
 
+    lock = InstanceLock(settings.database_path.parent / LOCK_NAME)
+    try:
+        lock.acquire()
+    except AlreadyRunning as exc:
+        log.error("Démarrage annulé : %s", exc)
+        return EXIT_ALREADY_RUNNING
+    except OSError as exc:
+        log.error("Dossier de la base inaccessible (%s) : %s", settings.database_path.parent, exc.strerror)
+        return EXIT_CONFIG
+    try:
+        return _run(settings, errors)
+    finally:
+        lock.release()
+
+
+def _run(settings: Settings, errors: RecentErrors) -> int:
     # Le bot n'utilise pas les salons vocaux : inutile d'avertir que les bibliothèques audio manquent.
     discord.VoiceClient.warn_nacl = False
     discord.VoiceClient.warn_dave = False
@@ -82,26 +109,30 @@ def main() -> int:
         database = Database(settings.database_path, backup_dir=settings.backup_dir)
     except BackupError as exc:
         log.error("Migration annulée, base inchangée : %s. Libérez de la place ou vérifiez BACKUP_DIR.", exc)
-        return 2
+        return EXIT_CONFIG
     except (RuntimeError, sqlite3.Error) as exc:
         log.error("Base de données inutilisable (%s) : %s", settings.database_path, exc)
-        return 2
+        return EXIT_CONFIG
     database.integrity_ok()
     bot = SaeBot(settings, database, errors=errors)
     try:
         bot.run(settings.discord_token, log_handler=None)
     except discord.LoginFailure:
         log.error("Connexion refusée : DISCORD_BOT_TOKEN est invalide. Régénérez le token dans le portail développeur.")
-        return 1
+        return EXIT_CONFIG
     except discord.PrivilegedIntentsRequired:
         log.error("Discord refuse un intent privilégié : ce bot n'en a normalement pas besoin, vérifiez le code.")
-        return 1
+        return EXIT_CONFIG
     except aiohttp.ClientConnectorError as exc:
         log.error("Impossible de joindre Discord (%s). Vérifiez votre connexion Internet ou votre pare-feu.", exc)
-        return 1
+        return EXIT_RETRY
+    except Exception:
+        log.exception("Arrêt sur une erreur inattendue")
+        return EXIT_RETRY
     finally:
         database.close()
-    return 0
+    log.info("Bot arrêté proprement")
+    return EXIT_OK
 
 
 if __name__ == "__main__":
