@@ -57,6 +57,7 @@ deux demandes d'un membre, une demande en cours par membre.
 | `/admin rebuild message` | Publie un nouveau message puis supprime l'ancien (le lien et les réactions sont perdus). À réserver aux messages qui ne peuvent plus être modifiés. | Avertissement + **Confirmer** |
 | `/admin diagnostic` | Permissions du bot dans chaque salon utilisé (messages permanents, notifications GitLab) et état des intégrations. | — |
 | `/admin history` | 15 dernières actions d'administration (qui, quoi, quand, résultat). | — |
+| `/admin backup` | Sauvegarde vérifiée de la base, tout de suite (nom, taille, nombre de sauvegardes conservées). Rien n'est supprimé hors des anciennes sauvegardes du bot. | — |
 
 ## Permissions Discord nécessaires au bot
 

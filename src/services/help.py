@@ -65,6 +65,7 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         True,
     ),
     HelpEntry("admin diagnostic", "administration", "Vérifie les permissions du bot dans chaque salon utilisé.", "/admin diagnostic", True),
+    HelpEntry("admin backup", "administration", "Sauvegarde immédiate et vérifiée de la base de données (rotation automatique).", "/admin backup", True),
     HelpEntry("admin history", "administration", "Journal des dernières actions d'administration.", "/admin history", True),
 )
 

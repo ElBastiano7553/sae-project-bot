@@ -34,6 +34,8 @@ MIN_WEBHOOK_SECRET_LENGTH = 16
 MIN_RETENTION_DAYS = 30
 DEFAULT_RETENTION_DAYS = 365
 AI_PROVIDERS = ("none", "anthropic", "fake")
+DEFAULT_BACKUP_KEEP = 14
+DEFAULT_BACKUP_INTERVAL_HOURS = 24
 DEFAULT_AI_DAILY_LIMIT = 50
 DEFAULT_AI_COOLDOWN_SECONDS = 20
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
@@ -79,6 +81,10 @@ class Settings:
     gitlab_base_url: str = "https://gitlab.com"
     gitlab_access_token: str = field(default="", repr=False)
     gitlab_api_error: str | None = None
+    backup_dir: Path | None = None  # None : <dossier de la base>/backups
+    backup_keep: int = DEFAULT_BACKUP_KEEP
+    backup_interval_hours: int = DEFAULT_BACKUP_INTERVAL_HOURS  # 0 = pas de sauvegarde automatique
+    heartbeat_path: Path | None = None  # fichier de vie lu par le contrôle de santé Docker
 
     @property
     def ai_enabled(self) -> bool:
@@ -174,6 +180,9 @@ class Settings:
         if not webhook_secret:
             gitlab_errors = []  # V2 non demandée : les autres variables GitLab ne comptent pas
 
+        backup_keep = _parse_int(env, "BACKUP_KEEP", DEFAULT_BACKUP_KEEP, 1, errors)
+        backup_interval = _parse_int(env, "BACKUP_INTERVAL_HOURS", DEFAULT_BACKUP_INTERVAL_HOURS, 0, errors)
+
         ai = _parse_ai(env)
         gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
         gitlab_api_error = None
@@ -187,6 +196,9 @@ class Settings:
         db_path = Path(env.get("DATABASE_PATH", "").strip() or "data/sae_bot.sqlite3")
         if not db_path.is_absolute():
             db_path = project_root / db_path
+        backup_dir = Path(env.get("BACKUP_DIR", "").strip() or db_path.parent / "backups")
+        if not backup_dir.is_absolute():
+            backup_dir = project_root / backup_dir
 
         return cls(
             discord_token=token,
@@ -208,6 +220,10 @@ class Settings:
             gitlab_base_url=gitlab_base_url,
             gitlab_access_token="" if gitlab_api_error else env.get("GITLAB_ACCESS_TOKEN", "").strip(),
             gitlab_api_error=gitlab_api_error,
+            backup_dir=backup_dir,
+            backup_keep=backup_keep,
+            backup_interval_hours=backup_interval,
+            heartbeat_path=db_path.parent / "heartbeat",
         )
 
 
@@ -243,6 +259,16 @@ def secret_values(env: Mapping[str, str] | None = None) -> list[str]:
     """Valeurs des secrets définis, pour les masquer dans les journaux (jamais affichées)."""
     env = os.environ if env is None else env
     return [value.strip() for key in SECRET_ENV_VARS if (value := env.get(key, "")).strip()]
+
+
+def _parse_int(env: Mapping[str, str], key: str, default: int, minimum: int, errors: list[str]) -> int:
+    raw = env.get(key, "").strip()
+    if not raw:
+        return default
+    if raw.isdigit() and int(raw) >= minimum:
+        return int(raw)
+    errors.append(f"{key} doit être un nombre entier ≥ {minimum} (valeur actuelle : {raw!r}).")
+    return default
 
 
 def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[str]) -> bool:

@@ -219,3 +219,13 @@ def test_gitlab_api_settings():
     insecure = Settings.from_env({**VALID_ENV, "GITLAB_ACCESS_TOKEN": "jeton-factice-0000", "GITLAB_PROJECT_ID": "12",
                                   "GITLAB_BASE_URL": "http://gitlab.example.com"})
     assert not insecure.gitlab_api_enabled and "https://" in insecure.gitlab_api_error
+
+
+def test_backup_settings(tmp_path: Path):
+    settings = Settings.from_env(VALID_ENV, project_root=tmp_path)
+    assert settings.backup_dir == tmp_path / "data" / "backups"
+    assert (settings.backup_keep, settings.backup_interval_hours) == (14, 24)
+    custom = Settings.from_env({**VALID_ENV, "BACKUP_DIR": "/srv/sauvegardes", "BACKUP_KEEP": "3", "BACKUP_INTERVAL_HOURS": "0"})
+    assert custom.backup_dir == Path("/srv/sauvegardes") and custom.backup_interval_hours == 0
+    with pytest.raises(ConfigError, match="BACKUP_KEEP"):
+        Settings.from_env({**VALID_ENV, "BACKUP_KEEP": "0"})

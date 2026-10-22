@@ -55,6 +55,7 @@ def build_health_checks(
     alerts: AlertsSummary | None = None,
     history: HistorySummary | None = None,
     ai: AISummary | None = None,
+    backups: BackupSummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -77,7 +78,32 @@ def build_health_checks(
         checks.append(_history_check(history))
     if alerts is not None:
         checks.append(_alerts_check(alerts))
+    if backups is not None:
+        checks.append(_backup_check(backups))
     return checks
+
+
+@dataclass(frozen=True)
+class BackupSummary:
+    interval_hours: int  # 0 = sauvegardes automatiques désactivées
+    last_age_hours: float | None  # None = aucune sauvegarde
+    count: int = 0
+
+
+def _backup_check(summary: BackupSummary) -> HealthCheck:
+    name = "Sauvegardes"
+    if summary.last_age_hours is None:
+        status = HealthStatus.WARNING
+        detail = "aucune sauvegarde : `/admin backup`"
+    else:
+        detail = f"dernière il y a {summary.last_age_hours:.0f} h, {summary.count} conservée(s)"
+        late = summary.interval_hours and summary.last_age_hours > 2 * summary.interval_hours
+        status = HealthStatus.WARNING if late else HealthStatus.OK
+        if late:
+            detail += " : en retard, voir logs/bot.log"
+    if not summary.interval_hours:
+        detail += " (automatiques désactivées : BACKUP_INTERVAL_HOURS=0)"
+    return HealthCheck(name, status, detail)
 
 
 @dataclass(frozen=True)

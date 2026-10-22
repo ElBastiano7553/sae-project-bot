@@ -19,6 +19,7 @@ from src.services import text_limits as limits
 from src.services.content import MessagePayload
 from src.services.ai_assistant import AssistantAnswer
 from src.services.alerts import Alert
+from src.services.backup import BackupInfo
 from src.services.design import ICONS, Tone
 from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
@@ -563,4 +564,18 @@ def ai_answer_embed(answer: AssistantAnswer, *, title: str, subject: str = "", u
         add_field(embed, "ℹ️ À savoir", "\n".join(f"• {n}" for n in answer.notes))
     origin = f"réponse générée par IA ({answer.model}), à vérifier" if answer.model else "aucune IA appelée"
     embed.set_footer(text=design.footer(origin))
+    return fit_embed(embed)
+
+
+def backup_embed(info: BackupInfo, backups: list[BackupInfo], keep: int) -> discord.Embed:
+    embed = make_embed("💾 Sauvegarde créée", f"`{info.path.name}` · {info.size / 1024:.0f} Ko · vérifiée ✅", tone=Tone.SUCCESS)
+    lines = [f"• `{b.path.name}` · {design.discord_timestamp(b.created_at, 'R')}" for b in backups[:10]]
+    add_field(embed, f"Sauvegardes conservées ({len(backups)}, {keep} au plus)", "\n".join(lines) or "—")
+    add_field(
+        embed,
+        "Restaurer",
+        "Jamais depuis Discord : arrêter le bot, remplacer le fichier de la base par une sauvegarde, redémarrer "
+        "(procédure : docs/deployment-linux.md).",
+    )
+    embed.set_footer(text=design.footer("les fichiers restent sur le serveur du bot ; aucune copie n'est envoyée sur Discord"))
     return fit_embed(embed)

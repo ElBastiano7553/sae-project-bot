@@ -2,7 +2,7 @@
 
 Ce document présente l'architecture retenue, les difficultés techniques, le flux
 des données entre Discord, GitLab et l'IA, ainsi que le plan de réalisation.
-Les parties marquées **(lot 4)** ne sont pas encore implémentées.
+Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste à faire.
 
 ## 0. Architecture cible (lots 1 à 4)
 
@@ -32,7 +32,7 @@ Les parties marquées **(lot 4)** ne sont pas encore implémentées.
 | 1 | Audit, design des embeds, messages permanents fiables, commandes de base | ✅ livré (version 0.3.0) |
 | 2 | Historique GitLab consultable, statistiques, leaderboard, tableau de bord permanent, alertes | ✅ livré (version 0.4.0) |
 | 3 | `src/ai/` multi-fournisseurs, `/ask` (recherche documentaire simple), `/summary`, `/review` | ✅ livré (version 0.5.0) |
-| 4 | Fiabilité, sauvegardes SQLite, sécurité, Docker et déploiement Linux (La Banquise) | ⏳ |
+| 4 | Fiabilité (arrêt propre, heartbeat), sauvegardes SQLite (`services/backup.py`), sécurité, Docker (`Dockerfile`, `docker-compose.yml`, `src/healthcheck.py`) et guide de déploiement Linux | ✅ livré (version 1.0.0) ; déploiement La Banquise à faire |
 
 Principes ajoutés au lot 1 :
 
@@ -196,7 +196,7 @@ inventée : le message affiche une section « À compléter » qui distingue les
 obligatoires (`required`) des facultatifs, et disparaît dès qu'ils sont renseignés.
 
 Limite connue : le verrou protège un seul processus. Lancer deux instances du bot
-avec la même base reste à éviter (le lot 4 documentera l'exploitation).
+avec la même base reste à éviter (voir deployment-linux.md : une seule instance).
 
 ### V2 : notifications GitLab (implémentée, à valider avec le vrai GitLab)
 
@@ -273,7 +273,7 @@ Python **3.12** est recommandé ; les tests passent aussi sous 3.11 et 3.13.
 | **V5** | Tests complets, durcissement sécurité, documentation finale, préparation à l'usage quotidien (service Windows ou hébergement) | Revue de sécurité et checklist d'exploitation |
 
 Depuis octobre 2026, la suite du travail est organisée en **lots** (section 0) :
-les lots 1 à 3 sont livrés, le lot 4 reprend et précisent les étapes V3 à V5.
+les lots 1 à 4 sont livrés ; ils reprennent et précisent les étapes V3 à V5.
 
 Chaque étape s'appuie sur la précédente sans la réécrire : de nouveaux modules
 (`src/gitlab/`, `src/ai/`), de nouvelles migrations SQLite ajoutées à la fin de la

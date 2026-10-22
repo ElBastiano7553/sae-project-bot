@@ -6,6 +6,8 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import os
+import signal
 import threading
 from dataclasses import asdict
 
@@ -36,6 +38,7 @@ from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
 from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
+from src.services.backup import BackupError, BackupInfo, create_backup, list_backups
 from src.services.content import Announcement, EmbedField, MessagePayload, load_message_templates, render_message
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
 from src.services.monitoring import ErrorRecord, RecentErrors
@@ -60,6 +63,8 @@ DASHBOARD_DEBOUNCE_SECONDS = 15.0
 DASHBOARD_REFRESH_SECONDS = 30 * 60
 # Nettoyage de l'historique (durée : HISTORY_RETENTION_DAYS).
 PURGE_INTERVAL_SECONDS = 24 * 60 * 60
+# Fichier de vie (contrôle de santé Docker) : réécrit à cet intervalle.
+HEARTBEAT_SECONDS = 60
 
 
 class SaeBot(commands.Bot):
@@ -112,6 +117,7 @@ class SaeBot(commands.Bot):
         self._dashboard_task: asyncio.Task | None = None
         self._maintenance_task: asyncio.Task | None = None
         self._alert_tasks: set[asyncio.Task] = set()
+        self._background: list[asyncio.Task] = []
         # Un seul verrou pour toutes les opérations sur les messages permanents (voir permanent_messages).
         self.messages_lock = asyncio.Lock()
         self._recreate_tasks: dict[str, asyncio.Task] = {}
@@ -124,7 +130,11 @@ class SaeBot(commands.Bot):
     async def setup_hook(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._loop_thread = threading.get_ident()
+        self._install_signal_handlers()
         self.purge_history()
+        self._background.append(asyncio.create_task(self._heartbeat_loop(), name="heartbeat"))
+        if self.settings.backup_interval_hours:
+            self._background.append(asyncio.create_task(self._backup_loop(), name="backups"))
         for extension in EXTENSIONS:
             await self.load_extension(extension)
         guild = discord.Object(id=self.settings.guild_id)
@@ -184,11 +194,13 @@ class SaeBot(commands.Bot):
             log.error("Tâche des notifications GitLab arrêtée", exc_info=task.exception())
 
     async def close(self) -> None:
-        for task in [*self._recreate_tasks.values(), *self._alert_tasks, self._dashboard_task, self._maintenance_task]:
+        tasks = [*self._recreate_tasks.values(), *self._alert_tasks, *self._background, self._dashboard_task, self._maintenance_task]
+        for task in tasks:
             if task is not None:
                 task.cancel()
         self._recreate_tasks.clear()
         self._alert_tasks.clear()
+        self._background.clear()
         self._dashboard_task = self._maintenance_task = None
         if self._gitlab_task is not None:
             self._gitlab_task.cancel()
@@ -361,6 +373,63 @@ class SaeBot(commands.Bot):
             if purged[label]:
                 log.info("Historique : %d %s de plus de %d jours oublié(s)", purged[label], label, days)
         return purged
+
+    # --- Fiabilité : arrêt propre, fichier de vie, sauvegardes ------------------------
+
+    def _install_signal_handlers(self) -> None:
+        """SIGTERM (``docker stop``, systemd) : arrêt propre au lieu d'une interruption brutale."""
+        try:
+            self._loop.add_signal_handler(signal.SIGTERM, self._on_sigterm)
+        except (NotImplementedError, RuntimeError, AttributeError):  # Windows : Ctrl+C suffit
+            pass
+
+    def _on_sigterm(self) -> None:
+        log.info("Signal d'arrêt reçu : fermeture propre du bot")
+        asyncio.get_running_loop().create_task(self.close(), name="shutdown")
+
+    def write_heartbeat(self) -> None:
+        """Écrit l'état courant dans le fichier de vie (lu par ``python -m src.healthcheck``)."""
+        path = self.settings.heartbeat_path
+        if path is None:
+            return
+        data = {"at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"), "ready": self.is_ready(), "pid": os.getpid()}
+        temporary = path.with_suffix(".tmp")
+        try:
+            temporary.write_text(json.dumps(data), encoding="utf-8")
+            temporary.replace(path)
+        except OSError as exc:
+            log.warning("Fichier de vie %s impossible à écrire : %s", path, exc.strerror)
+
+    async def _heartbeat_loop(self) -> None:
+        while True:
+            self.write_heartbeat()
+            await asyncio.sleep(HEARTBEAT_SECONDS)
+
+    def run_backup(self, reason: str = "") -> BackupInfo:
+        """Sauvegarde vérifiée de la base, avec rotation (BACKUP_KEEP). Lève ``BackupError``."""
+        if self.database.in_memory:
+            raise BackupError("la base est en mémoire (tests) : rien à sauvegarder")
+        info = create_backup(self.database.conn, self.settings.backup_dir, keep=self.settings.backup_keep, reason=reason)
+        log.info("Sauvegarde de la base : %s (%d octets)", info.path.name, info.size)
+        return info
+
+    def last_backup(self) -> BackupInfo | None:
+        backups = list_backups(self.settings.backup_dir) if self.settings.backup_dir else []
+        return backups[0] if backups else None
+
+    async def _backup_loop(self) -> None:
+        interval = dt.timedelta(hours=self.settings.backup_interval_hours)
+        while True:
+            last = self.last_backup()
+            due = last is None or dt.datetime.now(dt.UTC) - last.created_at >= interval
+            if due:
+                try:
+                    self.run_backup()
+                except BackupError as exc:
+                    log.error("Sauvegarde automatique échouée : %s", exc)
+                except Exception:
+                    log.exception("Sauvegarde automatique échouée")
+            await asyncio.sleep(min(interval.total_seconds(), 3600))
 
     # --- Erreurs et alertes --------------------------------------------------------
 

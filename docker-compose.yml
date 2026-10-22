@@ -1,0 +1,40 @@
+# Lancement en production (serveur Linux) : docker compose up -d --build
+# Guide complet : docs/deployment-linux.md
+services:
+  bot:
+    build: .
+    image: sae-project-bot:local
+    container_name: sae-project-bot
+    restart: unless-stopped
+    # Les secrets restent dans .env, sur le serveur uniquement (chmod 600).
+    env_file: .env
+    environment:
+      # Dans le conteneur, le serveur de webhooks écoute sur toutes les interfaces du conteneur ;
+      # côté serveur, le port n'est ouvert que sur 127.0.0.1 (voir « ports »).
+      WEBHOOK_HOST: 0.0.0.0
+      WEBHOOK_PORT: "8080"
+      DATABASE_PATH: data/sae_bot.sqlite3
+    volumes:
+      - ./data:/app/data            # base SQLite, sauvegardes, fichier de vie
+      - ./logs:/app/logs            # journaux (rotation automatique)
+      - ./config:/app/config:ro     # modifiables sans reconstruire l'image
+      - ./content:/app/content:ro
+      - ./knowledge:/app/knowledge:ro
+    ports:
+      # Accessible uniquement depuis le serveur lui-même : un reverse proxy HTTPS
+      # (Caddy, nginx) ou un tunnel nommé transmet les webhooks GitLab.
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

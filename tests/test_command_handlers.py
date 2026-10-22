@@ -450,3 +450,62 @@ async def test_status_shows_ai_usage(ai_bot):
     await general.status.callback(general, interaction)
     text = embed_text(interaction.response.sent[0]["embed"])
     assert "faux fournisseur de test" in text and "0/50 demandes" in text and "/review indisponible" in text
+
+
+# --- Lot 4 : sauvegardes et fichier de vie ---------------------------------------------------
+
+
+@pytest.fixture
+async def file_bot(tmp_path):
+    from src.database import Database
+
+    settings = Settings.from_env({"DISCORD_GUILD_ID": str(GUILD_ID), "DATABASE_PATH": str(tmp_path / "bot.sqlite3")},
+                                 require_token=False)
+    database = Database(settings.database_path)
+    instance = SaeBot(settings, database)
+    for extension in EXTENSIONS:
+        await instance.load_extension(extension)
+    yield instance
+    await instance.close()
+    database.close()
+
+
+async def test_admin_backup_creates_a_verified_copy(file_bot):
+    admin = cog(file_bot, "AdminCog")
+    interaction = FakeInteraction(file_bot)
+    await admin.admin_backup.callback(admin, interaction)
+    embed = interaction.response.sent[0]["embed"]
+    assert "Sauvegarde créée" in embed.title and "vérifiée" in embed.description
+    assert file_bot.last_backup() is not None
+    assert file_bot.admin_log.recent(1)[0].action == "admin backup"
+
+
+async def test_backup_in_memory_is_refused(bot):
+    from src.services.backup import BackupError
+
+    with pytest.raises(BackupError):
+        bot.run_backup()
+
+
+async def test_heartbeat_file(file_bot):
+    import json
+
+    file_bot.write_heartbeat()
+    data = json.loads(file_bot.settings.heartbeat_path.read_text())
+    assert data["ready"] is False and "at" in data
+
+
+async def test_status_shows_backups(file_bot):
+    general = cog(file_bot, "GeneralCog")
+    interaction = FakeInteraction(file_bot)
+    await general.status.callback(general, interaction)
+    assert "aucune sauvegarde" in embed_text(interaction.response.sent[0]["embed"])
+
+
+async def test_sigterm_closes_the_bot_cleanly(bot):
+    bot._on_sigterm()
+    for _ in range(20):
+        if bot.is_closed():
+            break
+        await asyncio.sleep(0.01)
+    assert bot.is_closed()

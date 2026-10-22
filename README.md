@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : V2 + lots 1 à 3 (version 0.5.0)
+## État actuel : V2 + lots 1 à 4 (version 1.0.0)
 
 | Fonction | État |
 |---|---|
@@ -18,9 +18,10 @@ et bilans assistés par IA.
 | `/help`, `/status`, `/project`, `/admin messages`, `/admin rebuild`, `/admin diagnostic`, `/admin history` | ✅ lot 1 |
 | Historique GitLab consultable (`/events`), statistiques (`/stats`), contributions (`/leaderboard`), déploiements GitLab, tableau de bord permanent, alertes d'erreurs répétées | ✅ lot 2 |
 | IA (désactivée par défaut) : `/ask` (questions sur les documents de l'équipe, sources citées), `/summary` (bilan GitLab), `/review` (relecture d'une MR, API GitLab en lecture seule), quotas, secrets masqués | ✅ lot 3 |
-| Sauvegardes, Docker, déploiement chez La Banquise | ⏳ lot 4 |
+| Sauvegardes SQLite vérifiées (automatiques, avant migration, `/admin backup`), arrêt propre, contrôle de santé, image Docker non root et guide de déploiement Linux | ✅ lot 4 (déploiement réel à faire) |
 
-Rien de ce qui est marqué ⏳ n'est disponible : `/help` ne liste que les commandes réellement présentes.
+`/help` ne liste que les commandes réellement présentes. Déploiement sur un serveur Linux :
+[docs/deployment-linux.md](docs/deployment-linux.md) ; sécurité : [docs/security.md](docs/security.md).
 
 ## Démarrage rapide (Windows, PowerShell)
 

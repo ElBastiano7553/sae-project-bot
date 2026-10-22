@@ -8,6 +8,7 @@ Lancement (depuis le dossier du projet, environnement virtuel activé) :
 from __future__ import annotations
 
 import logging
+import sqlite3
 import sys
 
 import aiohttp
@@ -27,6 +28,7 @@ from src.database import Database
 from src.discord_bot.bot import SaeBot
 from src.gitlab.rules import load_gitlab_rules
 from src.logging_setup import setup_logging
+from src.services.backup import BackupError
 from src.services.content import load_message_templates
 from src.services.monitoring import RecentErrors
 
@@ -76,7 +78,15 @@ def main() -> int:
     discord.VoiceClient.warn_nacl = False
     discord.VoiceClient.warn_dave = False
 
-    database = Database(settings.database_path)
+    try:
+        database = Database(settings.database_path, backup_dir=settings.backup_dir)
+    except BackupError as exc:
+        log.error("Migration annulée, base inchangée : %s. Libérez de la place ou vérifiez BACKUP_DIR.", exc)
+        return 2
+    except (RuntimeError, sqlite3.Error) as exc:
+        log.error("Base de données inutilisable (%s) : %s", settings.database_path, exc)
+        return 2
+    database.integrity_ok()
     bot = SaeBot(settings, database, errors=errors)
     try:
         bot.run(settings.discord_token, log_handler=None)

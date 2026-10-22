@@ -15,9 +15,10 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.config import ConfigError, load_link_catalog, load_server_layout
-from src.discord_bot.bot import SaeBot, install_error_handler
+from src.discord_bot.bot import SaeBot, install_error_handler, send_error
 from src.discord_bot.cogs.general import build_status_embed
 from src.discord_bot.embeds import (
+    backup_embed,
     config_embed,
     diagnostic_embed,
     history_embed,
@@ -31,6 +32,7 @@ from src.discord_bot.permissions import is_bot_admin
 from src.discord_bot.views import AnnouncementModal, ConfirmView
 from src.gitlab.rules import load_gitlab_rules
 from src.services.content import ANNOUNCEMENT_BODY_MAX, ANNOUNCEMENT_TITLE_MAX, Announcement, load_message_templates
+from src.services.backup import BackupError, list_backups
 from src.services.design import Tone
 from src.services.diagnostics import ChannelDiagnostic, channel_uses, missing_permissions, required_permissions
 from src.services.permanent_messages import SyncAction
@@ -279,6 +281,19 @@ class AdminCog(commands.Cog):
     @admin_only()
     async def admin_history(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(embed=history_embed(self.bot.admin_log.recent(HISTORY_LIMIT)), ephemeral=True)
+
+    @admin.command(name="backup", description="Sauvegarder la base de données maintenant (copie vérifiée)")
+    @admin_only()
+    async def admin_backup(self, interaction: discord.Interaction) -> None:
+        try:
+            info = self.bot.run_backup(reason="manuelle")
+        except BackupError as exc:
+            self.bot.record_admin_action(interaction, "admin backup", outcome=f"échec : {exc}")
+            await send_error(interaction, f"Sauvegarde impossible : {exc}")
+            return
+        self.bot.record_admin_action(interaction, "admin backup", info.path.name, "ok")
+        backups = list_backups(self.bot.settings.backup_dir)
+        await interaction.response.send_message(embed=backup_embed(info, backups, self.bot.settings.backup_keep), ephemeral=True)
 
     def _diagnose_channels(self, guild: discord.Guild, bindings: dict[str, int]) -> list[ChannelDiagnostic]:
         message_channels = [t.channel_key for t in load_message_templates()]
