@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : V2 + lot 1 (version 0.3.0)
+## État actuel : V2 + lots 1 et 2 (version 0.4.0)
 
 | Fonction | État |
 |---|---|
@@ -16,7 +16,7 @@ et bilans assistés par IA.
 | Identité visuelle commune des embeds (vert / rouge / orange / bleu, horodatages Discord, limites respectées) | ✅ lot 1 |
 | Notifications GitLab par webhooks : push (fichiers, hash, compare), merge requests (relecteurs, statut), pipelines (commit, durée, origine) ; doublons écartés même sous un autre identifiant | ✅ V2 + lot 1 |
 | `/help`, `/status`, `/project`, `/admin messages`, `/admin rebuild`, `/admin diagnostic`, `/admin history` | ✅ lot 1 |
-| Historique GitLab consultable, statistiques, leaderboard, tableau de bord, alertes | ⏳ lot 2 |
+| Historique GitLab consultable (`/events`), statistiques (`/stats`), contributions (`/leaderboard`), déploiements GitLab, tableau de bord permanent, alertes d'erreurs répétées | ✅ lot 2 |
 | IA : `/ask`, `/summary`, `/review` | ⏳ lot 3 |
 | Sauvegardes, Docker, déploiement chez La Banquise | ⏳ lot 4 |
 
@@ -55,6 +55,9 @@ python -m src.gitlab.demo push
 | `/help` | tout le monde | aide par catégorie, avec exemples |
 | `/status` (ancien nom : `/health`) | tout le monde | état mesuré du bot, de la base, des salons, des messages, de GitLab et de l'IA, dernière erreur |
 | `/project` | tout le monde | liens configurés, branche principale, derniers événements GitLab reçus |
+| `/events [type] [periode] [recherche]` | tout le monde (type « erreurs » : admins) | historique des événements GitLab reçus |
+| `/stats [periode]` | tout le monde | commits, MR, pipelines, déploiements, évolution |
+| `/leaderboard [periode] [details]` | tout le monde | contributions (MR fusionnées, approbations, jours actifs ; pas les commits) |
 | `/setup` | admins | prévisualise la structure et les messages, puis applique après clic sur **Confirmer** (2 min) |
 | `/refresh [message]` | admins | met à jour les messages permanents sur place, recrée ceux qui ont été supprimés |
 | `/config` | admins | réglages (sans secret), salons associés, liens vers les messages gérés |
@@ -97,6 +100,7 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Commandes et permissions](docs/commands.md)
 - [Guide d'installation Windows](docs/installation-windows.md)
 - [Configurer et tester les notifications GitLab (V2)](docs/gitlab-webhooks.md)
+- [Historique, statistiques, classement, tableau de bord et alertes (lot 2)](docs/history-and-stats.md)
 
 ## Tests
 

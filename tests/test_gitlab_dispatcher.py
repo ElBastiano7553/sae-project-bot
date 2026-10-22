@@ -252,3 +252,45 @@ async def test_old_notification_json_without_new_fields_is_still_replayed(db, re
     assert dispatcher.restore_pending() == 1
     await dispatcher.drain()
     assert sender.sent[0][1].title == "📤 1 commit"
+
+
+async def test_unfollowed_branch_is_recorded_for_history_without_notification(repo):
+    rules = GitLabRules(routes=RULES.routes, push_branches=("main",))
+    sender = FakeSender()
+    calls = []
+    dispatcher = NotificationDispatcher(repo, rules, sender, lambda: dict(BINDINGS), on_event=lambda: calls.append(1))
+    event = IncomingEvent("push", "uuid-1", push_payload(ref="refs/heads/feature/x"))
+    assert dispatcher.submit(event) is SubmitStatus.RECORDED
+    await dispatcher.drain()
+    assert sender.sent == []
+    assert repo.get_status("push:uuid-1") == EventStatus.RECORDED
+    assert repo.recent()[0].ref == "feature/x"
+    assert calls == [1]
+    assert dispatcher.submit(event) is SubmitStatus.DUPLICATE
+    assert calls == [1]  # un doublon ne déclenche pas d'actualisation
+
+
+async def test_running_pipeline_is_neither_notified_nor_recorded(repo):
+    dispatcher = make(repo)
+    assert dispatcher.submit(IncomingEvent("pipeline", "uuid-1", pipeline_payload(status="running"))) is SubmitStatus.IGNORED
+    assert repo.recent() == []
+
+
+async def test_failing_event_callback_does_not_break_reception(repo):
+    def broken():
+        raise RuntimeError("tableau de bord en panne")
+
+    dispatcher = NotificationDispatcher(repo, RULES, FakeSender(), lambda: dict(BINDINGS), on_event=broken)
+    assert dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload())) is SubmitStatus.QUEUED
+
+
+async def test_deployment_is_routed_with_pipeline_channel(repo):
+    from src.gitlab.samples import deployment_payload
+
+    rules = GitLabRules(routes={**RULES.routes, "deployment": "builds"})
+    sender = FakeSender()
+    dispatcher = NotificationDispatcher(repo, rules, sender, lambda: dict(BINDINGS))
+    assert dispatcher.submit(IncomingEvent("deployment", "uuid-1", deployment_payload())) is SubmitStatus.QUEUED
+    await dispatcher.drain()
+    assert sender.sent[0][0] == 200
+    assert repo.recent(("deployment",))[0].environment == "production"

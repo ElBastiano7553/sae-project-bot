@@ -128,6 +128,8 @@ def test_migration_from_v3_keeps_existing_data(tmp_path):
         record = GitLabEventRepository(db).recent()[0]
         # Les événements V2 apparaissent dans l'historique avec leur titre et leur lien.
         assert (record.title, record.url, record.status) == ("📤 2 commits sur main", "https://gitlab.com/x", "sent")
+        # v5 : date de l'événement reprise des données existantes, source « webhook ».
+        assert record.event_at is not None and record.source == "webhook"
         # L'ancien identifiant de livraison reste reconnu comme doublon.
         assert not GitLabEventRepository(db).claim("push:u1", "push")
     finally:
@@ -209,3 +211,46 @@ def test_recent_events_filters(db):
     assert [r.title for r in repo.recent(("pipeline",))] == ["pl1"]
     assert [r.title for r in repo.recent(statuses=("sent",))] == ["p1"]
     assert len(repo.recent(limit=1)) == 1
+
+
+def test_event_history_queries(db):
+    from src.database import EventSummary, GitLabEventRepository
+
+    repo = GitLabEventRepository(db)
+    repo.claim(
+        "merge_request:1", "merge_request",
+        summary=EventSummary(dedup_key="m1", action="open", title="MR 50%_ok", subject_id=5, user_id=7, author="Alice",
+                             occurred_at="2026-10-20T10:00:00+02:00"),
+    )
+    repo.claim(
+        "merge_request:2", "merge_request",
+        summary=EventSummary(dedup_key="m2", action="merge", title="MR fusionnée", subject_id=5, user_id=8, author="Bob",
+                             subject_author_id=7, occurred_at="2026-10-21T10:00:00+02:00"),
+    )
+    repo.claim("push:1", "push", summary=EventSummary(dedup_key="p1", action="push", ref="main", commit_count=3,
+                                                      occurred_at="2026-10-19T10:00:00Z"), status="recorded")
+    # Les dates avec fuseau sont stockées en UTC.
+    assert repo.recent(("merge_request",))[0].event_at == "2026-10-21 08:00:00"
+    # Recherche littérale : « % » et « _ » ne sont pas des jokers.
+    assert [r.title for r in repo.recent(search="50%_")] == ["MR 50%_ok"]
+    assert repo.recent(search="0%x") == []
+    assert [r.action for r in repo.recent(since="2026-10-20 00:00:00")] == ["merge", "open"]
+    latest = repo.latest_per_subject("merge_request")
+    assert [(r.subject_id, r.action) for r in latest] == [(5, "merge")]
+    assert [r.event_type for r in repo.in_period("2026-10-20 00:00:00")] == ["merge_request", "merge_request"]
+    assert repo.coverage() == ("2026-10-19 10:00:00", 3)
+    assert repo.user_names() == {7: "Alice", 8: "Bob"}
+    assert repo.recent(statuses=("recorded",))[0].commit_count == 3
+
+
+def test_bot_errors_are_grouped(db):
+    from src.database.repositories import BotErrorRepository
+
+    repo = BotErrorRepository(db)
+    repo.record("f1", "src.x", "erreur 1")
+    error = repo.record("f1", "src.x", "erreur 2")
+    assert (error.count, error.message, error.alerted_at) == (2, "erreur 2", None)
+    repo.mark_alerted("f1")
+    assert repo.alerts_since("2000-01-01 00:00:00") == 1
+    assert [e.fingerprint for e in repo.recent()] == ["f1"]
+    assert repo.purge_older_than(30) == 0

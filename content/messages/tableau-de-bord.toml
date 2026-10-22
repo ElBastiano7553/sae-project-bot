@@ -1,0 +1,20 @@
+# Message permanent « Tableau de bord » du salon #gitlab-activite.
+# Les champs sont calculés par le bot à partir des webhooks GitLab qu'il a reçus
+# (voir docs/history-and-stats.md). Le message est modifié sur place quelques
+# secondes après chaque nouvel événement, et vérifié toutes les 30 minutes.
+
+channel = "gitlab_activite"
+title = "📊 Tableau de bord du projet"
+color = "#3498DB"
+dynamic = "dashboard"
+description = """
+État du dépôt d'après les événements GitLab reçus par le bot. Détails : `/stats`, `/events`, `/leaderboard`.
+"""
+
+[[buttons]]
+label = "Merge requests"
+link = "gitlab_merge_requests"
+
+[[buttons]]
+label = "Dépôt GitLab"
+link = "gitlab_project"

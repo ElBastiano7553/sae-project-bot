@@ -295,3 +295,43 @@ def test_unknown_pipeline_status_is_shown_as_received():
     rules = GitLabRules(routes=RULES.routes, pipeline_statuses=frozenset({"scheduled"}))
     n = format_pipeline(pipeline_payload(status="scheduled"), rules)
     assert "scheduled" in n.title
+
+
+# --- Déploiements et identifiants (historique) --------------------------------
+
+
+def test_deployment_success():
+    from src.gitlab.samples import deployment_payload
+
+    n = format_event("deployment", deployment_payload(), RULES)
+    assert n.kind == "deployment" and n.action == "success"
+    assert "production" in n.title and n.environment == "production"
+    assert n.url == "https://gitlab.com/epita/sae-game/-/jobs/390"
+    assert (n.user_id, n.subject_id) == (7, 15)
+    assert n.timestamp == "2026-10-22T11:20:00+00:00"
+
+
+def test_deployment_running_is_ignored_and_dedup_depends_on_status():
+    from src.gitlab.samples import deployment_payload
+
+    assert format_event("deployment", deployment_payload(status="running"), RULES) is None
+    success = format_event("deployment", deployment_payload(), RULES)
+    failed = format_event("deployment", deployment_payload(status="failed"), RULES)
+    assert success.dedup_key != failed.dedup_key
+    assert success.dedup_key == format_event("deployment", deployment_payload(), RULES).dedup_key
+
+
+def test_deployment_without_id_is_invalid():
+    from src.gitlab.samples import deployment_payload
+
+    with pytest.raises(InvalidPayload):
+        format_event("deployment", deployment_payload(deployment_id=None), RULES)
+
+
+def test_history_identifiers_are_extracted():
+    push = format_push(push_payload(), RULES)
+    assert (push.user_id, push.commit_count) == (7, 2)
+    mr = format_merge_request(merge_request_payload(), RULES)
+    assert (mr.user_id, mr.subject_id, mr.subject_author_id) == (8, 12, 8)  # iid : numéro !12 du projet
+    pipeline = format_pipeline(pipeline_payload(), RULES)
+    assert (pipeline.user_id, pipeline.subject_id) == (7, 31)

@@ -30,6 +30,9 @@ _TRUE_VALUES = {"1", "true", "yes", "oui", "on"}
 _FALSE_VALUES = {"0", "false", "no", "non", "off", ""}
 # Longueur minimale du secret des webhooks GitLab : un secret court se devine.
 MIN_WEBHOOK_SECRET_LENGTH = 16
+# Conservation de l'historique : jamais moins que la durée pendant laquelle GitLab peut renvoyer un événement.
+MIN_RETENTION_DAYS = 30
+DEFAULT_RETENTION_DAYS = 365
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
 SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY")
 
@@ -55,6 +58,8 @@ class Settings:
     auto_refresh_on_startup: bool = True
     pin_permanent_messages: bool = True
     auto_recreate_deleted: bool = True
+    history_retention_days: int = DEFAULT_RETENTION_DAYS
+    alerts_channel: str | None = None  # clé de salon (config/server.toml) ; None = alertes désactivées
     gitlab_webhook_secret: str = field(default="", repr=False)
     gitlab_project_id: int | None = None
     webhook_host: str = "127.0.0.1"
@@ -110,6 +115,14 @@ class Settings:
         auto_refresh = _parse_bool(env, "AUTO_REFRESH_ON_STARTUP", True, errors)
         pin_messages = _parse_bool(env, "PIN_PERMANENT_MESSAGES", True, errors)
         auto_recreate = _parse_bool(env, "AUTO_RECREATE_DELETED_MESSAGES", True, errors)
+        retention_raw = env.get("HISTORY_RETENTION_DAYS", "").strip() or str(DEFAULT_RETENTION_DAYS)
+        retention = DEFAULT_RETENTION_DAYS
+        if retention_raw.isdigit() and int(retention_raw) >= MIN_RETENTION_DAYS:
+            retention = int(retention_raw)
+        else:
+            errors.append(
+                f"HISTORY_RETENTION_DAYS doit être un nombre de jours ≥ {MIN_RETENTION_DAYS} (valeur actuelle : {retention_raw!r})."
+            )
 
         # Les erreurs de la V2 sont rangées à part : elles désactivent la V2 sans empêcher la V1 de démarrer.
         gitlab_errors: list[str] = []
@@ -156,6 +169,8 @@ class Settings:
             auto_refresh_on_startup=auto_refresh,
             pin_permanent_messages=pin_messages,
             auto_recreate_deleted=auto_recreate,
+            history_retention_days=retention,
+            alerts_channel=env.get("ALERTS_CHANNEL", "").strip() or None,
             gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
             gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
             gitlab_project_id=project_id,

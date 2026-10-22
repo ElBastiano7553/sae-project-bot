@@ -257,7 +257,7 @@ async def test_demo_script_payloads_are_accepted(client, dispatcher, sender):
         status, body = await post(client, build(), event=event, uuid=f"demo-{index}")
         assert (status, body["status"]) == (200, "queued")
     await dispatcher.drain()
-    assert len(sender.sent) == 3
+    assert len(sender.sent) == len(EVENTS)
 
 
 async def test_error_responses_do_not_reflect_large_or_multiline_input(client, caplog):

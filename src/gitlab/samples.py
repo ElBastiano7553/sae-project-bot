@@ -18,6 +18,7 @@ _PUSH = {
     "before": "95790bf891e76fee5e1747ab589903a6a1f80f22",
     "after": "da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
     "ref": "refs/heads/main",
+    "user_id": 7,
     "user_name": "Alice Martin",
     "user_username": "alice",
     "project_id": 4242,
@@ -52,11 +53,12 @@ _PUSH = {
 _MERGE_REQUEST = {
     "object_kind": "merge_request",
     "event_type": "merge_request",
-    "user": {"name": "Bob Durand", "username": "bob"},
+    "user": {"id": 8, "name": "Bob Durand", "username": "bob"},
     "project": PROJECT,
     "object_attributes": {
         "id": 99,
         "iid": 12,
+        "author_id": 8,
         "title": "Ajout du système de score",
         "description": "Ferme #3",
         "source_branch": "feature/score",
@@ -87,7 +89,7 @@ _PIPELINE = {
         "finished_at": "2026-10-22 13:07:05 UTC",
         "url": "https://gitlab.com/epita/sae-game/-/pipelines/31",
     },
-    "user": {"name": "Alice Martin", "username": "alice"},
+    "user": {"id": 7, "name": "Alice Martin", "username": "alice"},
     "project": PROJECT,
     "commit": {
         "id": "da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
@@ -99,6 +101,24 @@ _PIPELINE = {
         {"id": 381, "stage": "lint", "name": "ruff", "status": "failed", "allow_failure": True},
         {"id": 382, "stage": "build", "name": "build", "status": "success", "allow_failure": False},
     ],
+}
+
+_DEPLOYMENT = {
+    "object_kind": "deployment",
+    "status": "success",
+    "status_changed_at": "2026-10-22 13:20:00 +0200",
+    "deployment_id": 15,
+    "deployable_id": 390,
+    "deployable_url": "https://gitlab.com/epita/sae-game/-/jobs/390",
+    "environment": "production",
+    "environment_tier": "production",
+    "environment_external_url": "https://sae-game.example.com",
+    "project": PROJECT,
+    "short_sha": "da156088",
+    "user": {"id": 7, "name": "Alice Martin", "username": "alice"},
+    "commit_url": "https://gitlab.com/epita/sae-game/-/commit/da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
+    "commit_title": "Corrige la collision du joueur",
+    "ref": "main",
 }
 
 
@@ -116,3 +136,7 @@ def pipeline_payload(**attributes) -> dict:
     payload = copy.deepcopy(_PIPELINE)
     payload["object_attributes"].update(attributes)
     return payload
+
+
+def deployment_payload(**overrides) -> dict:
+    return {**copy.deepcopy(_DEPLOYMENT), **overrides}

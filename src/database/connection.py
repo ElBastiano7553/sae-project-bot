@@ -86,6 +86,39 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX admin_actions_at ON admin_actions (at);
     """,
+    # Version 5 : historique exploitable pour les statistiques (lot 2). Tous les événements
+    # authentifiés utiles sont conservés, même ceux qui ne sont pas notifiés (statut « recorded »).
+    # Uniquement des ajouts ; les lignes existantes reçoivent une date d'événement calculée.
+    """
+    ALTER TABLE gitlab_events ADD COLUMN source TEXT NOT NULL DEFAULT 'webhook';
+    ALTER TABLE gitlab_events ADD COLUMN event_at TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN user_id INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN subject_id INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN subject_author_id INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN commit_count INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN environment TEXT;
+    UPDATE gitlab_events SET event_at = COALESCE(datetime(occurred_at), received_at);
+    CREATE INDEX gitlab_events_type_event_at ON gitlab_events (event_type, event_at);
+    CREATE INDEX gitlab_events_user ON gitlab_events (user_id, event_at);
+
+    CREATE TABLE gitlab_users (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL,
+        username   TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE bot_errors (
+        fingerprint TEXT PRIMARY KEY,
+        source      TEXT NOT NULL,
+        message     TEXT NOT NULL,
+        first_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        last_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        count       INTEGER NOT NULL DEFAULT 1,
+        alerted_at  TEXT
+    );
+    CREATE INDEX bot_errors_last_at ON bot_errors (last_at);
+    """,
 ]
 
 

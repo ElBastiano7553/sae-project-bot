@@ -6,6 +6,7 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import threading
 from dataclasses import asdict
 
 import discord
@@ -15,21 +16,25 @@ from discord.ext import commands
 from src.config import ConfigError, Settings, load_link_catalog, load_planning, load_server_layout
 from src.database import (
     AdminActionRepository,
+    BotErrorRepository,
     ChannelBindingRepository,
     Database,
     GitLabEventRepository,
     KeyValueRepository,
     ManagedMessageRepository,
 )
+from src.discord_bot.alerts import send_alert
 from src.discord_bot.embeds import error_embed
 from src.discord_bot.gateway import DiscordMessageGateway
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
-from src.gitlab.dispatcher import RETENTION_DAYS, NotificationDispatcher
+from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY, NotificationDispatcher
 from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
-from src.services.content import Announcement, MessagePayload, load_message_templates, render_message
-from src.services.monitoring import RecentErrors
+from src.services.alerts import Alert, AlertManager
+from src.services.content import Announcement, EmbedField, MessagePayload, load_message_templates, render_message
+from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
+from src.services.monitoring import ErrorRecord, RecentErrors
 from src.services.permanent_messages import PermanentMessageService, SyncAction
 from src.services.server_structure import StructureReport, resolve_structure
 
@@ -37,9 +42,15 @@ log = logging.getLogger(__name__)
 
 SETUP_CONFIRMED_KEY = "setup_confirmed_at"
 ANNOUNCEMENT_KEY = "announcement"
-EXTENSIONS = ("src.discord_bot.cogs.general", "src.discord_bot.cogs.admin")
+EXTENSIONS = ("src.discord_bot.cogs.general", "src.discord_bot.cogs.activity", "src.discord_bot.cogs.admin")
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
+# Délai entre un événement GitLab et l'actualisation du tableau de bord (regroupe les rafales).
+DASHBOARD_DEBOUNCE_SECONDS = 15.0
+# Vérification périodique du tableau de bord (les statistiques « 7 jours » glissent avec le temps).
+DASHBOARD_REFRESH_SECONDS = 30 * 60
+# Nettoyage de l'historique (durée : HISTORY_RETENTION_DAYS).
+PURGE_INTERVAL_SECONDS = 24 * 60 * 60
 
 
 class SaeBot(commands.Bot):
@@ -61,9 +72,17 @@ class SaeBot(commands.Bot):
         self.admin_log = AdminActionRepository(database)
         self.gateway = DiscordMessageGateway(self)
         self.gitlab_events_repo = GitLabEventRepository(database)
+        self.bot_errors_repo = BotErrorRepository(database)
+        self.alerts = AlertManager(self.bot_errors_repo)
         self.gitlab_server: GitLabWebhookServer | None = None
         self.gitlab_error: str | None = None
         self.errors = errors or RecentErrors()
+        self.errors.add_listener(self._on_error)
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: int | None = None
+        self._dashboard_task: asyncio.Task | None = None
+        self._maintenance_task: asyncio.Task | None = None
+        self._alert_tasks: set[asyncio.Task] = set()
         # Un seul verrou pour toutes les opérations sur les messages permanents (voir permanent_messages).
         self.messages_lock = asyncio.Lock()
         self._recreate_tasks: dict[str, asyncio.Task] = {}
@@ -74,6 +93,9 @@ class SaeBot(commands.Bot):
     # --- Cycle de vie ------------------------------------------------------
 
     async def setup_hook(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._loop_thread = threading.get_ident()
+        self.purge_history()
         for extension in EXTENSIONS:
             await self.load_extension(extension)
         guild = discord.Object(id=self.settings.guild_id)
@@ -105,9 +127,6 @@ class SaeBot(commands.Bot):
 
     async def _start_gitlab_webhooks(self) -> None:
         rules = load_gitlab_rules(channel_keys=load_server_layout().channels.keys())
-        purged = self.gitlab_events_repo.purge_older_than(RETENTION_DAYS)
-        if purged:
-            log.info("%d ancien(s) événement(s) GitLab oublié(s)", purged)
         dispatcher = NotificationDispatcher(
             self.gitlab_events_repo,
             rules,
@@ -115,6 +134,7 @@ class SaeBot(commands.Bot):
             self.bindings_repo.get_all,
             wait_until_ready=self.wait_until_ready,
             state=self.state_repo,
+            on_event=self.schedule_dashboard_refresh,
         )
         app = create_webhook_app(
             secret=self.settings.gitlab_webhook_secret,
@@ -135,9 +155,12 @@ class SaeBot(commands.Bot):
             log.error("Tâche des notifications GitLab arrêtée", exc_info=task.exception())
 
     async def close(self) -> None:
-        for task in self._recreate_tasks.values():
-            task.cancel()
+        for task in [*self._recreate_tasks.values(), *self._alert_tasks, self._dashboard_task, self._maintenance_task]:
+            if task is not None:
+                task.cancel()
         self._recreate_tasks.clear()
+        self._alert_tasks.clear()
+        self._dashboard_task = self._maintenance_task = None
         if self._gitlab_task is not None:
             self._gitlab_task.cancel()
             self._gitlab_task = None
@@ -169,6 +192,12 @@ class SaeBot(commands.Bot):
         log.info("Structure : %d/%d salons utilisables", len(report.bindings), len(report.channels))
         if self.settings.auto_refresh_on_startup and self.setup_confirmed_at:
             await self._refresh_on_startup(report)
+        if self.settings.alerts_channel and self.settings.alerts_channel not in report.bindings:
+            log.warning(
+                "Alertes désactivées : le salon ALERTS_CHANNEL=%s n'est pas associé (clé de config/server.toml, puis /setup).",
+                self.settings.alerts_channel,
+            )
+        self._maintenance_task = asyncio.create_task(self._maintenance_loop(), name="maintenance")
 
     async def _refresh_on_startup(self, report: StructureReport) -> None:
         try:
@@ -224,6 +253,102 @@ class SaeBot(commands.Bot):
         finally:
             self._recreate_tasks.pop(key, None)
 
+    # --- Tableau de bord ------------------------------------------------------
+
+    def schedule_dashboard_refresh(self, delay: float = DASHBOARD_DEBOUNCE_SECONDS) -> bool:
+        """Actualise le tableau de bord après ``delay`` secondes ; une rafale d'événements = une seule mise à jour."""
+        if self._dashboard_task is not None and not self._dashboard_task.done():
+            return False
+        self._dashboard_task = asyncio.create_task(self._refresh_dashboard_later(delay), name="dashboard-refresh")
+        return True
+
+    async def _refresh_dashboard_later(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+        await self.refresh_dashboard()
+
+    async def refresh_dashboard(self) -> str | None:
+        """Met à jour le message du tableau de bord sur place. Retourne l'action effectuée, ou ``None``."""
+        if not self.setup_confirmed_at or self.target_guild is None:
+            return None
+        try:
+            report = self.resolve_structure(self.target_guild)
+            results = await self.build_message_service().sync(report.bindings, keys=[DASHBOARD_KEY])
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Impossible d'actualiser le tableau de bord")
+            return None
+        for result in results:
+            if result.action is not SyncAction.UNCHANGED:
+                log.info("Tableau de bord : %s %s", result.action, result.detail)
+        return str(results[0].action) if results else None
+
+    def dashboard_fields(self) -> list[EmbedField]:
+        data = collect_dashboard(
+            self.gitlab_events_repo,
+            default_branch=self.state_repo.get(DEFAULT_BRANCH_KEY),
+            gitlab_enabled=self.settings.gitlab_webhooks_enabled,
+        )
+        return dashboard_fields(data)
+
+    # --- Maintenance -------------------------------------------------------------
+
+    async def _maintenance_loop(self) -> None:
+        elapsed = 0
+        while True:
+            await asyncio.sleep(DASHBOARD_REFRESH_SECONDS)
+            elapsed += DASHBOARD_REFRESH_SECONDS
+            try:
+                if elapsed >= PURGE_INTERVAL_SECONDS:
+                    elapsed = 0
+                    self.purge_history()
+                await self.refresh_dashboard()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # la boucle de maintenance ne doit jamais s'arrêter
+                log.exception("Erreur pendant la maintenance périodique")
+
+    def purge_history(self) -> dict[str, int]:
+        """Oublie l'historique plus ancien que HISTORY_RETENTION_DAYS (jamais moins de 30 jours)."""
+        days = self.settings.history_retention_days
+        purged: dict[str, int] = {}
+        for label, repository in (
+            ("événement(s) GitLab", self.gitlab_events_repo),
+            ("action(s) d'administration", self.admin_log),
+            ("erreur(s)", self.bot_errors_repo),
+        ):
+            try:
+                purged[label] = repository.purge_older_than(days)
+            except Exception:  # un nettoyage raté ne doit pas empêcher le bot de démarrer
+                log.exception("Nettoyage de l'historique impossible (%s)", label)
+                continue
+            if purged[label]:
+                log.info("Historique : %d %s de plus de %d jours oublié(s)", purged[label], label, days)
+        return purged
+
+    # --- Erreurs et alertes --------------------------------------------------------
+
+    def _on_error(self, record: ErrorRecord) -> None:
+        """Appelé pour chaque erreur journalisée : historique en base et, si besoin, alerte."""
+        if self._loop is None or self._loop.is_closed():
+            return
+        if threading.get_ident() == self._loop_thread:
+            self.handle_error(record)
+        else:  # erreur journalisée depuis un autre fil : SQLite n'est utilisé que depuis la boucle
+            self._loop.call_soon_threadsafe(self.handle_error, record)
+
+    def handle_error(self, record: ErrorRecord) -> Alert | None:
+        alert = self.alerts.observe(record.source, record.message)
+        if alert is None:
+            return None
+        channel_id = self.bindings_repo.get_all().get(self.settings.alerts_channel or "")
+        if channel_id is None:
+            return alert  # alertes désactivées : l'erreur reste visible avec /events type:erreurs
+        task = asyncio.get_running_loop().create_task(send_alert(self, channel_id, alert), name="alert")
+        self._alert_tasks.add(task)
+        task.add_done_callback(self._alert_tasks.discard)
+        return alert
+
     # --- Services ----------------------------------------------------------
 
     @property
@@ -248,11 +373,12 @@ class SaeBot(commands.Bot):
         catalog = load_link_catalog()
         planning = load_planning()
         announcement = self.announcement
+        dashboard = self.dashboard_fields()
         return PermanentMessageService(
             self.messages_repo,
             self.gateway,
             templates,
-            lambda template: render_message(template, catalog, planning, announcement=announcement),
+            lambda template: render_message(template, catalog, planning, announcement=announcement, dashboard=dashboard),
             pin_messages=self.settings.pin_permanent_messages,
             lock=self.messages_lock,
         )
@@ -263,7 +389,11 @@ class SaeBot(commands.Bot):
         if template is None:
             raise ConfigError(f"content/messages/{key}.toml est introuvable.")
         return render_message(
-            template, load_link_catalog(), load_planning(), announcement=announcement or self.announcement
+            template,
+            load_link_catalog(),
+            load_planning(),
+            announcement=announcement or self.announcement,
+            dashboard=self.dashboard_fields() if template.dynamic == "dashboard" else None,
         )
 
     # --- Annonce en cours (/announce) ------------------------------------------

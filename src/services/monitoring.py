@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from src.services import text_limits as limits
@@ -41,11 +41,30 @@ class RecentErrors:
     def __init__(self, maxlen: int = 20) -> None:
         self._items: deque[ErrorRecord] = deque(maxlen=maxlen)
         self.total = 0
+        self._listeners: list[Callable[[ErrorRecord], None]] = []
+        self._notifying = False
+
+    def add_listener(self, listener: Callable[[ErrorRecord], None]) -> None:
+        """Appelé pour chaque nouvelle erreur (historique en base, alertes)."""
+        self._listeners.append(listener)
 
     def record(self, source: str, message: str, at: dt.datetime | None = None) -> None:
         first = next((line.strip() for line in message.splitlines() if line.strip()), "erreur sans message")
-        self._items.append(ErrorRecord(at or dt.datetime.now(dt.UTC), source, limits.truncate(first, 300)))
+        item = ErrorRecord(at or dt.datetime.now(dt.UTC), source, limits.truncate(first, 300))
+        self._items.append(item)
         self.total += 1
+        # Une erreur journalisée pendant le traitement d'une erreur n'est pas retransmise (pas de boucle).
+        if self._notifying:
+            return
+        self._notifying = True
+        try:
+            for listener in self._listeners:
+                try:
+                    listener(item)
+                except Exception:  # un suivi d'erreur ne doit jamais faire planter le bot
+                    pass
+        finally:
+            self._notifying = False
 
     @property
     def last(self) -> ErrorRecord | None:

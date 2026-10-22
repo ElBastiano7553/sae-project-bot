@@ -52,6 +52,8 @@ def build_health_checks(
     database_schema: int | None = None,
     messages: MessagesSummary | None = None,
     gitlab_address: str | None = None,
+    alerts: AlertsSummary | None = None,
+    history: HistorySummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -76,7 +78,45 @@ def build_health_checks(
             else f"non intégrée dans cette version (AI_PROVIDER={ai_provider} ignoré)",
         ),
     ]
+    if history is not None:
+        checks.append(_history_check(history))
+    if alerts is not None:
+        checks.append(_alerts_check(alerts))
     return checks
+
+
+@dataclass(frozen=True)
+class AlertsSummary:
+    channel_key: str | None  # ALERTS_CHANNEL
+    channel_bound: bool  # salon associé par /setup
+    errors_24h: int  # erreurs distinctes vues dans les dernières 24 heures
+
+
+@dataclass(frozen=True)
+class HistorySummary:
+    retention_days: int
+    events: int
+    first_event_at: str | None
+    deployments: int
+
+
+def _alerts_check(summary: AlertsSummary) -> HealthCheck:
+    errors = f"{summary.errors_24h} erreur(s) distincte(s) en 24 h"
+    if not summary.channel_key:
+        return HealthCheck("Alertes", HealthStatus.DISABLED, f"désactivées (ALERTS_CHANNEL vide), {errors}")
+    if not summary.channel_bound:
+        return HealthCheck(
+            "Alertes", HealthStatus.WARNING, f"salon « {summary.channel_key} » non associé : vérifiez ALERTS_CHANNEL puis /setup"
+        )
+    return HealthCheck("Alertes", HealthStatus.OK, f"actives dans « {summary.channel_key} », {errors}")
+
+
+def _history_check(summary: HistorySummary) -> HealthCheck:
+    if not summary.events:
+        detail = "aucun événement enregistré"
+    else:
+        detail = f"{summary.events} événement(s) depuis le {summary.first_event_at[:10]}, dont {summary.deployments} déploiement(s)"
+    return HealthCheck("Historique", HealthStatus.OK, f"{detail} ; conservé {summary.retention_days} jours")
 
 
 @dataclass(frozen=True)

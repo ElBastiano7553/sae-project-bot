@@ -148,6 +148,8 @@ class AdminCog(commands.Cog):
             f"Épinglage des messages : {'oui' if settings.pin_permanent_messages else 'non'}",
             f"Recréation auto. des messages supprimés : {'oui' if settings.auto_recreate_deleted else 'non'}",
             self._gitlab_config_line(),
+            f"Historique conservé : {settings.history_retention_days} jours",
+            f"Alertes d'erreurs : salon `{settings.alerts_channel}`" if settings.alerts_channel else "Alertes d'erreurs : désactivées",
             "IA : non intégrée dans cette version",
         ]
         await interaction.response.send_message(

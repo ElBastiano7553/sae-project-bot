@@ -232,7 +232,8 @@ Discord, puis `HTTP 401` sans notification. Le script refuse une adresse en
 2. **URL** : `https://VOTRE-ADRESSE/webhooks/gitlab` (n'oubliez pas `/webhooks/gitlab`).
 3. **Secret token** : collez la valeur de `GITLAB_WEBHOOK_SECRET`.
 4. **Trigger** : cochez **Push events** (toutes les branches, le filtrage se fait
-   dans `config/gitlab.toml`), **Merge request events** et **Pipeline events**.
+   dans `config/gitlab.toml`), **Merge request events**, **Pipeline events** et,
+   si le projet déploie avec GitLab, **Deployment events**.
    Laissez les autres décochés (ils seraient acceptés mais ignorés).
 5. **SSL verification** : laissez **activé**.
 6. **Add webhook**.
@@ -259,7 +260,7 @@ montre la réponse du bot (`queued`, `duplicate`, `ignored`…).
 | 2 | Créer une nouvelle branche sans commit (`git push -u origin nouvelle-branche`) | « 🌱 Nouvelle branche » | 200 `queued` |
 | 3 | Ouvrir une MR | « 🆕 MR !n ouverte » avec les branches source → cible | 200 `queued` |
 | 4 | Changer le titre ou les labels de la MR | « ✏️ MR !n mise à jour », champ « Modifié » | 200 `queued` |
-| 5 | Pousser un commit sur la branche de la MR | une seule notification (le push), pas de « mise à jour » de MR | 200 `queued` puis 200 `ignored` |
+| 5 | Pousser un commit sur la branche de la MR | une seule notification (le push), pas de « mise à jour » de MR | 200 `queued` puis 200 `recorded` |
 | 6 | Approuver puis fusionner la MR | « 👍 approuvée » puis « 🎉 fusionnée » | 200 `queued` |
 | 7 | Pipeline réussi (projet avec `.gitlab-ci.yml`) | `#builds-et-tests` : « ✅ Pipeline #n réussi » | 200 `ignored` pour « running », 200 `queued` pour « success » |
 | 8 | Pipeline en échec (faites échouer un test exprès) | « ❌ Pipeline #n en échec » avec le job fautif | 200 `queued` |
@@ -277,13 +278,16 @@ réellement dans le webhook ; un champ absent du webhook n'apparaît pas.
 | Push | auteur, branche, nombre de commits reçus, derniers commits (hash court cliquable, message, auteur), fichiers distincts ajoutés / modifiés / supprimés (calculés sur les commits détaillés par GitLab, 20 au maximum), lien vers le *compare*, heure du dernier commit |
 | Merge request | titre, action (ouverte, mise à jour, approuvée, fusionnée, fermée…), auteur de l'action, branches source → cible, relecteurs, assignés, statut et blocage de fusion connus, lien direct |
 | Pipeline | statut réellement reçu (réussi, en échec, annulé…), branche, commit (lien), durée si connue, origine (push, MR, planification…), jobs bloquants en échec, lien direct |
+| Déploiement (lot 2) | statut (réussi, échoué, annulé), environnement (lien vers son adresse si GitLab la fournit), branche, personne qui l'a lancé, commit, lien vers le job |
 
 Le nombre de lignes ajoutées/supprimées n'est pas affiché : GitLab ne l'envoie pas
 dans le webhook. Un pipeline réussi n'est **jamais** présenté comme un déploiement.
 
 Tous les événements acceptés sont aussi enregistrés en base (titre, lien, branche,
-auteur, date) : `/project` affiche les derniers. Seuls les événements reçus depuis
-l'activation des webhooks sont connus du bot.
+auteur, date), **y compris ceux qui ne sont pas notifiés** (branche non suivie…) :
+`/project`, `/events`, `/stats`, `/leaderboard` et le tableau de bord les utilisent.
+Seuls les événements reçus depuis l'activation des webhooks sont connus du bot.
+Voir [history-and-stats.md](history-and-stats.md).
 
 ## 7. Réponses du bot (visibles dans « Recent events »)
 
@@ -291,7 +295,8 @@ l'activation des webhooks sont connus du bot.
 |---|---|---|
 | 200 | `queued` | accepté, la notification va être publiée |
 | 200 | `duplicate` | déjà reçu : même identifiant de livraison, ou même événement renvoyé sous un autre identifiant (même push, même pipeline au même statut, même action sur une MR) : pas de second message |
-| 200 | `ignored` | authentifié mais non notifié (type non géré, branche non suivie, pipeline en cours…) |
+| 200 | `recorded` | conservé dans l'historique sans notification (branche non suivie, action non notifiée…) |
+| 200 | `ignored` | authentifié mais ni notifié ni conservé (type non géré, pipeline en cours…) |
 | 400 | `invalid_json` / `invalid_payload` | corps illisible ou incomplet |
 | 401 | `unauthorized` | secret absent ou incorrect |
 | 403 | `forbidden_project` | projet différent de `GITLAB_PROJECT_ID` |
@@ -347,4 +352,5 @@ automatiquement un webhook qui échoue trop souvent.
 - Si Discord refuse l'envoi trois fois de suite (salon supprimé, permission
   retirée, panne), la notification est abandonnée et l'erreur est journalisée.
 - Les événements Issues, commentaires et tags ne sont pas encore notifiés.
+- Le tableau de bord et les statistiques ne connaissent que les événements reçus.
 - `config/gitlab.toml` n'est relu qu'au démarrage.

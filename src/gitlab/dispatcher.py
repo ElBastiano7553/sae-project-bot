@@ -26,14 +26,12 @@ from typing import Protocol
 
 from src.database.repositories import EventSummary, GitLabEventRepository, KeyValueRepository
 from src.gitlab.events import Notification, format_event
-from src.gitlab.rules import GitLabRules
+from src.gitlab.rules import GitLabRules, history_rules
 from src.services.content import EmbedField
 
 log = logging.getLogger(__name__)
 
 DEFAULT_QUEUE_SIZE = 100
-# Durée de conservation des clés d'événements (GitLab ne renvoie pas un événement aussi vieux).
-RETENTION_DAYS = 30
 # Au-delà, une notification non envoyée (bot arrêté) n'est plus renvoyée : elle serait périmée.
 REPLAY_MAX_AGE_HOURS = 24
 # Attente (secondes) avant chaque nouvelle tentative d'envoi sur Discord.
@@ -49,6 +47,7 @@ class NotificationSender(Protocol):
 
 class SubmitStatus(StrEnum):
     QUEUED = "queued"
+    RECORDED = "recorded"  # conservé dans l'historique, sans notification (branche non suivie…)
     DUPLICATE = "duplicate"
     IGNORED = "ignored"
     BUSY = "busy"
@@ -59,6 +58,7 @@ class EventStatus(StrEnum):
     SENT = "sent"
     FAILED = "failed"
     SKIPPED = "skipped"
+    RECORDED = "recorded"
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,7 @@ class NotificationDispatcher:
         queue_size: int = DEFAULT_QUEUE_SIZE,
         retry_delays: Sequence[float] = RETRY_DELAYS,
         state: KeyValueRepository | None = None,
+        on_event: Callable[[], None] | None = None,
     ) -> None:
         self.repository = repository
         self.rules = rules
@@ -99,19 +100,32 @@ class NotificationDispatcher:
         self._retry_delays = tuple(retry_delays)
         self._queue: asyncio.Queue[_Job] = asyncio.Queue(maxsize=queue_size)
         self._state = state
+        self._history_rules = history_rules(rules)
+        # Appelé après chaque nouvel événement enregistré (actualisation du tableau de bord).
+        self._on_event = on_event
 
     def submit(self, event: IncomingEvent) -> SubmitStatus:
         """Valide, déduplique et met en file. Lève ``InvalidPayload`` si le JSON est incomplet."""
         notification = format_event(event.kind, event.payload, self.rules)
-        if notification is None:
+        # Un événement non notifié (branche non suivie, action désactivée…) reste utile à l'historique.
+        record = notification or format_event(event.kind, event.payload, self._history_rules)
+        if record is None:
             return SubmitStatus.IGNORED
-        if not self.repository.claim(
-            event.event_key, event.kind, notification_to_json(notification), summary_of(notification)
-        ):
+        claimed = self.repository.claim(
+            event.event_key,
+            event.kind,
+            notification_to_json(notification) if notification else None,
+            summary_of(record),
+            status=EventStatus.QUEUED if notification else EventStatus.RECORDED,
+        )
+        if not claimed:
             log.info("Événement GitLab déjà reçu, ignoré : %s", event.event_key)
             return SubmitStatus.DUPLICATE
-        if self._state is not None and notification.default_branch:
-            self._state.set(DEFAULT_BRANCH_KEY, notification.default_branch)
+        if self._state is not None and record.default_branch:
+            self._state.set(DEFAULT_BRANCH_KEY, record.default_branch)
+        self._notify_event()
+        if notification is None:
+            return SubmitStatus.RECORDED
         try:
             self._queue.put_nowait(_Job(event.event_key, notification))
         except asyncio.QueueFull:
@@ -120,6 +134,14 @@ class NotificationDispatcher:
             log.warning("File des notifications GitLab pleine : événement %s refusé", event.event_key)
             return SubmitStatus.BUSY
         return SubmitStatus.QUEUED
+
+    def _notify_event(self) -> None:
+        if self._on_event is None:
+            return
+        try:
+            self._on_event()
+        except Exception:  # le tableau de bord ne doit jamais faire échouer la réception
+            log.exception("Erreur dans le rappel après un événement GitLab")
 
     @property
     def pending(self) -> int:
@@ -162,7 +184,7 @@ class NotificationDispatcher:
 
     async def deliver(self, job: _Job) -> EventStatus:
         notification = job.notification
-        route = self.rules.routes[notification.kind]
+        route = self.rules.route_for(notification.kind)
         channel_id = self._bindings().get(route)
         if channel_id is None:
             log.warning(
@@ -221,4 +243,10 @@ def summary_of(notification: Notification) -> EventSummary:
         url=notification.url,
         author=notification.author,
         occurred_at=notification.timestamp,
+        user_id=notification.user_id,
+        user_username=notification.user_username,
+        subject_id=notification.subject_id,
+        subject_author_id=notification.subject_author_id,
+        commit_count=notification.commit_count,
+        environment=notification.environment,
     )

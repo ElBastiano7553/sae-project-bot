@@ -9,7 +9,12 @@ from pathlib import Path
 
 from src.config import CONFIG_DIR, ConfigError, load_toml
 
-EVENT_KINDS = ("push", "merge_request", "pipeline")
+EVENT_KINDS = ("push", "merge_request", "pipeline", "deployment")
+# Le salon des déploiements est facultatif dans gitlab.toml : par défaut, celui des pipelines.
+OPTIONAL_ROUTES = {"deployment": "pipeline"}
+DEPLOYMENT_STATUSES = {"created", "running", "success", "failed", "canceled"}
+# Statuts finaux d'un pipeline : ceux que l'historique et les statistiques conservent.
+FINAL_PIPELINE_STATUSES = frozenset({"success", "failed", "canceled", "skipped", "manual"})
 MR_ACTIONS = {"open", "reopen", "update", "close", "merge", "approved", "unapproved", "approval", "unapproval"}
 PIPELINE_STATUSES = {
     "success", "failed", "canceled", "skipped", "running", "pending", "manual", "created",
@@ -26,6 +31,13 @@ class GitLabRules:
     mr_actions: frozenset[str] = frozenset({"open", "reopen", "update", "merge", "close", "approved"})
     pipeline_statuses: frozenset[str] = frozenset({"success", "failed", "canceled"})
     pipeline_branches: tuple[str, ...] = ()
+    deployment_statuses: frozenset[str] = frozenset({"success", "failed", "canceled"})
+
+    def route_for(self, kind: str) -> str:
+        """Salon d'un type d'événement ; un type facultatif sans route suit celle de son parent."""
+        if kind not in self.routes and kind in OPTIONAL_ROUTES:
+            return self.routes[OPTIONAL_ROUTES[kind]]
+        return self.routes[kind]
 
     def follows_push_branch(self, branch: str) -> bool:
         return _matches(branch, self.push_branches)
@@ -47,6 +59,9 @@ def load_gitlab_rules(path: Path = CONFIG_DIR / "gitlab.toml", channel_keys: Col
     routes: dict[str, str] = {}
     for kind in EVENT_KINDS:
         key = routes_raw.get(kind)
+        if key is None and kind in OPTIONAL_ROUTES:
+            routes[kind] = routes[OPTIONAL_ROUTES[kind]]
+            continue
         if not isinstance(key, str) or not key.strip():
             raise ConfigError(f"{name} : [routes] doit indiquer le salon de « {kind} ».")
         key = key.strip()
@@ -57,6 +72,7 @@ def load_gitlab_rules(path: Path = CONFIG_DIR / "gitlab.toml", channel_keys: Col
     push = data.get("push", {})
     mr = data.get("merge_request", {})
     pipeline = data.get("pipeline", {})
+    deployment = data.get("deployment", {})
 
     max_commits = push.get("max_commits", 5)
     if not isinstance(max_commits, int) or isinstance(max_commits, bool) or not 1 <= max_commits <= MAX_COMMITS_LIMIT:
@@ -69,6 +85,20 @@ def load_gitlab_rules(path: Path = CONFIG_DIR / "gitlab.toml", channel_keys: Col
         mr_actions=frozenset(_choices(mr, "actions", MR_ACTIONS, f"{name} : [merge_request]", ["open", "reopen", "update", "merge", "close", "approved"])),
         pipeline_statuses=frozenset(_choices(pipeline, "statuses", PIPELINE_STATUSES, f"{name} : [pipeline]", ["success", "failed", "canceled"])),
         pipeline_branches=_str_list(pipeline, "branches", f"{name} : [pipeline]"),
+        deployment_statuses=frozenset(
+            _choices(deployment, "statuses", DEPLOYMENT_STATUSES, f"{name} : [deployment]", ["success", "failed", "canceled"])
+        ),
+    )
+
+
+def history_rules(rules: GitLabRules) -> GitLabRules:
+    """Règles sans filtre, pour l'historique : tout événement utile est conservé, notifié ou non."""
+    return GitLabRules(
+        routes=rules.routes,
+        max_commits=rules.max_commits,
+        mr_actions=frozenset(MR_ACTIONS),
+        pipeline_statuses=FINAL_PIPELINE_STATUSES | rules.pipeline_statuses,
+        deployment_statuses=frozenset(DEPLOYMENT_STATUSES),
     )
 
 

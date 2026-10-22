@@ -22,6 +22,16 @@ protégées deux fois :
 | `/health` | Ancien nom de `/status`, conservé pour compatibilité. |
 | `/project` | Liens configurés (et nombre de liens à compléter), branche principale d'après le dernier webhook reçu, dernier pipeline sur cette branche, dernières merge requests, derniers pipelines et derniers pushs **reçus par le bot**. Aucun statut global n'est calculé. |
 
+## Activité GitLab (tous les membres)
+
+Calculs détaillés et limites : [history-and-stats.md](history-and-stats.md).
+
+| Commande | Effet |
+|---|---|
+| `/events [type] [periode] [recherche]` | 15 derniers événements GitLab reçus, filtrés par type (pushs, MR, pipelines, déploiements), période (24 h à tout l'historique, 7 jours par défaut) et texte (titre, branche, auteur). Le type « Erreurs du bot » est réservé aux admins du bot. |
+| `/stats [periode]` | Commits, pushs, MR ouvertes et fusionnées, pipelines terminés, déploiements, écart avec la période précédente quand l'historique la couvre. |
+| `/leaderboard [periode] [details]` | Contributions par membre : MR fusionnées, approbations, jours actifs. Les commits ne comptent pas. Pas de classement sans assez de données. |
+
 ## Administration (admins du bot)
 
 | Commande | Effet | Confirmation |
@@ -42,6 +52,7 @@ Le bot n'a **pas** besoin de la permission Administrateur ni d'aucun intent priv
 | Salons | Permissions |
 |---|---|
 | Salons des messages permanents (`#bienvenue`, `#annonces`, `#planning-et-deadlines`, `#decisions-et-comptes-rendus`, `#documentation-et-preuves`) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages, Épingler des messages (si `PIN_PERMANENT_MESSAGES=true`) |
-| Salons des notifications GitLab (`#gitlab-activite`, `#builds-et-tests`) | Voir le salon, Envoyer des messages, Intégrer des liens |
+| Salons des notifications GitLab (`#gitlab-activite`, `#builds-et-tests`) | Voir le salon, Envoyer des messages, Intégrer des liens (et Voir les anciens messages, Épingler pour le tableau de bord de `#gitlab-activite`) |
+| Salon des alertes (`ALERTS_CHANNEL`, facultatif) | Voir le salon, Envoyer des messages, Intégrer des liens |
 
 `/admin diagnostic` indique, salon par salon, les permissions qui manquent.

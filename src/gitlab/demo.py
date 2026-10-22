@@ -24,13 +24,14 @@ import aiohttp
 from dotenv import load_dotenv
 
 from src.config import PROJECT_ROOT, ConfigError, Settings
-from src.gitlab.samples import merge_request_payload, pipeline_payload, push_payload
+from src.gitlab.samples import deployment_payload, merge_request_payload, pipeline_payload, push_payload
 from src.gitlab.webhook import WEBHOOK_PATH
 
 EVENTS = {
     "push": ("Push Hook", push_payload),
     "merge_request": ("Merge Request Hook", merge_request_payload),
     "pipeline": ("Pipeline Hook", pipeline_payload),
+    "deployment": ("Deployment Hook", deployment_payload),
 }
 
 

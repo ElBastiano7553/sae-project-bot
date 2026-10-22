@@ -15,7 +15,7 @@ from src.discord_bot.bot import SaeBot
 from src.discord_bot.embeds import health_embed, help_embed, project_embed
 from src.discord_bot.permissions import is_bot_admin
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
-from src.services.health import MessagesSummary, build_health_checks
+from src.services.health import AlertsSummary, HistorySummary, MessagesSummary, build_health_checks
 from src.services.help import entries_by_category
 
 log = logging.getLogger(__name__)
@@ -44,10 +44,30 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
         gitlab_last_event_at=bot.gitlab_events_repo.last_received_at(),
         database_schema=bot.database.schema_version,
         messages=_messages_summary(bot),
+        alerts=AlertsSummary(
+            channel_key=bot.settings.alerts_channel,
+            channel_bound=bot.settings.alerts_channel in bot.bindings_repo.get_all() if bot.settings.alerts_channel else False,
+            errors_24h=len(bot.bot_errors_repo.recent(_hours_ago(24), limit=1000)),
+        ),
+        history=_history_summary(bot),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at
     return health_embed(
         checks, uptime, __version__, last_error=bot.errors.last, error_count=bot.errors.total, title=title
+    )
+
+
+def _hours_ago(hours: int) -> str:
+    return (dt.datetime.now(dt.UTC) - dt.timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _history_summary(bot: SaeBot) -> HistorySummary:
+    first, total = bot.gitlab_events_repo.coverage()
+    return HistorySummary(
+        retention_days=bot.settings.history_retention_days,
+        events=total,
+        first_event_at=first,
+        deployments=len(bot.gitlab_events_repo.in_period(None, ("deployment",))),
     )
 
 

@@ -21,6 +21,7 @@ class HelpEntry:
 
 CATEGORIES = {
     "consultation": "🔎 Consulter",
+    "activite": "📈 Activité GitLab",
     "administration": "🔒 Administrer",
 }
 
@@ -33,6 +34,19 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         "consultation",
         "Résumé du projet : liens configurés, branche principale, derniers événements GitLab reçus.",
         "/project",
+    ),
+    HelpEntry(
+        "events",
+        "activite",
+        "Historique des événements GitLab reçus, filtrable par type, période et texte (type « erreurs » : admins).",
+        "/events type:Pipelines periode:7 derniers jours recherche:main",
+    ),
+    HelpEntry("stats", "activite", "Commits, merge requests, pipelines et déploiements sur une période, avec l'évolution.", "/stats periode:30 derniers jours"),
+    HelpEntry(
+        "leaderboard",
+        "activite",
+        "Contributions : MR fusionnées, approbations, jours actifs (les commits ne comptent pas). Pas de classement sans assez de données.",
+        "/leaderboard periode:30 derniers jours details:True",
     ),
     HelpEntry("setup", "administration", "Prévisualise la structure du serveur et les messages permanents, puis applique après confirmation.", "/setup", True),
     HelpEntry("refresh", "administration", "Met à jour les messages permanents sur place (tous, ou un seul).", "/refresh message:liens", True),
