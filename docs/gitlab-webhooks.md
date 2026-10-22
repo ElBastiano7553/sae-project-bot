@@ -69,7 +69,7 @@ requêtes vers le bot, sans ouvrir de port sur votre box ni dans le pare-feu Win
      pouvoir joindre le bot.
    - Un secret de moins de 16 caractères, un port ou un identifiant de projet
      invalide **désactivent la V2** (message d'erreur au démarrage et dans
-     `/health`), mais le reste du bot démarre normalement.
+     `/status`), mais le reste du bot démarre normalement.
 
 3. Relancez le bot (`Ctrl+C` puis `python -m src.main`). **Résultat attendu** :
 
@@ -79,7 +79,7 @@ requêtes vers le bot, sans ouvrir de port sur votre box ni dans le pare-feu Win
    ... | INFO | src.gitlab.webhook | Webhooks GitLab : écoute sur http://127.0.0.1:8080/webhooks/gitlab
    ```
 
-   (Les lignes « Migration » n'apparaissent qu'une fois.) Dans Discord, `/health`
+   (Les lignes « Migration » n'apparaissent qu'une fois.) Dans Discord, `/status`
    affiche **GitLab ✅ webhooks actifs**.
 
    Si Windows affiche une fenêtre « Pare-feu Windows Defender » pour Python,
@@ -267,12 +267,30 @@ montre la réponse du bot (`queued`, `duplicate`, `ignored`…).
 | 10 | Arrêter le bot (`Ctrl+C`), pousser un commit, relancer le bot, puis **Resend Request** sur la ligne en erreur de « Recent events » | rien pendant l'arrêt, puis la notification après le renvoi | erreur 502/530, puis 200 `queued` |
 | 11 | Commit contenant `@everyone` dans son message | le texte apparaît mais **personne n'est notifié** | 200 `queued` |
 
+## 6 bis. Contenu des notifications
+
+Chaque notification affiche uniquement les informations que GitLab envoie
+réellement dans le webhook ; un champ absent du webhook n'apparaît pas.
+
+| Événement | Informations affichées |
+|---|---|
+| Push | auteur, branche, nombre de commits reçus, derniers commits (hash court cliquable, message, auteur), fichiers distincts ajoutés / modifiés / supprimés (calculés sur les commits détaillés par GitLab, 20 au maximum), lien vers le *compare*, heure du dernier commit |
+| Merge request | titre, action (ouverte, mise à jour, approuvée, fusionnée, fermée…), auteur de l'action, branches source → cible, relecteurs, assignés, statut et blocage de fusion connus, lien direct |
+| Pipeline | statut réellement reçu (réussi, en échec, annulé…), branche, commit (lien), durée si connue, origine (push, MR, planification…), jobs bloquants en échec, lien direct |
+
+Le nombre de lignes ajoutées/supprimées n'est pas affiché : GitLab ne l'envoie pas
+dans le webhook. Un pipeline réussi n'est **jamais** présenté comme un déploiement.
+
+Tous les événements acceptés sont aussi enregistrés en base (titre, lien, branche,
+auteur, date) : `/project` affiche les derniers. Seuls les événements reçus depuis
+l'activation des webhooks sont connus du bot.
+
 ## 7. Réponses du bot (visibles dans « Recent events »)
 
 | Code | `status` | Signification |
 |---|---|---|
 | 200 | `queued` | accepté, la notification va être publiée |
-| 200 | `duplicate` | déjà reçu (même identifiant de livraison) : pas de second message |
+| 200 | `duplicate` | déjà reçu : même identifiant de livraison, ou même événement renvoyé sous un autre identifiant (même push, même pipeline au même statut, même action sur une MR) : pas de second message |
 | 200 | `ignored` | authentifié mais non notifié (type non géré, branche non suivie, pipeline en cours…) |
 | 400 | `invalid_json` / `invalid_payload` | corps illisible ou incomplet |
 | 401 | `unauthorized` | secret absent ou incorrect |
@@ -288,9 +306,9 @@ automatiquement un webhook qui échoue trop souvent.
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
-| `/health` : GitLab ⏸️ désactivé | `GITLAB_WEBHOOK_SECRET` vide | Remplissez-le (étape 3) et relancez le bot. |
-| `/health` : GitLab ❌ « configuration invalide » | secret de moins de 16 caractères, `WEBHOOK_PORT` ou `GITLAB_PROJECT_ID` invalide | Corrigez `.env` (le message dit quelle variable), relancez. La V1 fonctionne en attendant. |
-| `/health` : GitLab ❌ avec une erreur sur `gitlab.toml` | fichier `config/gitlab.toml` mal rempli | Corrigez la ligne indiquée, relancez. |
+| `/status` : GitLab ⏸️ désactivé | `GITLAB_WEBHOOK_SECRET` vide | Remplissez-le (étape 3) et relancez le bot. |
+| `/status` : GitLab ❌ « configuration invalide » | secret de moins de 16 caractères, `WEBHOOK_PORT` ou `GITLAB_PROJECT_ID` invalide | Corrigez `.env` (le message dit quelle variable), relancez. La V1 fonctionne en attendant. |
+| `/status` : GitLab ❌ avec une erreur sur `gitlab.toml` | fichier `config/gitlab.toml` mal rempli | Corrigez la ligne indiquée, relancez. |
 | `impossible d'écouter sur 127.0.0.1:8080` | port déjà utilisé (autre programme, bot lancé deux fois) | Fermez l'autre programme ou changez `WEBHOOK_PORT` (et le port du tunnel). La V1 continue de fonctionner. |
 | GitLab : `HTTP 401` | secret différent dans GitLab et `.env` | Recollez le même secret des deux côtés, sans espace. |
 | GitLab : `HTTP 403` | mauvais `GITLAB_PROJECT_ID` | Vérifiez l'identifiant numérique du projet. |

@@ -8,12 +8,18 @@ import discord
 
 from src.discord_bot.embeds import payload_to_embed, payload_to_view
 from src.services.content import MessagePayload, footer_for
-from src.services.permanent_messages import GatewayError
+from src.services.permanent_messages import GatewayError, MessageNotFound
 
 log = logging.getLogger(__name__)
 
 # Nombre de messages récents parcourus pour retrouver un message du bot si la base est perdue.
 HISTORY_SCAN_LIMIT = 50
+# Un message permanent ne doit jamais notifier personne, même si son texte contient @everyone.
+NO_MENTIONS = discord.AllowedMentions.none()
+
+
+class _ChannelNotFound(GatewayError):
+    pass
 
 
 class DiscordMessageGateway:
@@ -51,9 +57,9 @@ class DiscordMessageGateway:
         view = payload_to_view(payload)
         try:
             if view is None:
-                message = await channel.send(embed=payload_to_embed(payload))
+                message = await channel.send(embed=payload_to_embed(payload), allowed_mentions=NO_MENTIONS)
             else:
-                message = await channel.send(embed=payload_to_embed(payload), view=view)
+                message = await channel.send(embed=payload_to_embed(payload), view=view, allowed_mentions=NO_MENTIONS)
         except discord.Forbidden as exc:
             raise GatewayError(f"le bot ne peut pas écrire dans #{channel.name} (envoyer des messages / intégrer des liens)") from exc
         except discord.HTTPException as exc:
@@ -64,10 +70,10 @@ class DiscordMessageGateway:
         channel = await self._text_channel(channel_id)
         try:
             await channel.get_partial_message(message_id).edit(
-                embed=payload_to_embed(payload), view=payload_to_view(payload)
+                embed=payload_to_embed(payload), view=payload_to_view(payload), allowed_mentions=NO_MENTIONS
             )
         except discord.NotFound as exc:
-            raise GatewayError("le message a été supprimé pendant la mise à jour : relancez /refresh") from exc
+            raise MessageNotFound("le message a été supprimé pendant la mise à jour") from exc
         except discord.Forbidden as exc:
             raise GatewayError(f"modification refusée dans #{channel.name}") from exc
         except discord.HTTPException as exc:
@@ -80,13 +86,27 @@ class DiscordMessageGateway:
         except discord.HTTPException as exc:
             raise GatewayError(f"épinglage refusé dans #{channel.name}") from exc
 
+    async def delete(self, channel_id: int, message_id: int) -> None:
+        try:
+            channel = await self._text_channel(channel_id)
+        except _ChannelNotFound:
+            return  # l'ancien salon n'existe plus : son message a disparu avec lui
+        try:
+            await channel.get_partial_message(message_id).delete()
+        except discord.NotFound:
+            return
+        except discord.Forbidden as exc:
+            raise GatewayError(f"suppression refusée dans #{channel.name} (le bot n'a plus accès au salon ?)") from exc
+        except discord.HTTPException as exc:
+            raise GatewayError(f"erreur Discord ({exc.status}) en supprimant un message") from exc
+
     async def _text_channel(self, channel_id: int) -> discord.TextChannel:
         channel = self._client.get_channel(channel_id)
         if channel is None:
             try:
                 channel = await self._client.fetch_channel(channel_id)
             except discord.NotFound as exc:
-                raise GatewayError(f"le salon {channel_id} n'existe plus : relancez /setup") from exc
+                raise _ChannelNotFound(f"le salon {channel_id} n'existe plus : relancez /setup") from exc
             except discord.HTTPException as exc:
                 raise GatewayError(f"salon {channel_id} inaccessible ({exc.status})") from exc
         if not isinstance(channel, discord.TextChannel):

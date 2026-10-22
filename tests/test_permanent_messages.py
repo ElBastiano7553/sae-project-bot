@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from src.config import ConfigError
 from src.database import ManagedMessageRepository
 from src.services.content import MessagePayload, MessageTemplate, footer_for
-from src.services.permanent_messages import GatewayError, PermanentMessageService, SyncAction
+from src.services.permanent_messages import GatewayError, MessageNotFound, PermanentMessageService, SyncAction
 
 CHANNEL = 111
 OTHER_CHANNEL = 222
@@ -23,6 +26,11 @@ class FakeGateway:
         self.pinned: list[int] = []
         self.fail_pin = False
         self.fail_send = False
+        self.fail_edit = False
+        self.fail_delete = False
+        self.vanish_on_edit = False  # le message disparaît entre la vérification et la modification
+        self.deleted: list[int] = []
+        self.slow = False  # rend la main à la boucle pendant l'envoi (pour tester la concurrence)
 
     async def message_exists(self, channel_id, message_id):
         return message_id in self.messages and self.messages[message_id][0] == channel_id
@@ -36,6 +44,8 @@ class FakeGateway:
     async def send(self, channel_id, payload):
         if self.fail_send:
             raise GatewayError("accès refusé")
+        if self.slow:
+            await asyncio.sleep(0)
         message_id = self.next_id
         self.next_id += 1
         self.messages[message_id] = (channel_id, payload)
@@ -43,8 +53,19 @@ class FakeGateway:
         return message_id
 
     async def edit(self, channel_id, message_id, payload):
+        if self.fail_edit:
+            raise GatewayError("modification refusée")
+        if self.vanish_on_edit:
+            del self.messages[message_id]
+            raise MessageNotFound("message supprimé")
         self.messages[message_id] = (channel_id, payload)
         self.edited += 1
+
+    async def delete(self, channel_id, message_id):
+        if self.fail_delete:
+            raise GatewayError("suppression refusée")
+        self.messages.pop(message_id, None)
+        self.deleted.append(message_id)
 
     async def pin(self, channel_id, message_id):
         if self.fail_pin:
@@ -137,13 +158,112 @@ async def test_lost_database_adopts_existing_message(service, gateway, repo):
     assert repo.get("bienvenue") is not None
 
 
-async def test_channel_change_publishes_in_new_channel_without_deleting(service, gateway, repo):
+async def test_channel_change_moves_message_without_leaving_a_duplicate(service, gateway, repo):
+    # Lot 1 : à la demande de l'équipe, l'ancien message du bot n'est plus laissé dans l'ancien salon.
     await service.sync(BINDINGS)
     old_id = repo.get("bienvenue").message_id
     results = await service.sync({**BINDINGS, "bienvenue": OTHER_CHANNEL})
     assert actions(results)["bienvenue"] is SyncAction.MOVE
-    assert old_id in gateway.messages  # l'ancien message n'est jamais supprimé
+    assert old_id not in gateway.messages
+    assert gateway.deleted == [old_id]
     assert repo.get("bienvenue").channel_id == OTHER_CHANNEL
+    assert "ancien message supprimé" in results[0].detail
+
+
+async def test_move_preview_announces_the_deletion_without_doing_it(service, gateway, repo):
+    await service.sync(BINDINGS)
+    results = await service.plan({**BINDINGS, "bienvenue": OTHER_CHANNEL})
+    assert actions(results)["bienvenue"] is SyncAction.MOVE
+    assert "sera supprimé" in results[0].detail
+    assert gateway.deleted == []
+    assert repo.get("bienvenue").channel_id == CHANNEL
+
+
+async def test_move_keeps_new_message_when_old_one_cannot_be_deleted(service, gateway, repo):
+    await service.sync(BINDINGS)
+    gateway.fail_delete = True
+    results = await service.sync({**BINDINGS, "bienvenue": OTHER_CHANNEL})
+    assert actions(results)["bienvenue"] is SyncAction.MOVE
+    assert "supprimez-le à la main" in results[0].detail
+    assert repo.get("bienvenue").channel_id == OTHER_CHANNEL
+    # Une nouvelle actualisation ne republie rien : le nouveau message est bien enregistré.
+    await service.sync({**BINDINGS, "bienvenue": OTHER_CHANNEL})
+    assert gateway.sent == 3
+
+
+async def test_concurrent_refreshes_do_not_create_duplicates(repo, gateway, renderer):
+    gateway.slow = True
+    lock = asyncio.Lock()
+    first = PermanentMessageService(repo, gateway, TEMPLATES, renderer, lock=lock)
+    second = PermanentMessageService(repo, gateway, TEMPLATES, renderer, lock=lock)
+    results = await asyncio.gather(first.sync(BINDINGS), second.sync(BINDINGS))
+    assert gateway.sent == 2  # un seul message par clé
+    assert set(actions(results[1]).values()) == {SyncAction.UNCHANGED}
+
+
+async def test_failed_edit_keeps_database_consistent(service, gateway, renderer, repo):
+    await service.sync(BINDINGS)
+    before = repo.get("bienvenue")
+    renderer.text = "Version 2"
+    gateway.fail_edit = True
+    results = await service.sync(BINDINGS)
+    assert actions(results)["bienvenue"] is SyncAction.ERROR
+    after = repo.get("bienvenue")
+    assert (after.message_id, after.content_hash) == (before.message_id, before.content_hash)
+    assert after.last_error == "modification refusée"
+    gateway.fail_edit = False
+    results = await service.sync(BINDINGS)  # la mise à jour est retentée, sans doublon
+    assert actions(results)["bienvenue"] is SyncAction.UPDATE
+    assert repo.get("bienvenue").last_error is None
+    assert gateway.sent == 2
+
+
+async def test_message_deleted_during_edit_is_recreated(service, gateway, renderer, repo):
+    await service.sync(BINDINGS)
+    renderer.text = "Version 2"
+    gateway.vanish_on_edit = True
+    results = await service.sync(BINDINGS, keys=["bienvenue"])
+    assert actions(results) == {"bienvenue": SyncAction.RECREATE}
+    assert gateway.sent == 3
+
+
+async def test_sync_selected_keys_only(service, gateway):
+    results = await service.sync(BINDINGS, keys=["annonces"])
+    assert actions(results) == {"annonces": SyncAction.CREATE}
+    assert gateway.sent == 1
+    with pytest.raises(ConfigError):
+        await service.sync(BINDINGS, keys=["inconnu"])
+
+
+async def test_rebuild_publishes_new_message_then_deletes_old_one(service, gateway, repo):
+    await service.sync(BINDINGS)
+    old_id = repo.get("bienvenue").message_id
+    preview = await service.rebuild("bienvenue", BINDINGS, apply=False)
+    assert preview.action is SyncAction.REBUILD and gateway.deleted == []
+    result = await service.rebuild("bienvenue", BINDINGS)
+    assert result.action is SyncAction.REBUILD
+    new_id = repo.get("bienvenue").message_id
+    assert new_id != old_id and new_id in gateway.messages
+    assert gateway.deleted == [old_id]
+
+
+async def test_rebuild_failure_keeps_old_message(service, gateway, repo):
+    await service.sync(BINDINGS)
+    old_id = repo.get("bienvenue").message_id
+    gateway.fail_send = True
+    result = await service.rebuild("bienvenue", BINDINGS)
+    assert result.action is SyncAction.ERROR
+    assert repo.get("bienvenue").message_id == old_id
+    assert old_id in gateway.messages and gateway.deleted == []
+
+
+async def test_restart_finds_existing_messages(db, gateway, renderer):
+    first = PermanentMessageService(ManagedMessageRepository(db), gateway, TEMPLATES, renderer)
+    await first.sync(BINDINGS)
+    restarted = PermanentMessageService(ManagedMessageRepository(db), gateway, TEMPLATES, renderer)
+    results = await restarted.sync(BINDINGS)
+    assert set(actions(results).values()) == {SyncAction.UNCHANGED}
+    assert gateway.sent == 2
 
 
 async def test_missing_channel_is_skipped(service, gateway):

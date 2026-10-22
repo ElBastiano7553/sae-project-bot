@@ -1,19 +1,26 @@
 # SAE Project Bot
 
 Bot Discord de l'équipe SAE EPITA (serveur « SAE · GAME DEV »). Il centralise les
-informations du projet, publie des messages permanents et, dans les versions
-suivantes, relaiera l'activité GitLab et proposera des bilans assistés par IA.
+informations du projet, publie des messages permanents tenus à jour, relaie
+l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
+et bilans assistés par IA.
 
-## État actuel : V2
+## État actuel : V2 + lot 1 (version 0.3.0)
 
 | Fonction | État |
 |---|---|
 | Reconnaissance des catégories et salons existants (sans jamais en créer) | ✅ V1 |
-| Messages permanents idempotents (#bienvenue, #annonces, #planning-et-deadlines, #decisions-et-comptes-rendus, #documentation-et-preuves) | ✅ V1 |
-| `/health`, `/config`, `/setup` (prévisualisation + bouton de confirmation), `/refresh` | ✅ V1 |
-| Notifications GitLab par webhooks : push, merge requests, pipelines (désactivées tant que `GITLAB_WEBHOOK_SECRET` est vide) | ✅ V2 |
-| Commandes de consultation et bilans GitLab | ⏳ V3 |
-| IA générative et journal IA | ⏳ V4 |
+| Messages permanents idempotents : mise à jour sur place, recréation automatique s'ils sont supprimés, déplacement sans doublon, verrou contre les actualisations simultanées | ✅ V1 + lot 1 |
+| Liens non configurés : version provisoire « À compléter » (obligatoire / facultatif), sans URL inventée | ✅ lot 1 |
+| Annonce en cours modifiable depuis Discord (`/announce`, prévisualisation + confirmation) | ✅ lot 1 |
+| Identité visuelle commune des embeds (vert / rouge / orange / bleu, horodatages Discord, limites respectées) | ✅ lot 1 |
+| Notifications GitLab par webhooks : push (fichiers, hash, compare), merge requests (relecteurs, statut), pipelines (commit, durée, origine) ; doublons écartés même sous un autre identifiant | ✅ V2 + lot 1 |
+| `/help`, `/status`, `/project`, `/admin messages`, `/admin rebuild`, `/admin diagnostic`, `/admin history` | ✅ lot 1 |
+| Historique GitLab consultable, statistiques, leaderboard, tableau de bord, alertes | ⏳ lot 2 |
+| IA : `/ask`, `/summary`, `/review` | ⏳ lot 3 |
+| Sauvegardes, Docker, déploiement chez La Banquise | ⏳ lot 4 |
+
+Rien de ce qui est marqué ⏳ n'est disponible : `/help` ne liste que les commandes réellement présentes.
 
 ## Démarrage rapide (Windows, PowerShell)
 
@@ -45,21 +52,27 @@ python -m src.gitlab.demo push
 
 | Commande | Qui | Effet |
 |---|---|---|
-| `/health` | tout le monde | état du bot, de la base, des salons et des intégrations (dont les webhooks GitLab) |
+| `/help` | tout le monde | aide par catégorie, avec exemples |
+| `/status` (ancien nom : `/health`) | tout le monde | état mesuré du bot, de la base, des salons, des messages, de GitLab et de l'IA, dernière erreur |
+| `/project` | tout le monde | liens configurés, branche principale, derniers événements GitLab reçus |
+| `/setup` | admins | prévisualise la structure et les messages, puis applique après clic sur **Confirmer** (2 min) |
+| `/refresh [message]` | admins | met à jour les messages permanents sur place, recrée ceux qui ont été supprimés |
 | `/config` | admins | réglages (sans secret), salons associés, liens vers les messages gérés |
-| `/setup` | admins | prévisualise la structure et les messages, puis applique après clic sur **Confirmer** (expire après 2 min) |
-| `/refresh` | admins | met à jour les messages permanents et recrée ceux qui ont été supprimés |
+| `/announce` | admins | rédige ou modifie l'annonce en cours de `#annonces` (prévisualisation puis confirmation) |
+| `/admin messages` · `rebuild` · `diagnostic` · `history` | admins | état des messages, reconstruction confirmée, permissions par salon, journal des actions |
 
 « Admins » : membres ayant la permission « Gérer le serveur » ou le rôle défini
-dans `ADMIN_ROLE_NAME`. Toutes les réponses sont visibles uniquement par la
-personne qui lance la commande.
+dans `ADMIN_ROLE_NAME` (vérifié par le bot à chaque appel). Toutes les réponses
+sont visibles uniquement par la personne qui lance la commande. Détails et
+permissions nécessaires : [docs/commands.md](docs/commands.md).
 
 ## Modifier le contenu
 
 | Je veux… | Fichier | Puis |
 |---|---|---|
 | changer le texte d'un message permanent | `content/messages/<salon>.toml` | `/refresh` |
-| ajouter un lien (README, GitLab, journal IA…) | `config/links.toml` | `/refresh` |
+| ajouter un lien (README, GitLab, journal IA…) ou le rendre obligatoire | `config/links.toml` | `/refresh` |
+| publier ou modifier l'annonce en cours | Discord : `/announce` | (immédiat après confirmation) |
 | ajouter une échéance ou une prochaine étape | `config/planning.toml` | `/refresh` |
 | adapter le nom d'un salon | `config/server.toml` | `/setup` |
 | choisir les salons, branches et événements GitLab notifiés | `config/gitlab.toml` | redémarrer le bot |
@@ -68,7 +81,11 @@ personne qui lance la commande.
 
 - Aucun secret dans le code : tout passe par `.env`, ignoré par Git.
 - Le bot n'a pas besoin de la permission Administrateur ni d'aucun intent privilégié.
-- Il ne crée, ne renomme et ne supprime aucun salon, rôle ou message d'utilisateur.
+- Aucun message du bot ne peut notifier `@everyone`, un rôle ou un membre (mentions désactivées partout).
+- Les secrets définis dans `.env` sont masqués (`***`) dans tous les journaux.
+- Les erreurs montrées sur Discord ne contiennent ni trace d'appel ni détail interne.
+- Il ne crée, ne renomme et ne supprime aucun salon, rôle ou message d'utilisateur ; il ne
+  supprime que ses propres messages permanents (déplacement de salon, reconstruction confirmée).
 - Webhooks GitLab : secret vérifié à temps constant avant toute lecture, JSON et taille
   contrôlés, événements dédupliqués, textes GitLab nettoyés (aucune mention possible).
 - Les commandes d'administration sont protégées deux fois : permission par défaut
@@ -76,7 +93,8 @@ personne qui lance la commande.
 
 ## Documentation
 
-- [Architecture, flux de données et plan V1 à V5](docs/architecture.md)
+- [Architecture, flux de données et plan des lots](docs/architecture.md)
+- [Commandes et permissions](docs/commands.md)
 - [Guide d'installation Windows](docs/installation-windows.md)
 - [Configurer et tester les notifications GitLab (V2)](docs/gitlab-webhooks.md)
 

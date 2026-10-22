@@ -6,6 +6,9 @@ from src.gitlab.events import InvalidPayload
 from src.gitlab.rules import GitLabRules
 from src.gitlab.samples import pipeline_payload, push_payload
 
+# Un autre push (autre commit final) : un fait GitLab différent du premier, donc non dédupliqué.
+OTHER_PUSH = {"after": "1" * 40}
+
 RULES = GitLabRules(routes={"push": "gitlab_activite", "merge_request": "gitlab_activite", "pipeline": "builds"})
 BINDINGS = {"gitlab_activite": 100, "builds": 200}
 
@@ -78,10 +81,10 @@ async def test_invalid_payload_is_not_stored(repo):
 async def test_full_queue_releases_the_event_so_gitlab_can_retry(repo):
     dispatcher = make(repo, queue_size=1)
     assert dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload())) is SubmitStatus.QUEUED
-    assert dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload())) is SubmitStatus.BUSY
+    assert dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload(**OTHER_PUSH))) is SubmitStatus.BUSY
     assert repo.get_status("push:uuid-2") is None
     await dispatcher.drain()
-    assert dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload())) is SubmitStatus.QUEUED
+    assert dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload(**OTHER_PUSH))) is SubmitStatus.QUEUED
 
 
 async def test_unbound_channel_is_skipped_without_error(repo):
@@ -155,7 +158,7 @@ async def test_worker_survives_unexpected_errors(repo):
     dispatcher = NotificationDispatcher(repo, RULES, sender, flaky_bindings, retry_delays=())
     task = asyncio.create_task(dispatcher.run())
     dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload()))
-    dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload()))
+    dispatcher.submit(IncomingEvent("push", "uuid-2", push_payload(**OTHER_PUSH)))
     for _ in range(20):
         await asyncio.sleep(0)
     assert not task.done()
@@ -196,3 +199,56 @@ async def test_notification_json_round_trip():
 
     notification = format_pipeline(pipeline_payload(), RULES)
     assert notification_from_json(notification_to_json(notification)) == notification
+
+
+# --- Lot 1 : déduplication par contenu et historique ----------------------------
+
+
+async def test_same_fact_redelivered_with_new_identifier_is_notified_once(repo):
+    sender = FakeSender()
+    dispatcher = make(repo, sender)
+    assert dispatcher.submit(IncomingEvent("pipeline", "uuid-1", pipeline_payload())) is SubmitStatus.QUEUED
+    # « Resend request » dans GitLab : nouvel identifiant de livraison, même pipeline, même statut.
+    assert dispatcher.submit(IncomingEvent("pipeline", "uuid-2", pipeline_payload())) is SubmitStatus.DUPLICATE
+    assert dispatcher.submit(IncomingEvent("pipeline", "uuid-3", pipeline_payload(status="success"))) is SubmitStatus.QUEUED
+    await dispatcher.drain()
+    assert len(sender.sent) == 2
+
+
+async def test_accepted_events_are_recorded_in_history(db, repo):
+    from src.database import KeyValueRepository
+    from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
+
+    state = KeyValueRepository(db)
+    dispatcher = NotificationDispatcher(repo, RULES, FakeSender(), lambda: BINDINGS, retry_delays=(), state=state)
+    dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload()))
+    dispatcher.submit(IncomingEvent("pipeline", "uuid-2", pipeline_payload()))
+    await dispatcher.drain()
+    records = repo.recent()
+    assert [r.event_type for r in records] == ["pipeline", "push"]
+    assert records[0].action == "failed" and records[0].ref == "main" and records[0].status == "sent"
+    assert records[0].url == "https://gitlab.com/epita/sae-game/-/pipelines/31"
+    assert repo.recent(("push",))[0].author == "Alice Martin"
+    assert repo.latest_pipeline("main").title.startswith("❌ Pipeline #31")
+    assert repo.latest_pipeline("autre") is None
+    assert state.get(DEFAULT_BRANCH_KEY) == "main"
+
+
+async def test_released_event_frees_its_dedup_key(repo):
+    dispatcher = make(repo, queue_size=1)
+    dispatcher.submit(IncomingEvent("push", "uuid-1", push_payload()))
+    assert dispatcher.submit(IncomingEvent("pipeline", "uuid-2", pipeline_payload())) is SubmitStatus.BUSY
+    await dispatcher.drain()
+    assert dispatcher.submit(IncomingEvent("pipeline", "uuid-3", pipeline_payload())) is SubmitStatus.QUEUED
+
+
+async def test_old_notification_json_without_new_fields_is_still_replayed(db, repo):
+    import json
+
+    old = {"kind": "push", "title": "📤 1 commit", "description": "x", "color": 1, "url": None, "fields": [], "footer": ""}
+    repo.claim("push:ancien", "push", json.dumps(old))
+    sender = FakeSender()
+    dispatcher = make(repo, sender)
+    assert dispatcher.restore_pending() == 1
+    await dispatcher.drain()
+    assert sender.sent[0][1].title == "📤 1 commit"

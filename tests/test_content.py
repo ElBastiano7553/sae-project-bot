@@ -3,9 +3,20 @@ import re
 
 import pytest
 
-from src.config import ConfigError, Deadline, NextStep, Planning, load_links, load_server_layout
+from src.config import (
+    ConfigError,
+    Deadline,
+    LinkCatalog,
+    NextStep,
+    Planning,
+    load_link_catalog,
+    load_links,
+    load_server_layout,
+)
 from src.services import text_limits as limits
 from src.services.content import (
+    MISSING_FIELD_NAME,
+    Announcement,
     ButtonTemplate,
     FieldTemplate,
     MessageTemplate,
@@ -28,7 +39,9 @@ def test_all_real_templates_render_and_target_known_channels():
     layout = load_server_layout()
     links = load_links()
     templates = load_message_templates()
-    assert {t.key for t in templates} == {"annonces", "bienvenue", "decisions", "documentation", "planning"}
+    assert {t.key for t in templates} == {
+        "annonce-en-cours", "annonces", "bienvenue", "decisions", "documentation", "liens", "planning"
+    }
     for t in templates:
         assert t.channel_key in layout.channels
         payload = render_message(t, links, EMPTY_PLANNING, TODAY)
@@ -116,3 +129,92 @@ def test_many_deadlines_are_split_into_several_fields():
     deadline_fields = [f for f in payload.fields if f.name.startswith("📌")]
     assert len(deadline_fields) > 1
     assert all(len(f.value) <= limits.FIELD_VALUE for f in payload.fields)
+
+
+# --- Lot 1 : liens provisoires, message de liens, annonce ------------------------
+
+CATALOG = LinkCatalog(
+    urls={"repo": "", "doc": "", "board": "https://gitlab.com/b"},
+    labels={"repo": "Dépôt", "doc": "Documentation", "board": "Tableau"},
+    required=frozenset({"repo"}),
+)
+
+
+def test_missing_links_produce_a_provisional_section_without_inventing_urls():
+    t = template(description="Dépôt : {{repo}}", buttons=(ButtonTemplate("Doc", "doc"), ButtonTemplate("Tableau", "board")))
+    payload = render_message(t, CATALOG, EMPTY_PLANNING, TODAY)
+    assert payload.missing_links == ("repo", "doc")
+    assert payload.provisional
+    section = {f.name: f.value for f in payload.fields}[MISSING_FIELD_NAME]
+    assert "Dépôt — **obligatoire**" in section and "Documentation — facultatif" in section
+    assert "Version provisoire" in section
+    assert [b.url for b in payload.buttons] == ["https://gitlab.com/b"]
+    assert "https://" not in payload.description  # aucune URL inventée
+
+
+def test_completing_links_removes_the_section_and_changes_the_hash():
+    t = template(description="Dépôt : {{repo}}")
+    before = render_message(t, CATALOG, EMPTY_PLANNING, TODAY)
+    filled = LinkCatalog(urls={**CATALOG.urls, "repo": "https://gitlab.com/r"}, labels=CATALOG.labels, required=CATALOG.required)
+    after = render_message(t, filled, EMPTY_PLANNING, TODAY)
+    assert not after.provisional
+    assert MISSING_FIELD_NAME not in {f.name for f in after.fields}
+    assert after.content_hash() != before.content_hash()  # /refresh modifiera donc le même message
+
+
+def test_only_optional_links_missing_is_not_called_provisional_text():
+    t = template(buttons=(ButtonTemplate("Doc", "doc"),))
+    section = {f.name: f.value for f in render_message(t, CATALOG, EMPTY_PLANNING, TODAY).fields}[MISSING_FIELD_NAME]
+    assert "Version provisoire" not in section and "facultatifs" in section
+
+
+def test_links_message_lists_configured_and_missing_links():
+    t = template(dynamic="links")
+    payload = render_message(t, CATALOG, EMPTY_PLANNING, TODAY)
+    fields = {f.name: f.value for f in payload.fields}
+    assert fields["🔗 Liens disponibles"] == "• [Tableau](https://gitlab.com/b)"
+    assert fields[MISSING_FIELD_NAME].index("Dépôt") < fields[MISSING_FIELD_NAME].index("Documentation")
+    assert payload.missing_links == ("repo", "doc")
+
+
+def test_announcement_message_without_announcement_shows_placeholder():
+    t = template(dynamic="announcement", title="📣 Annonce en cours", description="Aucune annonce.")
+    payload = render_message(t, CATALOG, EMPTY_PLANNING, TODAY)
+    assert (payload.title, payload.description) == ("📣 Annonce en cours", "Aucune annonce.")
+
+
+def test_announcement_message_shows_stored_announcement():
+    t = template(dynamic="announcement", title="📣 Annonce en cours", description="Aucune annonce.")
+    announcement = Announcement("Réunion lundi", "Salle 302 à 14 h.", "Alice", "2026-10-22T13:00:00+00:00")
+    payload = render_message(t, CATALOG, EMPTY_PLANNING, TODAY, announcement=announcement)
+    assert payload.title == "📣 Réunion lundi"
+    assert payload.description == "Salle 302 à 14 h."
+    assert "par **Alice**" in payload.fields[0].value and "<t:" in payload.fields[0].value
+
+
+def test_unknown_dynamic_kind_is_rejected_when_loading(tmp_path):
+    (tmp_path / "x.toml").write_text('channel = "a"\ntitle = "t"\ndescription = "d"\ndynamic = "magie"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="dynamic"):
+        load_message_templates(tmp_path)
+
+
+def test_real_link_catalog_declares_labels_and_required_links():
+    catalog = load_link_catalog()
+    assert catalog.required <= set(catalog.urls)
+    assert all(key in catalog.labels for key in catalog.urls)
+
+
+@pytest.mark.parametrize(
+    "content, error",
+    [
+        ('[links]\na = "https://user:mdp@gitlab.com"\n', "identifiant"),
+        ('[links]\na = "https://gitlab.com/a b"\n', "sans espace"),
+        ('required = ["b"]\n[links]\na = ""\n', "required"),
+        ('[links]\na = ""\n[labels]\nb = "B"\n', "labels"),
+    ],
+)
+def test_invalid_link_catalog(tmp_path, content, error):
+    path = tmp_path / "links.toml"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(ConfigError, match=error):
+        load_link_catalog(path)

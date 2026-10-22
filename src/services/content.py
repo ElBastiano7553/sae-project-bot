@@ -14,13 +14,19 @@ import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from src.config import CONTENT_DIR, ConfigError, Deadline, Planning, load_toml
+from src.config import CONTENT_DIR, ConfigError, Deadline, LinkCatalog, Planning, load_toml
 from src.services import text_limits as limits
+from src.services.design import Color, discord_timestamp, parse_timestamp
 
 FOOTER_PREFIX = "Message géré par SAE Project Bot · réf."
-DEFAULT_COLOR = 0x5865F2
+DEFAULT_COLOR = int(Color.INFO)
 _PLACEHOLDER = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
 _MISSING_LINK = "*lien à configurer*"
+MISSING_FIELD_NAME = "🛠️ À compléter"
+# Contenus calculés par le bot (clé « dynamic » d'un fichier de content/messages/).
+DYNAMIC_KINDS = {"planning", "links", "announcement"}
+ANNOUNCEMENT_TITLE_MAX = 200
+ANNOUNCEMENT_BODY_MAX = 3500
 
 
 @dataclass(frozen=True)
@@ -45,7 +51,7 @@ class MessageTemplate:
     color: int = DEFAULT_COLOR
     fields: tuple[FieldTemplate, ...] = ()
     buttons: tuple[ButtonTemplate, ...] = ()
-    dynamic: str | None = None  # "planning" pour ajouter les échéances
+    dynamic: str | None = None  # "planning", "links" ou "announcement" (voir DYNAMIC_KINDS)
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,16 @@ class LinkButton:
 
 
 @dataclass(frozen=True)
+class Announcement:
+    """Annonce publiée depuis Discord avec /announce (stockée en base, jamais inventée)."""
+
+    title: str
+    body: str
+    author: str = ""
+    updated_at: str = ""  # ISO 8601 UTC
+
+
+@dataclass(frozen=True)
 class MessagePayload:
     title: str
     description: str
@@ -69,6 +85,12 @@ class MessagePayload:
     footer: str
     fields: tuple[EmbedField, ...] = ()
     buttons: tuple[LinkButton, ...] = ()
+    # Liens utilisés par le message mais pas encore renseignés : le message est « provisoire ».
+    missing_links: tuple[str, ...] = ()
+
+    @property
+    def provisional(self) -> bool:
+        return bool(self.missing_links)
 
     def content_hash(self) -> str:
         """Empreinte du contenu : sert à ne modifier un message que s'il a changé."""
@@ -109,10 +131,18 @@ def _parse_template(path: Path) -> MessageTemplate:
                 for f in data.get("fields", [])
             ),
             buttons=tuple(ButtonTemplate(_text(b, "label", where), _text(b, "link", where)) for b in data.get("buttons", [])),
-            dynamic=data.get("dynamic"),
+            dynamic=_parse_dynamic(data.get("dynamic"), where),
         )
     except (TypeError, AttributeError) as exc:
         raise ConfigError(f"{where} : structure invalide ({exc}).") from exc
+
+
+def _parse_dynamic(raw: object, where: str) -> str | None:
+    if raw is None:
+        return None
+    if raw not in DYNAMIC_KINDS:
+        raise ConfigError(f"{where} : « dynamic » doit valoir {', '.join(sorted(DYNAMIC_KINDS))} (valeur : {raw!r}).")
+    return str(raw)
 
 
 def _text(table: dict, key: str, where: str) -> str:
@@ -137,54 +167,123 @@ def _parse_color(raw: object, where: str) -> int:
 
 def render_message(
     template: MessageTemplate,
-    links: dict[str, str],
+    links: dict[str, str] | LinkCatalog,
     planning: Planning,
     today: dt.date | None = None,
+    *,
+    announcement: Announcement | None = None,
 ) -> MessagePayload:
-    """Construit le contenu final d'un message en respectant les limites de Discord."""
+    """Construit le contenu final d'un message en respectant les limites de Discord.
+
+    Un lien vide n'est jamais remplacé par une adresse inventée : le texte indique
+    « lien à configurer », le bouton est masqué et une section « À compléter » liste
+    les liens manquants en distinguant les obligatoires des facultatifs.
+    """
+    catalog = links if isinstance(links, LinkCatalog) else LinkCatalog(urls=dict(links))
+    used: list[str] = []
+    title = template.title
+    description = _fill_links(template.description, catalog.urls, template.key, used)
     fields = [
         EmbedField(
-            limits.truncate(_fill_links(f.name, links, template.key), limits.FIELD_NAME),
-            limits.truncate(_fill_links(f.value, links, template.key), limits.FIELD_VALUE),
+            limits.truncate(_fill_links(f.name, catalog.urls, template.key, used), limits.FIELD_NAME),
+            limits.truncate(_fill_links(f.value, catalog.urls, template.key, used), limits.FIELD_VALUE),
             f.inline,
         )
         for f in template.fields
     ]
     if template.dynamic == "planning":
         fields.extend(planning_fields(planning, today or dt.date.today()))
+    elif template.dynamic == "links":
+        fields.extend(link_fields(catalog))
+        used.extend(catalog.urls)
+    elif template.dynamic == "announcement":
+        title, description, extra = announcement_content(template, announcement)
+        fields.extend(extra)
     elif template.dynamic is not None:
         raise ConfigError(f"{template.key}.toml : valeur « dynamic » inconnue : {template.dynamic!r}.")
 
+    buttons = _buttons(template, catalog.urls, used)
+    missing = tuple(dict.fromkeys(key for key in used if not catalog.urls.get(key)))
+    if missing and template.dynamic != "links":  # le message de liens a déjà sa propre section
+        fields.append(missing_links_field(catalog, missing))
+
     payload = MessagePayload(
-        title=limits.truncate(template.title, limits.EMBED_TITLE),
-        description=limits.truncate(_fill_links(template.description, links, template.key), limits.EMBED_DESCRIPTION),
+        title=limits.truncate(title, limits.EMBED_TITLE),
+        description=limits.truncate(description, limits.EMBED_DESCRIPTION),
         color=template.color,
         footer=footer_for(template.key),
         fields=tuple(fields[: limits.EMBED_FIELDS]),
-        buttons=_buttons(template, links),
+        buttons=buttons,
+        missing_links=missing,
     )
     return _fit_total(payload)
 
 
-def _fill_links(text: str, links: dict[str, str], key: str) -> str:
+def _fill_links(text: str, links: dict[str, str], key: str, used: list[str]) -> str:
     def replace(match: re.Match[str]) -> str:
         link_key = match.group(1)
         if link_key not in links:
             raise ConfigError(f"{key}.toml : le lien « {link_key} » n'existe pas dans config/links.toml.")
+        used.append(link_key)
         return links[link_key] or _MISSING_LINK
 
     return _PLACEHOLDER.sub(replace, text)
 
 
-def _buttons(template: MessageTemplate, links: dict[str, str]) -> tuple[LinkButton, ...]:
+def _buttons(template: MessageTemplate, links: dict[str, str], used: list[str]) -> tuple[LinkButton, ...]:
     buttons: list[LinkButton] = []
     for button in template.buttons:
         if button.link not in links:
             raise ConfigError(f"{template.key}.toml : le bouton « {button.label} » utilise un lien inconnu « {button.link} ».")
+        used.append(button.link)
         url = links[button.link]
         if url:  # un lien non configuré masque simplement le bouton
             buttons.append(LinkButton(limits.truncate(button.label, limits.BUTTON_LABEL), url))
     return tuple(buttons[: limits.BUTTONS_PER_MESSAGE])
+
+
+def missing_links_field(catalog: LinkCatalog, missing: tuple[str, ...] | list[str]) -> EmbedField:
+    ordered = sorted(missing, key=lambda key: not catalog.is_required(key))
+    lines = [
+        f"• {catalog.label(key)} — {'**obligatoire**' if catalog.is_required(key) else 'facultatif'}" for key in ordered
+    ]
+    if any(catalog.is_required(key) for key in ordered):
+        lines.append("*Version provisoire : renseignez `config/links.toml`, puis `/refresh` met à jour ce message.*")
+    else:
+        lines.append("*Liens facultatifs : à ajouter dans `config/links.toml` quand ils existeront.*")
+    return EmbedField(MISSING_FIELD_NAME, limits.truncate("\n".join(lines), limits.FIELD_VALUE))
+
+
+def link_fields(catalog: LinkCatalog) -> list[EmbedField]:
+    """Message « liens utiles » : liens renseignés cliquables, puis ceux qui restent à compléter."""
+    configured = [f"• [{catalog.label(key)}]({url})" for key, url in catalog.urls.items() if url]
+    fields: list[EmbedField] = []
+    if configured:
+        fields.extend(_chunked_fields("🔗 Liens disponibles", configured))
+    else:
+        fields.append(EmbedField("🔗 Liens disponibles", "*Aucun lien n'est encore renseigné.*"))
+    if catalog.missing:
+        fields.append(missing_links_field(catalog, catalog.missing))
+    return fields
+
+
+def announcement_content(
+    template: MessageTemplate, announcement: Announcement | None
+) -> tuple[str, str, list[EmbedField]]:
+    """Titre, texte et champs du message d'annonce. Sans annonce enregistrée : texte du fichier TOML."""
+    if announcement is None or not announcement.body.strip():
+        return template.title, template.description, []
+    title = announcement.title.strip() or template.title
+    if not title.startswith(("📣", "📢")):
+        title = f"📣 {title}"
+    details = []
+    if announcement.author:
+        details.append(f"par **{announcement.author}**")
+    moment = parse_timestamp(announcement.updated_at)
+    if moment:
+        details.append(f"mise à jour {discord_timestamp(moment, 'f')}")
+    fields = [EmbedField("ℹ️ Publication", " · ".join(details))] if details else []
+    return title, announcement.body.strip(), fields
 
 
 def planning_fields(planning: Planning, today: dt.date) -> list[EmbedField]:

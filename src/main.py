@@ -14,12 +14,21 @@ import aiohttp
 import discord
 from dotenv import load_dotenv
 
-from src.config import PROJECT_ROOT, ConfigError, Settings, load_links, load_planning, load_server_layout
+from src.config import (
+    PROJECT_ROOT,
+    ConfigError,
+    Settings,
+    load_link_catalog,
+    load_planning,
+    load_server_layout,
+    secret_values,
+)
 from src.database import Database
 from src.discord_bot.bot import SaeBot
 from src.gitlab.rules import load_gitlab_rules
 from src.logging_setup import setup_logging
 from src.services.content import load_message_templates
+from src.services.monitoring import RecentErrors
 
 log = logging.getLogger("sae_bot")
 
@@ -35,7 +44,7 @@ def check_content_files(*, gitlab_enabled: bool = False) -> None:
             load_gitlab_rules(channel_keys=layout.channels.keys())
         except ConfigError as exc:
             log.error("Webhooks GitLab désactivés : %s", exc)
-    load_links()
+    load_link_catalog()
     load_planning()
     for template in load_message_templates():
         if template.channel_key not in layout.channels:
@@ -53,7 +62,8 @@ def main() -> int:
         print(f"\n❌ {exc}\n\nCorrigez le fichier .env puis relancez le bot.", file=sys.stderr)
         return 2
 
-    setup_logging(settings.log_level, PROJECT_ROOT / "logs")
+    errors = RecentErrors()
+    setup_logging(settings.log_level, PROJECT_ROOT / "logs", secrets=secret_values(), errors=errors)
     if settings.gitlab_config_error:
         log.error("Webhooks GitLab désactivés, configuration invalide : %s", settings.gitlab_config_error)
     try:
@@ -67,7 +77,7 @@ def main() -> int:
     discord.VoiceClient.warn_dave = False
 
     database = Database(settings.database_path)
-    bot = SaeBot(settings, database)
+    bot = SaeBot(settings, database, errors=errors)
     try:
         bot.run(settings.discord_token, log_handler=None)
     except discord.LoginFailure:

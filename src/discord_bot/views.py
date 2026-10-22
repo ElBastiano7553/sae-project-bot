@@ -15,10 +15,18 @@ ConfirmCallback = Callable[[discord.Interaction], Awaitable[None]]
 class ConfirmView(discord.ui.View):
     """Boutons « Confirmer / Annuler » réservés à l'auteur de la commande, avec expiration."""
 
-    def __init__(self, author_id: int, on_confirm: ConfirmCallback, *, timeout: float = 120) -> None:
+    def __init__(
+        self,
+        author_id: int,
+        on_confirm: ConfirmCallback,
+        *,
+        timeout: float = 120,
+        command: str = "/setup",
+    ) -> None:
         super().__init__(timeout=timeout)
         self._author_id = author_id
         self._on_confirm = on_confirm
+        self._command = command
         self.original: discord.Interaction | None = None  # renseigné après l'envoi
         self.done = False
 
@@ -48,7 +56,41 @@ class ConfirmView(discord.ui.View):
             return
         try:
             await self.original.edit_original_response(
-                content="⌛ Délai de confirmation expiré : rien n'a été modifié. Relancez /setup.", view=None
+                content=f"⌛ Délai de confirmation expiré : rien n'a été modifié. Relancez {self._command}.", view=None
             )
         except discord.HTTPException:
             log.debug("Impossible de signaler l'expiration de la confirmation", exc_info=True)
+
+
+SubmitCallback = Callable[[discord.Interaction, str, str], Awaitable[None]]
+
+
+class AnnouncementModal(discord.ui.Modal, title="Annonce en cours"):
+    """Formulaire de /announce : le texte est prévisualisé avant toute publication."""
+
+    def __init__(
+        self,
+        *,
+        title_default: str,
+        body_default: str,
+        title_max: int,
+        body_max: int,
+        on_submit: SubmitCallback,
+    ) -> None:
+        super().__init__(timeout=600)
+        self._on_submit = on_submit
+        self.announcement_title = discord.ui.TextInput(
+            label="Titre", default=title_default or None, max_length=title_max, required=True
+        )
+        self.body = discord.ui.TextInput(
+            label="Texte de l'annonce",
+            style=discord.TextStyle.paragraph,
+            default=body_default or None,
+            max_length=body_max,
+            required=True,
+        )
+        self.add_item(self.announcement_title)
+        self.add_item(self.body)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await self._on_submit(interaction, self.announcement_title.value, self.body.value)

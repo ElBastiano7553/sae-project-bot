@@ -4,49 +4,69 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import json
 import logging
+from dataclasses import asdict
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.config import ConfigError, Settings, load_links, load_planning, load_server_layout
+from src.config import ConfigError, Settings, load_link_catalog, load_planning, load_server_layout
 from src.database import (
+    AdminActionRepository,
     ChannelBindingRepository,
     Database,
     GitLabEventRepository,
     KeyValueRepository,
     ManagedMessageRepository,
 )
+from src.discord_bot.embeds import error_embed
 from src.discord_bot.gateway import DiscordMessageGateway
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
 from src.gitlab.dispatcher import RETENTION_DAYS, NotificationDispatcher
 from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
-from src.services.content import load_message_templates, render_message
+from src.services.content import Announcement, MessagePayload, load_message_templates, render_message
+from src.services.monitoring import RecentErrors
 from src.services.permanent_messages import PermanentMessageService, SyncAction
 from src.services.server_structure import StructureReport, resolve_structure
 
 log = logging.getLogger(__name__)
 
 SETUP_CONFIRMED_KEY = "setup_confirmed_at"
+ANNOUNCEMENT_KEY = "announcement"
+EXTENSIONS = ("src.discord_bot.cogs.general", "src.discord_bot.cogs.admin")
+# Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
+RECREATE_DELAY_SECONDS = 5.0
 
 
 class SaeBot(commands.Bot):
-    def __init__(self, settings: Settings, database: Database) -> None:
+    def __init__(self, settings: Settings, database: Database, *, errors: RecentErrors | None = None) -> None:
         # Intents par défaut : aucun intent privilégié (ni contenu des messages, ni membres) n'est nécessaire.
         intents = discord.Intents.default()
-        super().__init__(command_prefix=commands.when_mentioned, intents=intents, help_command=None)
+        super().__init__(
+            command_prefix=commands.when_mentioned,
+            intents=intents,
+            help_command=None,
+            # Protection globale : aucun message du bot ne peut notifier @everyone, un rôle ou un membre.
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
         self.settings = settings
         self.database = database
         self.messages_repo = ManagedMessageRepository(database)
         self.bindings_repo = ChannelBindingRepository(database)
         self.state_repo = KeyValueRepository(database)
+        self.admin_log = AdminActionRepository(database)
         self.gateway = DiscordMessageGateway(self)
         self.gitlab_events_repo = GitLabEventRepository(database)
         self.gitlab_server: GitLabWebhookServer | None = None
         self.gitlab_error: str | None = None
+        self.errors = errors or RecentErrors()
+        # Un seul verrou pour toutes les opérations sur les messages permanents (voir permanent_messages).
+        self.messages_lock = asyncio.Lock()
+        self._recreate_tasks: dict[str, asyncio.Task] = {}
         self._gitlab_task: asyncio.Task | None = None
         self.started_at = dt.datetime.now(dt.UTC)
         self._startup_done = False
@@ -54,7 +74,8 @@ class SaeBot(commands.Bot):
     # --- Cycle de vie ------------------------------------------------------
 
     async def setup_hook(self) -> None:
-        await self.load_extension("src.discord_bot.cogs.admin")
+        for extension in EXTENSIONS:
+            await self.load_extension(extension)
         guild = discord.Object(id=self.settings.guild_id)
         # Synchronisation sur le serveur uniquement : les commandes apparaissent immédiatement.
         self.tree.copy_global_to(guild=guild)
@@ -93,6 +114,7 @@ class SaeBot(commands.Bot):
             DiscordNotificationSender(self),
             self.bindings_repo.get_all,
             wait_until_ready=self.wait_until_ready,
+            state=self.state_repo,
         )
         app = create_webhook_app(
             secret=self.settings.gitlab_webhook_secret,
@@ -113,6 +135,9 @@ class SaeBot(commands.Bot):
             log.error("Tâche des notifications GitLab arrêtée", exc_info=task.exception())
 
     async def close(self) -> None:
+        for task in self._recreate_tasks.values():
+            task.cancel()
+        self._recreate_tasks.clear()
         if self._gitlab_task is not None:
             self._gitlab_task.cancel()
             self._gitlab_task = None
@@ -155,11 +180,49 @@ class SaeBot(commands.Bot):
         log.info("Actualisation au démarrage : %d message(s) modifié(s) sur %d", len(changed), len(results))
 
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
-        managed = self.messages_repo.get_by_message_id(payload.message_id)
-        if managed:
-            log.warning(
-                "Le message permanent « %s » a été supprimé. Utilisez /refresh pour le recréer.", managed.key
-            )
+        self.handle_deleted_messages([payload.message_id])
+
+    async def on_raw_bulk_message_delete(self, payload: discord.RawBulkMessageDeleteEvent) -> None:
+        self.handle_deleted_messages(payload.message_ids)
+
+    def handle_deleted_messages(self, message_ids) -> list[str]:
+        """Recrée (après un court délai) les messages permanents supprimés à la main.
+
+        Les suppressions faites par le bot lui-même (déplacement, reconstruction) ne déclenchent rien :
+        la base désigne déjà le nouveau message au moment où l'ancien est supprimé.
+        """
+        keys = []
+        for message_id in message_ids:
+            managed = self.messages_repo.get_by_message_id(message_id)
+            if managed is None:
+                continue
+            keys.append(managed.key)
+            if not (self.settings.auto_recreate_deleted and self.setup_confirmed_at):
+                log.warning("Le message permanent « %s » a été supprimé. Utilisez /refresh pour le recréer.", managed.key)
+                continue
+            if managed.key in self._recreate_tasks and not self._recreate_tasks[managed.key].done():
+                continue
+            log.warning("Le message permanent « %s » a été supprimé : il va être recréé.", managed.key)
+            task = asyncio.create_task(self._recreate_later(managed.key), name=f"recreate-{managed.key}")
+            self._recreate_tasks[managed.key] = task
+        return keys
+
+    async def _recreate_later(self, key: str) -> None:
+        try:
+            await asyncio.sleep(RECREATE_DELAY_SECONDS)
+            guild = self.target_guild
+            if guild is None:
+                return
+            report = self.resolve_structure(guild)
+            results = await self.build_message_service().sync(report.bindings, keys=[key])
+            for result in results:
+                log.info("Message permanent %s après suppression : %s %s", key, result.action, result.detail)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Impossible de recréer le message permanent %s", key)
+        finally:
+            self._recreate_tasks.pop(key, None)
 
     # --- Services ----------------------------------------------------------
 
@@ -182,33 +245,83 @@ class SaeBot(commands.Bot):
     def build_message_service(self) -> PermanentMessageService:
         """Relit les fichiers de contenu à chaque appel : /refresh prend en compte les modifications."""
         templates = load_message_templates()
-        links = load_links()
+        catalog = load_link_catalog()
         planning = load_planning()
+        announcement = self.announcement
         return PermanentMessageService(
             self.messages_repo,
             self.gateway,
             templates,
-            lambda template: render_message(template, links, planning),
+            lambda template: render_message(template, catalog, planning, announcement=announcement),
             pin_messages=self.settings.pin_permanent_messages,
+            lock=self.messages_lock,
         )
 
+    def render_permanent(self, key: str, *, announcement: Announcement | None = None) -> MessagePayload:
+        """Contenu d'un message permanent, pour une prévisualisation (rien n'est publié)."""
+        template = next((t for t in load_message_templates() if t.key == key), None)
+        if template is None:
+            raise ConfigError(f"content/messages/{key}.toml est introuvable.")
+        return render_message(
+            template, load_link_catalog(), load_planning(), announcement=announcement or self.announcement
+        )
 
-async def send_error(interaction: discord.Interaction, message: str) -> None:
+    # --- Annonce en cours (/announce) ------------------------------------------
+
+    @property
+    def announcement(self) -> Announcement | None:
+        raw = self.state_repo.get(ANNOUNCEMENT_KEY)
+        if not raw:
+            return None
+        try:
+            return Announcement(**json.loads(raw))
+        except (TypeError, ValueError):
+            log.error("Annonce enregistrée illisible : elle est ignorée")
+            return None
+
+    def save_announcement(self, announcement: Announcement) -> None:
+        self.state_repo.set(ANNOUNCEMENT_KEY, json.dumps(asdict(announcement), ensure_ascii=False))
+
+    # --- Journal d'administration -------------------------------------------------
+
+    def record_admin_action(self, interaction: discord.Interaction, action: str, target: str = "", outcome: str = "") -> None:
+        try:
+            self.admin_log.record(interaction.user.id, str(interaction.user), action, target, outcome)
+        except Exception:  # le journal ne doit jamais empêcher l'action elle-même
+            log.exception("Impossible d'enregistrer l'action d'administration %s", action)
+
+
+async def send_error(interaction: discord.Interaction, message: str, *, title: str = "Action impossible", tone: str = "failure") -> None:
     """Répond à l'utilisateur, que l'interaction ait déjà reçu une réponse ou non."""
-    if interaction.response.is_done():
-        await interaction.followup.send(message, ephemeral=True)
-    else:
-        await interaction.response.send_message(message, ephemeral=True)
+    embed = error_embed(message, title=title, tone=tone)
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    except discord.HTTPException:
+        log.warning("Impossible d'afficher le message d'erreur à l'utilisateur", exc_info=True)
 
 
 def install_error_handler(tree: app_commands.CommandTree) -> None:
     @tree.error
     async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         original = getattr(error, "original", error)
-        if isinstance(error, app_commands.CheckFailure):
-            await send_error(interaction, "⛔ Cette commande est réservée aux administrateurs du bot.")
+        name = interaction.command.qualified_name if interaction.command else "?"
+        if isinstance(error, app_commands.NoPrivateMessage):
+            await send_error(interaction, "Cette commande s'utilise sur le serveur de l'équipe, pas en message privé.")
+        elif isinstance(error, app_commands.CheckFailure):
+            await send_error(
+                interaction,
+                "Cette commande est réservée aux administrateurs du bot (permission « Gérer le serveur » "
+                "ou rôle défini dans ADMIN_ROLE_NAME).",
+                title="Accès refusé",
+            )
         elif isinstance(original, ConfigError):
-            await send_error(interaction, f"⚠️ Problème de configuration :\n{original}")
+            await send_error(interaction, str(original), title="Problème de configuration", tone="warning")
+        elif isinstance(original, discord.Forbidden):
+            log.error("Permission Discord manquante pendant /%s : %s", name, original.text)
+            await send_error(interaction, "Le bot n'a pas la permission nécessaire. Un administrateur peut lancer `/admin diagnostic`.")
         else:
-            log.exception("Erreur pendant /%s", interaction.command.name if interaction.command else "?", exc_info=original)
-            await send_error(interaction, "❌ Une erreur inattendue est survenue. Les détails sont dans `logs/bot.log`.")
+            log.error("Erreur pendant /%s : %s", name, type(original).__name__, exc_info=original)
+            await send_error(interaction, "Une erreur inattendue est survenue. Les administrateurs en trouveront le détail dans les journaux du bot.")

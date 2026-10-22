@@ -163,7 +163,8 @@ Avancés > Mode développeur** (activer), puis clic droit sur l'icône du serveu
 **Copier l'identifiant du serveur**.
 
 Facultatif : `ADMIN_ROLE_NAME=Chef de projet` pour autoriser un rôle à utiliser
-`/setup`, `/refresh` et `/config` (sinon : membres ayant « Gérer le serveur »).
+les commandes d'administration (`/setup`, `/refresh`, `/config`, `/announce`,
+`/admin …`) ; sinon, seuls les membres ayant « Gérer le serveur » y ont accès.
 
 Enregistrez (`Ctrl+S`). Le fichier `.env` est ignoré par Git : il ne sera jamais
 publié. Vérifiez-le à tout moment avec :
@@ -193,7 +194,7 @@ python -m src.main
 ```
 ... | INFO     | src.database.connection | Migration de la base de données vers la version 1
 ... | INFO     | discord.client | logging in using static token
-... | INFO     | src.discord_bot.bot | 4 commandes slash synchronisées sur le serveur 1234...
+... | INFO     | src.discord_bot.bot | 9 commandes slash synchronisées sur le serveur 1234...
 ... | INFO     | src.discord_bot.bot | Connecté en tant que SAE Project Bot#1234 (id ...)
 ... | INFO     | src.discord_bot.bot | Structure : 19/19 salons utilisables
 ```
@@ -201,8 +202,8 @@ python -m src.main
 Le bot reste lancé tant que le terminal est ouvert. Pour l'arrêter : `Ctrl+C`.
 Les journaux sont aussi écrits dans `logs/bot.log`.
 
-Dans Discord, tapez `/health` : un embed « État du bot » doit s'afficher (visible
-par vous seul).
+Dans Discord, tapez `/status` (ou son ancien nom `/health`) : un embed « État du
+bot » doit s'afficher (visible par vous seul). `/help` liste toutes les commandes.
 
 ## 10. Tester /setup en mode prévisualisation
 
@@ -219,16 +220,25 @@ relancez `/setup`.
 ## 11. Créer les messages permanents
 
 1. Relancez `/setup` et cliquez **Confirmer** dans les 2 minutes.
-2. Le bot publie les 5 messages dans `#bienvenue`, `#annonces`,
-   `#planning-et-deadlines`, `#decisions-et-comptes-rendus` et
-   `#documentation-et-preuves`, puis les épingle.
+2. Le bot publie les 7 messages dans `#bienvenue` (bienvenue + liens utiles),
+   `#annonces` (règles + annonce en cours), `#planning-et-deadlines`,
+   `#decisions-et-comptes-rendus` et `#documentation-et-preuves`, puis les épingle.
+   Tant qu'un lien de `config/links.toml` est vide, le message concerné affiche
+   une section « 🛠️ À compléter » (lien obligatoire ou facultatif) : c'est normal.
 3. Lancez `/refresh` : le rapport doit indiquer **0 message modifié** et tous les
    messages « à jour ». C'est la preuve qu'il n'y a pas de doublon.
-4. Test de recréation : supprimez le message de `#bienvenue`, puis `/refresh` :
-   il est recréé (♻️).
+4. Test de recréation : supprimez le message de `#bienvenue` : le bot le recrée
+   tout seul au bout de quelques secondes (désactivable avec
+   `AUTO_RECREATE_DELETED_MESSAGES=false`, il faut alors lancer `/refresh`).
 5. Test de modification : renseignez un lien dans `config/links.toml` ou une
    échéance dans `config/planning.toml`, puis `/refresh` : le message est modifié
    sur place (✏️), sans nouveau message.
+
+6. Test d'annonce : `/announce`, remplissez le formulaire, vérifiez la
+   prévisualisation puis **Confirmer** : le message « Annonce en cours » de
+   `#annonces` est modifié sur place. Refaites `/announce` : toujours un seul message.
+7. `/admin messages` résume l'état de chaque message ; `/admin diagnostic` vérifie
+   les permissions du bot dans chaque salon.
 
 Les textes se modifient dans `content/messages/*.toml`. Les échéances ne sont
 jamais inventées : elles viennent uniquement de `config/planning.toml`.
@@ -240,7 +250,7 @@ Une fois les étapes 1 à 11 validées, suivez le guide détaillé
 
 1. générer un secret (`python -c "import secrets; print(secrets.token_urlsafe(32))"`)
    et le mettre dans `GITLAB_WEBHOOK_SECRET` du fichier `.env`, puis relancer le bot
-   (**terminal 1**) : `/health` doit afficher GitLab ✅ ;
+   (**terminal 1**) : `/status` doit afficher GitLab ✅ ;
 2. tester sans GitLab (**terminal 3**) : `python -m src.gitlab.demo push` doit
    publier un exemple dans `#gitlab-activite`, et `--wrong-secret` doit être refusé (401) ;
 3. installer et lancer le tunnel HTTPS (**terminal 2**) :

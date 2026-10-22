@@ -44,7 +44,8 @@ def test_sync_and_health_and_config_embeds():
         latency_ms=50, database_ok=True, guild_found=True, structure=None,
         setup_confirmed=False, ai_provider="none",
     )
-    assert len(health_embed(checks, dt.timedelta(hours=26), "0.1.0").fields) == len(checks)
+    # Un champ par vérification, plus la dernière erreur (lot 1).
+    assert len(health_embed(checks, dt.timedelta(hours=26), "0.1.0").fields) == len(checks) + 1
     embed = config_embed(
         settings_lines=["a"],
         report=resolve_structure(load_server_layout(), GuildSnapshot()),
