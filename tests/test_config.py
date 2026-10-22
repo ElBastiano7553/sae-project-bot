@@ -117,3 +117,52 @@ def test_planning_date_in_quotes_is_rejected(tmp_path: Path):
     path.write_text('[[deadlines]]\ndate = "2026-12-01"\ntitle = "B"\n', encoding="utf-8")
     with pytest.raises(ConfigError, match="AAAA-MM-JJ"):
         load_planning(path)
+
+
+# --- V2 : webhooks GitLab ------------------------------------------------------
+
+GITLAB_SECRET = "secret-de-test-0123456789"
+
+
+def test_gitlab_disabled_by_default():
+    settings = Settings.from_env(VALID_ENV)
+    assert settings.gitlab_webhooks_enabled is False
+    assert settings.webhook_host == "127.0.0.1"
+    assert settings.webhook_port == 8080
+    assert settings.gitlab_project_id is None
+
+
+def test_gitlab_enabled_with_secret():
+    settings = Settings.from_env(
+        {**VALID_ENV, "GITLAB_WEBHOOK_SECRET": GITLAB_SECRET, "GITLAB_PROJECT_ID": "4242", "WEBHOOK_PORT": "9000"}
+    )
+    assert settings.gitlab_webhooks_enabled is True
+    assert settings.gitlab_project_id == 4242
+    assert settings.webhook_port == 9000
+
+
+def test_gitlab_variables_without_secret_keep_v2_disabled():
+    settings = Settings.from_env({**VALID_ENV, "GITLAB_PROJECT_ID": "4242", "GITLAB_BASE_URL": "https://gitlab.com"})
+    assert settings.gitlab_webhooks_enabled is False
+
+
+def test_webhook_secret_is_never_in_repr():
+    settings = Settings.from_env({**VALID_ENV, "GITLAB_WEBHOOK_SECRET": GITLAB_SECRET})
+    assert GITLAB_SECRET not in repr(settings)
+
+
+def test_short_webhook_secret_is_refused():
+    with pytest.raises(ConfigError, match="trop court") as exc:
+        Settings.from_env({**VALID_ENV, "GITLAB_WEBHOOK_SECRET": "court"})
+    assert "court'" not in str(exc.value)  # la valeur du secret n'est pas recopiée dans le message
+
+
+@pytest.mark.parametrize("port", ["0", "70000", "http", "-1"])
+def test_invalid_webhook_port(port):
+    with pytest.raises(ConfigError, match="WEBHOOK_PORT"):
+        Settings.from_env({**VALID_ENV, "WEBHOOK_PORT": port})
+
+
+def test_invalid_project_id():
+    with pytest.raises(ConfigError, match="GITLAB_PROJECT_ID"):
+        Settings.from_env({**VALID_ENV, "GITLAB_PROJECT_ID": "epita/sae-game"})

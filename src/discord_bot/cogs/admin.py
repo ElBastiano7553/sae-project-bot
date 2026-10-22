@@ -109,7 +109,8 @@ class AdminCog(commands.Cog):
             f"Base de données : `{settings.database_path.name}` (schéma v{self.bot.database.schema_version})",
             f"Actualisation au démarrage : {'oui' if settings.auto_refresh_on_startup else 'non'}",
             f"Épinglage des messages : {'oui' if settings.pin_permanent_messages else 'non'}",
-            "GitLab : prévu en V2 · IA : prévue en V4",
+            self._gitlab_config_line(),
+            "IA : prévue en V4",
         ]
         await interaction.response.send_message(
             embed=config_embed(
@@ -137,11 +138,24 @@ class AdminCog(commands.Cog):
             guild_found=guild is not None,
             structure=report,
             setup_confirmed=self.bot.setup_confirmed_at is not None,
-            gitlab_configured=self.bot.settings.gitlab_configured,
             ai_provider=self.bot.settings.ai_provider,
+            gitlab_enabled=self.bot.settings.gitlab_webhooks_enabled,
+            gitlab_listening=self.bot.gitlab_server is not None and self.bot.gitlab_server.listening,
+            gitlab_error=self.bot.gitlab_error,
+            gitlab_last_event_at=self.bot.gitlab_events_repo.last_received_at(),
         )
         uptime = dt.datetime.now(dt.UTC) - self.bot.started_at
         await interaction.response.send_message(embed=health_embed(checks, uptime, __version__), ephemeral=True)
+
+    def _gitlab_config_line(self) -> str:
+        settings = self.bot.settings
+        if not settings.gitlab_webhooks_enabled:
+            return "Webhooks GitLab : désactivés (GITLAB_WEBHOOK_SECRET vide)"
+        project = f"projet `{settings.gitlab_project_id}`" if settings.gitlab_project_id else "tout projet (GITLAB_PROJECT_ID vide)"
+        return (
+            f"Webhooks GitLab : secret défini ✅ (jamais affiché), écoute sur "
+            f"`{settings.webhook_host}:{settings.webhook_port}`, {project}"
+        )
 
     def _guild(self, interaction: discord.Interaction) -> discord.Guild:
         if interaction.guild is None or interaction.guild.id != self.bot.settings.guild_id:

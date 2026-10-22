@@ -7,6 +7,7 @@ import datetime as dt
 import discord
 
 from src.database.repositories import ManagedMessage
+from src.gitlab.events import Notification
 from src.services import text_limits as limits
 from src.services.content import MessagePayload
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
@@ -57,6 +58,28 @@ def payload_to_view(payload: MessagePayload) -> discord.ui.View | None:
     for button in payload.buttons:
         view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label=button.label, url=button.url))
     return view
+
+
+# --- Notifications GitLab ---------------------------------------------------
+
+
+def notification_to_embed(notification: Notification) -> discord.Embed:
+    embed = discord.Embed(
+        title=limits.truncate(notification.title, limits.EMBED_TITLE),
+        description=limits.truncate(notification.description, limits.EMBED_DESCRIPTION) or None,
+        url=notification.url,
+        color=notification.color,
+        timestamp=dt.datetime.now(dt.UTC),
+    )
+    for field in notification.fields[: limits.EMBED_FIELDS]:
+        embed.add_field(
+            name=limits.truncate(field.name, limits.FIELD_NAME),
+            value=limits.truncate(field.value, limits.FIELD_VALUE) or "—",
+            inline=field.inline,
+        )
+    if notification.footer:
+        embed.set_footer(text=limits.truncate(notification.footer, limits.EMBED_FOOTER))
+    return embed
 
 
 # --- Rapports --------------------------------------------------------------

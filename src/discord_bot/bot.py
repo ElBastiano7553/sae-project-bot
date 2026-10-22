@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import logging
 
@@ -10,9 +11,19 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.config import ConfigError, Settings, load_links, load_planning, load_server_layout
-from src.database import ChannelBindingRepository, Database, KeyValueRepository, ManagedMessageRepository
+from src.database import (
+    ChannelBindingRepository,
+    Database,
+    GitLabEventRepository,
+    KeyValueRepository,
+    ManagedMessageRepository,
+)
 from src.discord_bot.gateway import DiscordMessageGateway
+from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
+from src.gitlab.dispatcher import RETENTION_DAYS, NotificationDispatcher
+from src.gitlab.rules import load_gitlab_rules
+from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
 from src.services.content import load_message_templates, render_message
 from src.services.permanent_messages import PermanentMessageService, SyncAction
 from src.services.server_structure import StructureReport, resolve_structure
@@ -33,6 +44,10 @@ class SaeBot(commands.Bot):
         self.bindings_repo = ChannelBindingRepository(database)
         self.state_repo = KeyValueRepository(database)
         self.gateway = DiscordMessageGateway(self)
+        self.gitlab_events_repo = GitLabEventRepository(database)
+        self.gitlab_server: GitLabWebhookServer | None = None
+        self.gitlab_error: str | None = None
+        self._gitlab_task: asyncio.Task | None = None
         self.started_at = dt.datetime.now(dt.UTC)
         self._startup_done = False
 
@@ -45,6 +60,47 @@ class SaeBot(commands.Bot):
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
         log.info("%d commandes slash synchronisées sur le serveur %s", len(synced), self.settings.guild_id)
+        await self.start_gitlab_webhooks()
+
+    async def start_gitlab_webhooks(self) -> None:
+        """Démarre la V2 si elle est configurée. Une erreur ici n'empêche jamais la V1 de fonctionner."""
+        if not self.settings.gitlab_webhooks_enabled:
+            log.info("Webhooks GitLab désactivés : GITLAB_WEBHOOK_SECRET n'est pas défini.")
+            return
+        try:
+            rules = load_gitlab_rules(channel_keys=load_server_layout().channels.keys())
+        except ConfigError as exc:
+            self.gitlab_error = str(exc)
+            log.error("Webhooks GitLab désactivés : %s", exc)
+            return
+        purged = self.gitlab_events_repo.purge_older_than(RETENTION_DAYS)
+        if purged:
+            log.info("%d ancien(s) événement(s) GitLab oublié(s)", purged)
+        dispatcher = NotificationDispatcher(
+            self.gitlab_events_repo,
+            rules,
+            DiscordNotificationSender(self),
+            self.bindings_repo.get_all,
+            wait_until_ready=self.wait_until_ready,
+        )
+        app = create_webhook_app(
+            secret=self.settings.gitlab_webhook_secret,
+            project_id=self.settings.gitlab_project_id,
+            dispatcher=dispatcher,
+        )
+        self.gitlab_server = GitLabWebhookServer(app, self.settings.webhook_host, self.settings.webhook_port)
+        if await self.gitlab_server.start():
+            self._gitlab_task = asyncio.create_task(dispatcher.run(), name="gitlab-notifications")
+        else:
+            self.gitlab_error = self.gitlab_server.error
+
+    async def close(self) -> None:
+        if self._gitlab_task is not None:
+            self._gitlab_task.cancel()
+            self._gitlab_task = None
+        if self.gitlab_server is not None:
+            await self.gitlab_server.stop()
+        await super().close()
 
     async def on_ready(self) -> None:
         log.info("Connecté en tant que %s (id %s)", self.user, self.user.id if self.user else "?")

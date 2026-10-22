@@ -17,15 +17,18 @@ from dotenv import load_dotenv
 from src.config import PROJECT_ROOT, ConfigError, Settings, load_links, load_planning, load_server_layout
 from src.database import Database
 from src.discord_bot.bot import SaeBot
+from src.gitlab.rules import load_gitlab_rules
 from src.logging_setup import setup_logging
 from src.services.content import load_message_templates
 
 log = logging.getLogger("sae_bot")
 
 
-def check_content_files() -> None:
+def check_content_files(*, gitlab_enabled: bool = False) -> None:
     """Vérifie les fichiers de config/ et content/ avant de se connecter (erreurs claires au démarrage)."""
     layout = load_server_layout()
+    if gitlab_enabled:
+        load_gitlab_rules(channel_keys=layout.channels.keys())
     load_links()
     load_planning()
     for template in load_message_templates():
@@ -46,7 +49,7 @@ def main() -> int:
 
     setup_logging(settings.log_level, PROJECT_ROOT / "logs")
     try:
-        check_content_files()
+        check_content_files(gitlab_enabled=settings.gitlab_webhooks_enabled)
     except ConfigError as exc:
         log.error("%s", exc)
         return 2

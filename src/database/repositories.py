@@ -98,3 +98,51 @@ class KeyValueRepository:
                 "INSERT INTO kv_store (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+
+class GitLabEventRepository:
+    """Événements GitLab déjà acceptés, identifiés par la clé de livraison fournie par GitLab.
+
+    Statuts : ``queued`` (en attente d'envoi), ``sent`` (publié sur Discord),
+    ``failed`` (envoi impossible), ``skipped`` (aucun salon associé).
+    """
+
+    def __init__(self, db: Database) -> None:
+        self._conn = db.conn
+
+    def claim(self, event_key: str, event_type: str) -> bool:
+        """Enregistre l'événement. Retourne ``False`` s'il avait déjà été reçu (doublon)."""
+        with self._conn:
+            cursor = self._conn.execute(
+                "INSERT OR IGNORE INTO gitlab_events (event_key, event_type) VALUES (?, ?)",
+                (event_key, event_type),
+            )
+        return cursor.rowcount == 1
+
+    def release(self, event_key: str) -> None:
+        """Oublie un événement qui n'a pas pu être pris en charge, pour que GitLab puisse le renvoyer."""
+        with self._conn:
+            self._conn.execute("DELETE FROM gitlab_events WHERE event_key = ?", (event_key,))
+
+    def set_status(self, event_key: str, status: str) -> None:
+        with self._conn:
+            self._conn.execute(
+                "UPDATE gitlab_events SET status = ?, updated_at = datetime('now') WHERE event_key = ?",
+                (status, event_key),
+            )
+
+    def get_status(self, event_key: str) -> str | None:
+        row = self._conn.execute("SELECT status FROM gitlab_events WHERE event_key = ?", (event_key,)).fetchone()
+        return row["status"] if row else None
+
+    def last_received_at(self) -> str | None:
+        row = self._conn.execute("SELECT MAX(received_at) AS last FROM gitlab_events").fetchone()
+        return row["last"] if row else None
+
+    def purge_older_than(self, days: int) -> int:
+        """Supprime les événements anciens : GitLab ne renvoie jamais un événement après quelques jours."""
+        with self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM gitlab_events WHERE received_at < datetime('now', ?)", (f"-{int(days)} days",)
+            )
+        return cursor.rowcount
