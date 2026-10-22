@@ -106,12 +106,21 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
     HelpEntry("admin backup", "administration", "Sauvegarde immédiate et vérifiée de la base de données (rotation automatique).", "/admin backup", True),
     HelpEntry("admin history", "administration", "Journal des dernières actions d'administration.", "/admin history", True),
     HelpEntry(
-        "refonte",
+        "refonte lancer",
         "administration",
-        "Analyse le serveur et propose un plan (créer, renommer, déplacer, sans jamais supprimer), appliqué après confirmation.",
-        "/refonte facultatifs:True",
+        "Réorganise le serveur selon la structure cible : rôles colorés, catégories, salons, permissions, ordre ; "
+        "aperçu puis confirmation. Suppressions seulement sur demande, confirmées à part.",
+        "/refonte lancer profil:projet style:projet",
         True,
     ),
+    HelpEntry(
+        "refonte retour",
+        "administration",
+        "Rétablit ce qu'une refonte a changé, d'après son journal (aperçu puis confirmation).",
+        "/refonte retour",
+        True,
+    ),
+    HelpEntry("refonte journal", "administration", "Dernières refontes, suppressions et retours arrière.", "/refonte journal", True),
 )
 
 # Qui peut utiliser chaque commande de réunion (règles appliquées par services.meetings).
@@ -359,36 +368,37 @@ GUIDE_PAGES: tuple[HelpPage, ...] = (
                 "• `/refresh`, `/announce` : messages permanents et annonce en cours.\n"
                 "• `/config`, `/admin diagnostic`, `/admin messages`, `/admin history` : état, permissions, journal.\n"
                 "• `/admin backup` : sauvegarde immédiate de la base. `/admin rebuild` : reconstruit un message.\n"
-                "• `/refonte` : réorganise le serveur selon la structure cible.",
+                "• `/refonte lancer` : réorganise le serveur selon la structure cible ; `/refonte retour` l'annule ; "
+                "`/refonte journal` liste les refontes.",
                 audience="admin",
             ),
             HelpSection(
                 "Refonte du serveur",
-                "1. `/refonte` analyse le serveur sans rien modifier.\n"
-                "2. **Prévisualiser** : plan paginé (créations, renommages, déplacements, configuration, "
-                "interventions manuelles, risques).\n"
-                "3. **Appliquer la refonte** puis **Confirmer** : Samae revérifie vos droits, les siens et l'état "
-                "du serveur, sauvegarde sa base, puis applique.\n"
-                "4. Rapport : réussies, ignorées, échouées, à faire à la main.\n"
-                "Aucune suppression, jamais. Options : `facultatifs:True` (salons facultatifs), `roles:True` "
-                "(rôles de projet sans permission). Relancer la commande sur un serveur conforme ne change rien.",
+                "1. `/refonte lancer` analyse le serveur sans rien modifier ; choisissez le profil et le style.\n"
+                "2. **Prévisualiser** : structure cible, rôles et couleurs, créations, renommages, déplacements, "
+                "permissions, ordre, éléments personnalisés ou inconnus (conservés), doublons, risques.\n"
+                "3. **Appliquer les changements** puis **Confirmer** : Samae revérifie vos droits, les siens et "
+                "l'état du serveur, sauvegarde sa base, relève le serveur, applique, puis vérifie.\n"
+                "4. Suppressions : seulement avec `suppressions:True`, après **Examiner les suppressions** et une "
+                "confirmation distincte.\n"
+                "Relancer la commande sur un serveur conforme ne change rien.",
                 audience="admin",
             ),
             HelpSection(
                 "Permissions nécessaires",
-                "• Vous : administrateur du bot, plus « Gérer les salons » pour `/refonte` (et « Gérer les rôles » "
-                "avec `roles:True`).\n"
-                "• Le bot : « Gérer les salons » pour la refonte, « Gérer les rôles » pour créer des rôles ; "
+                "• Vous : administrateur du bot, plus « Gérer les salons » pour `/refonte lancer` ; « Gérer les "
+                "rôles » pour les rôles et les permissions (sinon, ils sont listés comme impossibles).\n"
+                "• Le bot : « Gérer les salons » et « Gérer les rôles », son rôle placé au-dessus des rôles qu'il gère ; "
                 "« Voir les salons », « Envoyer des messages », « Intégrer des liens », « Voir les anciens messages » "
                 "et « Épingler » dans les salons qu'il utilise (`/admin diagnostic`).",
                 audience="admin",
             ),
             HelpSection(
                 "Configuration et précautions",
-                "La structure cible est dans `config/server.toml` : une clé par fonction, les anciens noms dans "
-                "`aliases`, `optional` pour les salons facultatifs. Samae retient les identifiants Discord : un salon "
-                "renommé à la main reste reconnu. Chaque refonte laisse une sauvegarde de la base (`data/backups`) et "
-                "un journal (`data/refonte`). Une création ne s'annule qu'à la main.",
+                "La structure cible est dans `config/server.toml` : profils, styles, catégories, salons (emoji, type, "
+                "sujet, accès), rôles (couleur, permissions), niveaux d'accès. Samae retient les identifiants Discord : "
+                "un salon renommé à la main reste reconnu. Chaque refonte laisse une sauvegarde (`data/backups`) et un "
+                "journal (`data/refonte`), base de `/refonte retour`.",
                 audience="admin",
             ),
         ),
@@ -444,7 +454,7 @@ GUIDE_PAGES: tuple[HelpPage, ...] = (
                 "Une refonte échoue",
                 "Lisez le rapport : chaque échec a sa raison. « Permission refusée » : rôle du bot trop bas ou "
                 "permission retirée. « Délai dépassé » : l'opération a pu aboutir. Dans tous les cas, relancez "
-                "`/refonte` : elle ne refait que ce qui manque encore.",
+                "`/refonte lancer` : elle ne refait que ce qui manque encore. `/refonte retour` rétablit l'état d'avant.",
                 audience="admin",
             ),
         ),

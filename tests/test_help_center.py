@@ -90,8 +90,8 @@ async def test_commands_are_read_from_discord_with_their_parameters(bot):
     creer = commands["reunion creer"]
     assert creer.required == ["titre"]
     assert {"etapes", "participants", "duree", "responsable"} <= set(creer.optional)
-    assert commands["refonte"].admin and not commands["help"].admin
-    assert {"help", "reunion help", "refonte"} <= set(commands)
+    assert commands["refonte lancer"].admin and commands["refonte retour"].admin and not commands["help"].admin
+    assert {"help", "reunion help", "refonte lancer", "refonte retour", "refonte journal"} <= set(commands)
 
 
 async def test_every_example_matches_a_real_command_and_its_options(bot):

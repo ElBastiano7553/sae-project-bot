@@ -18,6 +18,25 @@ from enum import StrEnum
 from src.config import CategorySpec, ChannelSpec, ServerLayout
 
 
+# Familles de types : un salon d'annonces reste un salon textuel pour Samae (même
+# historique, mêmes messages), un salon de conférence reste un salon vocal.
+TYPE_FAMILY = {"text": "text", "announcement": "text", "voice": "voice", "stage": "voice", "forum": "forum", "media": "forum"}
+
+
+def same_family(expected: str, actual: str) -> bool:
+    return TYPE_FAMILY.get(expected, expected) == TYPE_FAMILY.get(actual, actual)
+
+
+@dataclass(frozen=True)
+class Overwrite:
+    """Permissions particulières d'un rôle ou d'un membre sur une catégorie ou un salon."""
+
+    target_id: int
+    target_type: str = "role"  # "role" ou "member"
+    allow: frozenset[str] = frozenset()
+    deny: frozenset[str] = frozenset()
+
+
 @dataclass(frozen=True)
 class GuildCategory:
     id: int
@@ -25,16 +44,20 @@ class GuildCategory:
     position: int = 0
     manageable: bool = True  # le bot peut-il la renommer (« Gérer les salons ») ?
     everyone_can_view: bool = True  # @everyone voit la catégorie (contrôle des catégories privées)
+    overwrites: tuple[Overwrite, ...] = ()
 
 
 @dataclass(frozen=True)
 class GuildChannel:
     id: int
     name: str
-    type: str  # "text", "voice" ou "other"
+    type: str  # "text", "announcement", "voice", "stage", "forum", "media" ou "other"
     category_id: int | None = None
     position: int = 0
     manageable: bool = True  # le bot peut-il le renommer et le déplacer ?
+    topic: str = ""
+    overwrites: tuple[Overwrite, ...] = ()
+    has_messages: bool = True  # par prudence : un salon dont on ne sait rien n'est jamais « vide »
 
 
 @dataclass(frozen=True)
@@ -45,6 +68,10 @@ class GuildRole:
     managed: bool = False  # rôle d'un bot ou d'une intégration : jamais modifiable
     is_default: bool = False  # @everyone
     dangerous: tuple[str, ...] = ()  # permissions sensibles accordées (administrator, manage_guild…)
+    color: int = 0
+    hoist: bool = False
+    mentionable: bool = False
+    permissions: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -57,6 +84,10 @@ class GuildSnapshot:
     # Permissions du bot sur tout le serveur (noms discord.py : "manage_channels"…).
     bot_permissions: frozenset[str] = frozenset()
     bot_top_role_position: int = 0
+    guild_id: int = 0  # identifiant du serveur, qui est aussi celui du rôle @everyone
+    bot_id: int = 0
+    owner_id: int = 0
+    community: bool = False  # fonction « Communauté » : salons d'annonces, forums médias, conférences
 
 
 class ChannelStatus(StrEnum):
@@ -226,7 +257,7 @@ def _resolve_channel(
     category_name: str = "",
 ) -> ChannelResolution:
     by_id = {ch.id: ch for ch in snapshot.channels}
-    if saved_id is not None and saved_id in by_id and by_id[saved_id].type == spec.type:
+    if saved_id is not None and saved_id in by_id and same_family(spec.type, by_id[saved_id].type):
         channel = by_id[saved_id]
         note = "" if normalize_name(channel.name) == normalize_name(spec.name) else f"renommé en « {channel.name} »"
         return _with_category_check(spec, channel, expected_category_id, note, MATCH_ID, category_name)
@@ -234,7 +265,7 @@ def _resolve_channel(
     first_wrong_type: GuildChannel | None = None
     for wanted, match in _candidates(spec.name, spec.aliases):
         same_name = [ch for ch in snapshot.channels if normalize_name(ch.name) == wanted]
-        right_type = [ch for ch in same_name if ch.type == spec.type]
+        right_type = [ch for ch in same_name if same_family(spec.type, ch.type)]
         if same_name and not right_type and first_wrong_type is None:
             first_wrong_type = same_name[0]
         if not right_type:
@@ -303,4 +334,4 @@ def _ambiguous(spec: ChannelSpec, count: int) -> ChannelResolution:
 
 
 def _type_label(channel_type: str) -> str:
-    return "vocal" if channel_type == "voice" else "textuel"
+    return {"voice": "vocal", "forum": "forum"}.get(TYPE_FAMILY.get(channel_type, channel_type), "textuel")

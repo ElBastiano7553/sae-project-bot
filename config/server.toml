@@ -1,88 +1,263 @@
 # =====================================================================
-#  Structure cible du serveur Discord de l'équipe (lue par /setup et /refonte).
+#  Structure cible du serveur Discord (lue par /setup et /refonte).
 #
-#  Chaque salon a une clé (entre crochets) : c'est sa *fonction* pour Samae
-#  (messages permanents, notifications GitLab, comptes rendus…). Samae retrouve
-#  un salon dans cet ordre :
-#    1. l'identifiant Discord déjà enregistré (un salon renommé reste reconnu) ;
-#    2. le nom « name », puis les anciens noms « aliases ».
-#  Les emojis, accents, majuscules et séparateurs sont ignorés lors de la
-#  comparaison : "📢・annonces" et "annonces" désignent le même salon.
+#  Ce fichier décrit le serveur COMPLET tel qu'il doit être : catégories,
+#  salons, rôles, couleurs, permissions, ordre d'affichage. /refonte compare
+#  le serveur réel à cette cible et propose, pour chaque élément existant, une
+#  action explicite (conserver, renommer, déplacer, corriger les permissions,
+#  réordonner, signaler) avant de créer ce qui manque.
+#
+#  Clés (entre crochets) : la *fonction* de l'élément pour Samae (messages
+#  permanents, notifications, comptes rendus…). Ne changez pas une clé : Samae
+#  retrouve les salons par identifiant enregistré, puis par nom, puis par
+#  anciens noms (« aliases »). Les emojis, accents, majuscules et séparateurs
+#  sont ignorés lors de la comparaison : « 📢・annonces » = « annonces ».
 #
 #  /setup ne crée, ne renomme et ne supprime rien.
-#  /refonte peut, après aperçu et confirmation : créer les catégories et salons
-#  manquants, renommer ceux qui portent un ancien nom (« aliases ») et les
-#  déplacer dans leur catégorie. Elle ne supprime jamais rien.
+#  /refonte ne supprime jamais rien sans le mode suppressions:True ET une
+#  confirmation séparée ; un élément absent de ce fichier est conservé.
 #
-#  optional = true : salon facultatif, créé seulement avec /refonte facultatifs:True
-#  (un salon facultatif qui existe déjà est réutilisé, renommé ou déplacé normalement).
-#  private = true (catégorie) : créée visible seulement par le bot et les administrateurs.
-#
-#  Les catégories et salons absents de ce fichier ne sont jamais modifiés.
-#  L'ordre des catégories ci-dessous est l'ordre d'affichage souhaité.
+#  L'ordre des catégories, des salons et des rôles dans ce fichier est l'ordre
+#  d'affichage (rôles : du plus haut au plus bas dans la hiérarchie).
+# =====================================================================
+
+# --- Comportement de /refonte ------------------------------------------
+[refonte]
+profile = "projet"          # profil par défaut (voir [profiles])
+style = "projet"            # style par défaut (voir [styles])
+permissions = true          # corriger les permissions des catégories et salons reconnus
+positions = true            # ordonner catégories, salons et rôles comme dans ce fichier
+edit_roles = true           # compléter les rôles existants (couleur, permissions manquantes ; jamais de retrait)
+deletions_allowed = true    # autoriser /refonte lancer suppressions:True (toujours sur confirmation séparée)
+# Éléments personnalisés à garder tels quels (noms de salons, catégories ou rôles) :
+keep = []
+# Éléments déclarés obsolètes : leur suppression est PROPOSÉE (jamais automatique).
+obsolete = []
+
+# --- Profils de serveur --------------------------------------------------
+# Un élément sans « profiles » fait partie de tous les profils.
+[profiles.projet]
+label = "Projet d'équipe"
+description = "Équipe projet SAE : conception, organisation, développement, livrables."
+style = "projet"
+
+[profiles.communautaire]
+label = "Communauté"
+description = "Serveur ouvert : présentations, médias, suggestions, modération."
+style = "communautaire"
+
+# --- Styles d'affichage ---------------------------------------------------
+# {emoji} et {nom} ; un élément sans emoji garde seulement son nom.
+[styles.projet]
+label = "Projet d'équipe"
+category = "{emoji} {nom}"
+channel = "{emoji}・{nom}"
+voice = "{emoji} {nom}"
+
+[styles.sobre]
+label = "Sobre (sans emoji)"
+category = "{nom}"
+channel = "{nom}"
+voice = "{nom}"
+
+[styles.professionnel]
+label = "Professionnel (emojis sur les catégories)"
+category = "{emoji} {nom}"
+channel = "{nom}"
+voice = "{nom}"
+
+[styles.communautaire]
+label = "Communautaire"
+category = "{emoji} {nom}"
+channel = "{emoji}│{nom}"
+voice = "{emoji} {nom}"
+
+[styles.gaming]
+label = "Gaming"
+category = "{emoji} ┃ {nom}"
+channel = "{emoji}┃{nom}"
+voice = "{emoji}┃{nom}"
+
+# --- Niveaux d'accès (permissions) -----------------------------------------
+# Cibles : @everyone, @bot (Samae), @admin (rôle ADMIN_ROLE_NAME du .env),
+# role:<clé d'un rôle ci-dessous>. Seules ces cibles sont modifiées : les
+# permissions posées pour d'autres rôles ou membres sont conservées.
+# Les propriétaires et administrateurs Discord gardent toujours tout l'accès.
+[access.public]
+label = "Public"
+# Public : aucune surcharge. Samae utilise ses permissions de serveur.
+[access.public.rules."@everyone"]
+
+[access.lecture]
+label = "Lecture seule (le staff publie)"
+[access.lecture.rules."@everyone"]
+deny = ["send_messages", "create_public_threads", "create_private_threads"]
+[access.lecture.rules."@bot"]
+allow = ["view_channel", "send_messages", "embed_links", "read_message_history"]
+[access.lecture.rules."role:responsable"]
+allow = ["send_messages"]
+[access.lecture.rules."role:moderateur"]
+allow = ["send_messages"]
+
+[access.vote]
+label = "Votes (réactions seulement)"
+[access.vote.rules."@everyone"]
+allow = ["add_reactions"]
+deny = ["send_messages", "create_public_threads"]
+[access.vote.rules."@bot"]
+allow = ["view_channel", "send_messages", "embed_links", "read_message_history", "add_reactions"]
+[access.vote.rules."role:responsable"]
+allow = ["send_messages"]
+
+[access.staff]
+label = "Staff seulement"
+[access.staff.rules."@everyone"]
+deny = ["view_channel"]
+[access.staff.rules."@bot"]
+allow = ["view_channel", "send_messages", "embed_links", "read_message_history"]
+[access.staff.rules."@admin"]
+allow = ["view_channel", "send_messages", "read_message_history"]
+[access.staff.rules."role:responsable"]
+allow = ["view_channel", "send_messages", "read_message_history"]
+[access.staff.rules."role:moderateur"]
+allow = ["view_channel", "send_messages", "read_message_history"]
+
+# =====================================================================
+#  Catégories
 # =====================================================================
 
 [categories.accueil]
 name = "ACCUEIL"
-aliases = ["01 · ACCUEIL & ORGANISATION"]
+emoji = "🏠"
+aliases = ["INFORMATIONS", "01 · ACCUEIL & ORGANISATION"]
 
 [categories.commun]
 name = "ESPACE COMMUN"
+emoji = "💬"
+aliases = ["COMMUNAUTÉ", "GÉNÉRAL"]
 
 [categories.conception]
 name = "CONCEPTION DU JEU"
-aliases = ["02 · CONCEPTION DU JEU"]
+emoji = "🎨"
+aliases = ["02 · CONCEPTION DU JEU", "PROJET"]
 
 [categories.organisation]
 name = "ORGANISATION"
+emoji = "📋"
 
 [categories.developpement]
 name = "DÉVELOPPEMENT"
+emoji = "💻"
 aliases = ["03 · DÉVELOPPEMENT"]
 
 [categories.livrables]
 name = "LIVRABLES SAE"
+emoji = "📦"
 aliases = ["05 · LIVRABLES SAE"]
 
 [categories.vocal]
 name = "VOCAL"
-aliases = ["06 · VOCAL"]
+emoji = "🔊"
+aliases = ["06 · VOCAL", "SALONS VOCAUX"]
 
 [categories.administration]
 name = "ADMINISTRATION"
-private = true
+emoji = "🛡️"
+aliases = ["STAFF"]
+private = true          # accès « staff » par défaut
+
+# =====================================================================
+#  Salons
+# =====================================================================
 
 # --- ACCUEIL ---------------------------------------------------------
 [channels.bienvenue]
 name = "bienvenue"
 category = "accueil"
+emoji = "👋"
+topic = "Présentation du serveur et premiers pas. Message tenu à jour par Samae."
+access = "lecture"
+
+[channels.regles]
+name = "règlement"
+category = "accueil"
+emoji = "📜"
+topic = "Règles du serveur et fonctionnement de l'équipe."
+access = "lecture"
+aliases = ["règles-et-fonctionnement", "regles", "reglement"]
+optional = true
 
 [channels.annonces]
 name = "annonces"
 category = "accueil"
+type = "announcement"   # salon d'annonces si la Communauté est activée, sinon salon textuel en lecture seule
+emoji = "📢"
+topic = "Annonces officielles de l'équipe. Publié par le staff et Samae."
+access = "lecture"
 
-# Les règles sont déjà publiées dans #annonces : salon séparé facultatif.
-[channels.regles]
-name = "règles-et-fonctionnement"
+[channels.roles_info]
+name = "rôles"
 category = "accueil"
-aliases = ["regles", "reglement"]
+emoji = "🎭"
+topic = "Les rôles du serveur et à quoi ils servent."
+access = "lecture"
+optional = true
+
+[channels.actualites]
+name = "actualités"
+category = "accueil"
+emoji = "📰"
+topic = "Nouveautés du projet et liens utiles."
+access = "lecture"
+profiles = ["communautaire"]
 optional = true
 
 # --- ESPACE COMMUN ---------------------------------------------------
 [channels.discussion]
 name = "général"
 category = "commun"
-aliases = ["discussion-generale"]
+emoji = "💬"
+topic = "Discussion libre."
+aliases = ["discussion-generale", "discussion"]
+
+[channels.presentations]
+name = "présentations"
+category = "commun"
+emoji = "🙋"
+topic = "Présentez-vous en quelques lignes."
+profiles = ["communautaire"]
+
+[channels.medias]
+name = "médias"
+category = "commun"
+type = "media"
+emoji = "📸"
+topic = "Captures, vidéos et créations."
+profiles = ["communautaire"]
+optional = true
+
+[channels.suggestions]
+name = "suggestions"
+category = "commun"
+type = "forum"
+emoji = "💡"
+topic = "Une suggestion par publication."
+profiles = ["communautaire"]
+optional = true
 
 [channels.presence]
 name = "présence-et-disponibilités"
 category = "commun"
+emoji = "📅"
+topic = "Absences, retards et disponibilités de chacun."
 aliases = ["disponibilites"]
 optional = true
 
 [channels.ressources]
 name = "ressources-et-liens"
 category = "commun"
+emoji = "🔗"
+topic = "Liens, tutoriels et documents utiles."
 aliases = ["ressources"]
 optional = true
 
@@ -90,32 +265,45 @@ optional = true
 [channels.idees]
 name = "idées"
 category = "conception"
+emoji = "💡"
+topic = "Idées de gameplay, d'univers et de fonctionnalités."
 aliases = ["idees-et-game-design"]
 
 [channels.gameplay]
 name = "game-design"
 category = "conception"
+emoji = "🎮"
+topic = "Règles, mécaniques, équilibrage et niveaux."
 aliases = ["gameplay-et-ia"]
 
 # Décisions officielles de l'équipe (message permanent « decisions »).
 [channels.decisions]
 name = "décisions"
 category = "conception"
+emoji = "✅"
+topic = "Décisions officielles de l'équipe. Publié par le staff et Samae."
+access = "lecture"
 aliases = ["decisions-et-comptes-rendus"]
 
 [channels.assets]
 name = "assets-et-audio"
 category = "conception"
+emoji = "🎵"
+topic = "Graphismes, sons, musiques et sources."
 
-# Les votes et tier lists de Samae ne sont pas encore développés.
 [channels.votes]
 name = "votes-et-tier-lists"
 category = "conception"
+emoji = "🗳️"
+topic = "Votes de l'équipe : réagissez pour voter."
+access = "vote"
 optional = true
 
 [channels.references]
 name = "références-visuelles"
 category = "conception"
+emoji = "🖼️"
+topic = "Inspirations et références visuelles."
 optional = true
 
 # --- ORGANISATION ----------------------------------------------------
@@ -123,114 +311,265 @@ optional = true
 [channels.reunions]
 name = "réunions"
 category = "organisation"
+emoji = "🗓️"
+topic = "Réunions de l'équipe : /reunion creer, puis suivez le panneau."
 
 # Comptes rendus finaux publiés par Samae à la clôture d'une réunion.
 [channels.comptes_rendus]
 name = "comptes-rendus"
 category = "organisation"
+emoji = "📝"
+topic = "Comptes rendus publiés par Samae à la fin de chaque réunion."
+access = "lecture"
 
 [channels.planning]
 name = "planning"
 category = "organisation"
+emoji = "📆"
+topic = "Échéances et prochaines étapes. Message tenu à jour par Samae."
 aliases = ["planning-et-deadlines"]
 
 [channels.suivi_actions]
 name = "suivi-des-actions"
 category = "organisation"
+emoji = "✔️"
+topic = "Actions décidées en réunion et leur avancement."
+aliases = ["taches", "tâches"]
 optional = true
 
 # --- DÉVELOPPEMENT ---------------------------------------------------
 [channels.dev_python]
 name = "développement"
 category = "developpement"
+emoji = "🐍"
+topic = "Code du jeu, architecture et outils."
 aliases = ["developpement-python"]
 
 [channels.reseau]
 name = "réseau-multijoueur"
 category = "developpement"
+emoji = "🌐"
+topic = "Réseau, serveur et multijoueur."
+profiles = ["projet"]
 
 [channels.bugs]
 name = "bugs-et-problèmes"
 category = "developpement"
+emoji = "🐛"
+topic = "Un bug par message : étapes, résultat attendu, résultat obtenu."
 aliases = ["bugs-et-tests"]
 
 [channels.code_review]
 name = "code-review"
 category = "developpement"
+emoji = "🔍"
+topic = "Relectures de code et merge requests à relire."
+profiles = ["projet"]
 
 # Pipelines GitLab (config/gitlab.toml : pipeline, deployment).
 [channels.builds]
 name = "tests-et-builds"
 category = "developpement"
+emoji = "🧪"
+topic = "Pipelines et déploiements, publiés automatiquement."
 aliases = ["builds-et-tests"]
 
-# Pushs et merge requests GitLab, tableau de bord (le dépôt est sur GitLab, pas GitHub).
+# Pushs et merge requests GitLab, notifications GitHub du jeu, tableau de bord.
 [channels.gitlab_activite]
-name = "gitlab-et-commits"
+name = "activité-git"
 category = "developpement"
-aliases = ["gitlab-activite"]
+emoji = "🦊"
+topic = "Commits, merge requests et pull requests (GitLab et GitHub), publiés automatiquement."
+access = "lecture"
+aliases = ["gitlab-et-commits", "gitlab-activite"]
 
 [channels.bilan_ia]
 name = "bilan-ia"
 category = "developpement"
+emoji = "🤖"
+topic = "Bilans et résumés rédigés par l'IA."
+profiles = ["projet"]
 
 # --- LIVRABLES SAE ---------------------------------------------------
 [channels.documentation]
 name = "documentation-et-preuves"
 category = "livrables"
+emoji = "📚"
+topic = "Documents à rendre, preuves de travail et liens. Message tenu à jour par Samae."
 
 [channels.revues]
 name = "préparation-revues"
 category = "livrables"
+emoji = "🎤"
+topic = "Préparation des soutenances et revues de projet."
 
 # --- VOCAL -----------------------------------------------------------
 [channels.reunion]
 name = "Réunion d'équipe"
 category = "vocal"
 type = "voice"
+emoji = "🎙️"
 aliases = ["reunion-equipe"]
 
 [channels.travail_commun]
 name = "Travail en commun"
 category = "vocal"
 type = "voice"
+emoji = "🎧"
 aliases = ["travail-en-commun"]
 
-# --- ADMINISTRATION (privée) -----------------------------------------
+[channels.detente]
+name = "Détente"
+category = "vocal"
+type = "voice"
+emoji = "☕"
+optional = true
+
+[channels.scene]
+name = "Présentations en direct"
+category = "vocal"
+type = "stage"
+emoji = "🎤"
+profiles = ["communautaire"]
+optional = true
+
+# --- ADMINISTRATION (staff) ------------------------------------------
+[channels.coordination]
+name = "coordination"
+category = "administration"
+emoji = "🤝"
+topic = "Coordination du staff."
+optional = true
+
+[channels.moderation]
+name = "modération"
+category = "administration"
+emoji = "🚨"
+topic = "Signalements et suivi de la modération."
+profiles = ["communautaire"]
+
 # Alertes d'erreurs du bot : ALERTS_CHANNEL=logs dans .env.
 [channels.logs]
 name = "bot-logs"
 category = "administration"
+emoji = "🧾"
+topic = "Journal des événements de Samae (alertes d'erreurs)."
 
 [channels.configuration]
 name = "configuration"
 category = "administration"
+emoji = "⚙️"
+topic = "Réglages du serveur et du bot."
 optional = true
 
 # =====================================================================
-#  Rôles de projet (cumulables). /refonte ne les crée que si l'option
-#  roles:True est choisie, SANS AUCUNE PERMISSION : ils servent à identifier
-#  qui fait quoi, pas à donner des droits. Un rôle qui existe déjà (même nom)
-#  n'est jamais modifié. Les droits d'administration de Samae restent ceux de
-#  « Gérer le serveur » ou du rôle ADMIN_ROLE_NAME (.env).
+#  Rôles, du plus haut au plus bas dans la hiérarchie.
+#
+#  Samae ne donne JAMAIS la permission Administrateur. Les permissions de
+#  modération ne sont possibles que pour kind = "staff". Un rôle existant
+#  (même nom ou ancien nom) est réutilisé : jamais de doublon, jamais de
+#  permission retirée. Samae ne peut gérer que les rôles placés sous son
+#  propre rôle, et seulement avec des permissions qu'il possède.
+#  Les droits d'administration de Samae restent « Gérer le serveur » ou le
+#  rôle ADMIN_ROLE_NAME (.env).
 # =====================================================================
 
 [roles.responsable]
 name = "Responsable projet"
-description = "Coordonne l'équipe et anime les réunions (aucun droit Discord supplémentaire)."
+color = "#C9A227"
+kind = "staff"
+hoist = true
+permissions = ["manage_messages", "manage_threads", "manage_events", "pin_messages"]
+description = "Coordonne l'équipe, publie les annonces et les décisions."
+aliases = ["Responsable"]
 
-[roles.game_design]
-name = "Game Design"
-description = "Conception du gameplay, des règles et des niveaux."
+[roles.moderateur]
+name = "Modérateur"
+color = "#5FA37A"
+kind = "staff"
+hoist = true
+permissions = ["manage_messages", "manage_threads", "moderate_members", "mute_members", "move_members"]
+description = "Fait respecter le règlement."
+profiles = ["communautaire"]
+aliases = ["Modo", "Moderateur"]
+
+[roles.responsable_reunion]
+name = "Responsable de réunion"
+color = "#6FA8DC"
+kind = "responsabilite"
+description = "Anime les réunions (les droits sur une réunion restent gérés par Samae)."
+optional = true
 
 [roles.developpement]
 name = "Développement"
+color = "#4F8FD6"
+kind = "fonction"
+hoist = true
 description = "Code du jeu, outils et intégration."
+aliases = ["Développeur", "Dev"]
+profiles = ["projet"]
+
+[roles.game_design]
+name = "Game Design"
+color = "#B07CD8"
+kind = "fonction"
+hoist = true
+description = "Conception du gameplay, des règles et des niveaux."
+profiles = ["projet"]
 
 [roles.art]
 name = "Art & Design"
+color = "#E07A9B"
+kind = "fonction"
+hoist = true
 description = "Graphismes, interface, sons et références visuelles."
+aliases = ["Designer", "Design"]
+profiles = ["projet"]
 
 [roles.testeur]
 name = "Testeur"
+color = "#D19A4B"
+kind = "fonction"
+hoist = true
 description = "Tests des builds et signalement des bugs."
+
+[roles.membre]
+name = "Membre"
+color = "#8294A8"
+kind = "membre"
+description = "Membre confirmé de la communauté."
+profiles = ["communautaire"]
+
+[roles.nouveau]
+name = "Nouveau membre"
+color = "#5E6672"
+kind = "membre"
+description = "Arrivé récemment (à retirer après présentation)."
+profiles = ["communautaire"]
+
+[roles.notif_annonces]
+name = "Notif · Annonces"
+color = "#9AA5B1"
+kind = "notification"
+mentionable = true
+self_assignable = true
+description = "Être prévenu des annonces importantes."
+optional = true
+
+[roles.notif_reunions]
+name = "Notif · Réunions"
+color = "#9AA5B1"
+kind = "notification"
+mentionable = true
+self_assignable = true
+description = "Être prévenu des réunions."
+optional = true
+
+[roles.notif_votes]
+name = "Notif · Votes"
+color = "#9AA5B1"
+kind = "notification"
+mentionable = true
+self_assignable = true
+description = "Être prévenu des votes (système de votes à venir)."
+optional = true

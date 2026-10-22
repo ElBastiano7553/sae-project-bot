@@ -13,7 +13,7 @@ Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste 
         cogs/general.py  /help /status /project          webhook.py   authentification, taille, JSON
         cogs/activity.py /events /stats /leaderboard
         cogs/ai.py       /ask /summary /review
-        cogs/redesign.py /refonte (redesign.py, redesign_ui.py)
+        cogs/redesign.py /refonte lancer|retour|journal (snapshot.py, redesign.py, redesign_ui.py)
         cogs/meetings.py /reunion … · help_ui.py /help
         cogs/admin.py    /setup /refresh /config         dispatcher.py dédup., file, historique
                          /announce /admin …              events.py    JSON → Notification
@@ -38,6 +38,7 @@ Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste 
 | Samae 2.0 · 1 | Réunions : `database/meetings.py`, `services/meetings.py`, `cogs/meetings.py`, `meeting_ui.py` (boutons persistants), migration v7 | ✅ livré (version 1.1.0) |
 | 1.2.0 | Refonte du serveur (`services/server_redesign.py` pur, `discord_bot/redesign.py` exécuteur, `redesign_ui.py`, `cogs/redesign.py`), centre d'aide (`services/help.py`, `discord_bot/help_ui.py`), nouvelle palette ; pas de migration | ✅ livré, non déployé ([détails](refonte-et-aide.md)) |
 | 1.2.1 | Exploitation : `src/instance_lock.py` (instance unique), `src/systemd_notify.py` (chien de garde), `src/ops.py` (sauvegarde, test de restauration, restauration, surveillance), `deploy/` (service systemd, mise à jour, retour arrière) ; synchronisation des commandes seulement si elles changent, mesures de réactivité (`InteractionStats`) ; pas de migration | ✅ livré, non déployé ([guide](deployment-vps.md)) |
+| 1.3.0 | Refonte complète de `/refonte` : `services/redesign_target.py` (profils, styles, accès), `services/server_redesign.py` réécrit (inventaire, actions explicites, permissions, ordre, doublons, suppressions séparées), `services/redesign_rollback.py`, `discord_bot/snapshot.py` complet ; commandes `/refonte lancer`, `retour`, `journal` ; pas de migration | ✅ livré, non déployé ([détails](refonte.md)) |
 | Samae 2.0 · 2 à 4 | Idées et tier lists, débat et communauté, finitions : voir [samae-2-plan.md](samae-2-plan.md) | ⏳ à faire |
 
 Principes ajoutés au lot 1 :

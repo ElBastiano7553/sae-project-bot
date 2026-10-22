@@ -58,6 +58,9 @@ SETUP_CONFIRMED_KEY = "setup_confirmed_at"
 ANNOUNCEMENT_KEY = "announcement"
 # Identifiants des catégories retrouvées ou créées par /refonte (JSON « clé → identifiant »).
 CATEGORY_BINDINGS_KEY = "category_bindings"
+# Identifiants des rôles de la cible retrouvés ou créés par /refonte (JSON « clé → identifiant »),
+# pour les futurs systèmes (votes, réunions, notifications, auto-attribution).
+ROLE_BINDINGS_KEY = "role_bindings"
 # Empreinte des commandes slash déjà envoyées à Discord (évite une synchronisation à chaque redémarrage).
 COMMANDS_SYNC_KEY = "commands_sync_hash"
 EXTENSIONS = (
@@ -594,18 +597,28 @@ class SaeBot(commands.Bot):
 
     @property
     def category_bindings(self) -> dict[str, int]:
-        raw = self.state_repo.get(CATEGORY_BINDINGS_KEY)
+        return self._json_bindings(CATEGORY_BINDINGS_KEY, "catégories")
+
+    def save_category_bindings(self, bindings: dict[str, int]) -> None:
+        self.state_repo.set(CATEGORY_BINDINGS_KEY, json.dumps(dict(sorted(bindings.items()))))
+
+    @property
+    def role_bindings(self) -> dict[str, int]:
+        return self._json_bindings(ROLE_BINDINGS_KEY, "rôles")
+
+    def save_role_bindings(self, bindings: dict[str, int]) -> None:
+        self.state_repo.set(ROLE_BINDINGS_KEY, json.dumps(dict(sorted(bindings.items()))))
+
+    def _json_bindings(self, key: str, label: str) -> dict[str, int]:
+        raw = self.state_repo.get(key)
         if not raw:
             return {}
         try:
             data = json.loads(raw)
             return {str(k): int(v) for k, v in data.items()}
         except (TypeError, ValueError, AttributeError):
-            log.error("Associations de catégories illisibles : elles sont ignorées")
+            log.error("Associations de %s illisibles : elles sont ignorées", label)
             return {}
-
-    def save_category_bindings(self, bindings: dict[str, int]) -> None:
-        self.state_repo.set(CATEGORY_BINDINGS_KEY, json.dumps(dict(sorted(bindings.items()))))
 
     def build_message_service(self) -> PermanentMessageService:
         """Relit les fichiers de contenu à chaque appel : /refresh prend en compte les modifications."""
