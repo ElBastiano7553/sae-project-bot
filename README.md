@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : V2 + lots 1 à 4 (version 1.0.0)
+## État actuel : version 1.1.0 (Samae 2.0, lot 1 : réunions)
 
 | Fonction | État |
 |---|---|
@@ -19,6 +19,8 @@ et bilans assistés par IA.
 | Historique GitLab consultable (`/events`), statistiques (`/stats`), contributions (`/leaderboard`), déploiements GitLab, tableau de bord permanent, alertes d'erreurs répétées | ✅ lot 2 |
 | IA (désactivée par défaut) : `/ask` (questions sur les documents de l'équipe, sources citées), `/summary` (bilan GitLab), `/review` (relecture d'une MR, API GitLab en lecture seule), quotas, secrets masqués | ✅ lot 3 |
 | Sauvegardes SQLite vérifiées (automatiques, avant migration, `/admin backup`), arrêt propre, contrôle de santé, image Docker non root et guide de déploiement Linux | ✅ lot 4 (déploiement réel à faire) |
+| Réunions (`/reunion`) : ordre du jour, participants, étapes, décisions, réserves, actions, panneau mis à jour sur place avec boutons persistants, compte rendu figé et paginé | ✅ Samae 2.0 lot 1 |
+| Idées et tier lists · débats, sondages, auto-rôles, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
 `/help` ne liste que les commandes réellement présentes. Déploiement sur un serveur Linux :
 [docs/deployment-linux.md](docs/deployment-linux.md) ; sécurité : [docs/security.md](docs/security.md).
@@ -60,6 +62,8 @@ python -m src.gitlab.demo push
 | `/stats [periode]` | tout le monde | commits, MR, pipelines, déploiements, évolution |
 | `/leaderboard [periode] [details]` | tout le monde | contributions (MR fusionnées, approbations, jours actifs ; pas les commits) |
 | `/ask question` · `/summary [periode]` · `/review mr` | tout le monde, si l'IA est activée | réponses de l'IA, éphémères, avec leurs sources |
+| `/reunion creer` · `voir` · `liste` · `rejoindre` · `quitter` · `progression` · `point` · `reserve` · `action` · `compte-rendu` | tout le monde (contributions : participants) | réunions, panneau public mis à jour sur place ([guide](docs/meetings.md)) |
+| `/reunion demarrer` · `suivante` · `precedente` · `decision` · `inviter` · `terminer` · `annuler` | responsable de la réunion ou admins | déroulement de la réunion, décisions, clôture avec compte rendu |
 | `/setup` | admins | prévisualise la structure et les messages, puis applique après clic sur **Confirmer** (2 min) |
 | `/refresh [message]` | admins | met à jour les messages permanents sur place, recrée ceux qui ont été supprimés |
 | `/config` | admins | réglages (sans secret), salons associés, liens vers les messages gérés |
@@ -68,7 +72,8 @@ python -m src.gitlab.demo push
 
 « Admins » : membres ayant la permission « Gérer le serveur » ou le rôle défini
 dans `ADMIN_ROLE_NAME` (vérifié par le bot à chaque appel). Toutes les réponses
-sont visibles uniquement par la personne qui lance la commande. Détails et
+sont visibles uniquement par la personne qui lance la commande (sauf le panneau et le
+compte rendu des réunions, publics). Détails et
 permissions nécessaires : [docs/commands.md](docs/commands.md).
 
 ## Modifier le contenu
@@ -106,6 +111,8 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Configurer et tester les notifications GitLab (V2)](docs/gitlab-webhooks.md)
 - [Historique, statistiques, classement, tableau de bord et alertes (lot 2)](docs/history-and-stats.md)
 - [Assistant IA : configuration, coûts, sécurité (lot 3)](docs/ai.md)
+- [Samae 2.0 : audit et plan des lots](docs/samae-2-plan.md)
+- [Réunions : déroulement, permissions, compte rendu (Samae 2.0, lot 1)](docs/meetings.md)
 
 ## Tests
 
