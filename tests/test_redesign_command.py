@@ -5,6 +5,7 @@ Ces tests simulent Discord : ils ne remplacent pas un essai sur un serveur de te
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -357,8 +358,8 @@ async def test_partial_failure_is_reported_and_other_operations_continue(env):
 
 async def test_interrupted_application_leaves_a_usable_journal(env):
     bot, cog, guild = env
-    guild.fail("create_channel", "🧾・bot-logs", KeyboardInterrupt())
-    with pytest.raises(KeyboardInterrupt):
+    guild.fail("create_channel", "🧾・bot-logs", asyncio.CancelledError())
+    with pytest.raises(asyncio.CancelledError):
         await apply_refonte(bot, cog, guild)
     journal = cog.load_journal()
     assert journal["status"] == "interrompue" and journal["results"]
