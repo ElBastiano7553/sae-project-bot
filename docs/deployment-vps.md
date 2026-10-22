@@ -296,10 +296,13 @@ ls -l .env                     # -rw------- : lisible par vous seul
 sudo ss -tlnp                  # ports en écoute
 ```
 
-Le bot n'ouvre **aucun port** tant que les webhooks GitLab sont désactivés
-(`GITLAB_WEBHOOK_SECRET` vide). S'ils sont activés, il écoute sur `127.0.0.1:8080`
-seulement, invisible depuis Internet ; un reverse proxy HTTPS ou un tunnel transmet les
-webhooks (docs/deployment-linux.md §4). Dans `ss -tlnp`, seul `sshd` (port 22) doit être
+Le bot n'ouvre **aucun port** tant que les webhooks GitLab et GitHub sont désactivés
+(`GITLAB_WEBHOOK_SECRET` et `GITHUB_WEBHOOK_SECRET` vides). S'ils sont activés, il écoute
+sur `127.0.0.1:8080` (GitLab) et `127.0.0.1:8081` (GitHub) seulement, invisibles depuis
+Internet ; un reverse proxy HTTPS ou un tunnel transmet les webhooks
+(docs/deployment-linux.md §4 pour GitLab ; pour GitHub, route `/webhooks/github` →
+`127.0.0.1:8081`, voir docs/github-deploiement.md §3). Aucun de ces ports ne doit être
+ouvert dans le pare-feu. Dans `ss -tlnp`, seul `sshd` (port 22) doit être
 ouvert sur `0.0.0.0` ou `*`. Recommandé sur le VPS : mises à jour de sécurité
 automatiques (`sudo apt install unattended-upgrades`) et connexion SSH par clé.
 

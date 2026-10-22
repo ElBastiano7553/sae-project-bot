@@ -57,6 +57,19 @@ GitLab) et un webhook dans GitLab. Tout est expliqué pas à pas dans
 python -m src.gitlab.demo push
 ```
 
+## Notifications GitHub du jeu
+
+Indépendamment de GitLab, le bot peut publier dans le même salon (clé `gitlab_activite`)
+l'activité du dépôt GitHub privé `ElBastiano7553/game-project` : push, pull requests,
+issues et workflows GitHub Actions en échec. Désactivé tant que `GITHUB_WEBHOOK_SECRET`
+est vide ; serveur séparé sur le port 8081, signatures HMAC-SHA256 vérifiées. Guide :
+[docs/github-webhooks.md](docs/github-webhooks.md), déploiement :
+[docs/github-deploiement.md](docs/github-deploiement.md). Test local :
+
+```powershell
+python -m src.github.demo push
+```
+
 ## Commandes
 
 | Commande | Qui | Effet |
@@ -110,6 +123,8 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
   crée ou renomme des catégories, salons et (sur demande) rôles. Les rôles créés n'ont aucune permission.
 - Webhooks GitLab : secret vérifié à temps constant avant toute lecture, JSON et taille
   contrôlés, événements dédupliqués, textes GitLab nettoyés (aucune mention possible).
+- Webhooks GitHub : signature HMAC-SHA256 vérifiée à temps constant, un seul dépôt accepté,
+  livraisons dédupliquées (`X-GitHub-Delivery`), mêmes protections contre les mentions.
 - Les commandes d'administration sont protégées deux fois : permission par défaut
   côté Discord et vérification côté bot.
 
@@ -119,6 +134,7 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Commandes et permissions](docs/commands.md)
 - [Guide d'installation Windows](docs/installation-windows.md)
 - [Configurer et tester les notifications GitLab (V2)](docs/gitlab-webhooks.md)
+- [Notifications GitHub du jeu](docs/github-webhooks.md) et [leur déploiement](docs/github-deploiement.md)
 - [Historique, statistiques, classement, tableau de bord et alertes (lot 2)](docs/history-and-stats.md)
 - [Assistant IA : configuration, coûts, sécurité (lot 3)](docs/ai.md)
 - [Samae 2.0 : audit et plan des lots](docs/samae-2-plan.md)

@@ -58,6 +58,7 @@ def build_health_checks(
     ai: AISummary | None = None,
     backups: BackupSummary | None = None,
     interactions: InteractionSummary | None = None,
+    github: GitHubSummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -76,6 +77,8 @@ def build_health_checks(
         _gitlab_check(gitlab_enabled, gitlab_listening, gitlab_error, gitlab_last_event_at, gitlab_address),
         _ai_check(ai or AISummary(provider=ai_provider)),
     ]
+    if github is not None:
+        checks.insert(-1, _github_check(github))
     if history is not None:
         checks.append(_history_check(history))
     if alerts is not None:
@@ -235,6 +238,30 @@ def _gitlab_check(
     where = f" sur {address}" if address else ""
     # Le bot sait seulement qu'il écoute localement : il ne peut pas vérifier que GitLab le joint.
     return HealthCheck("GitLab", HealthStatus.OK, f"webhooks actifs{where}, {last} (accès depuis Internet non vérifié)")
+
+
+@dataclass(frozen=True)
+class GitHubSummary:
+    """État des webhooks GitHub (dépôt du jeu), mesuré au moment de /status."""
+
+    enabled: bool = False  # configurés, même de façon invalide
+    listening: bool = False
+    error: str | None = None
+    last_event_at: str | None = None
+    address: str | None = None
+    repository: str = ""
+
+
+def _github_check(summary: GitHubSummary) -> HealthCheck:
+    if not summary.enabled:
+        return HealthCheck("GitHub", HealthStatus.DISABLED, "désactivé (GITHUB_WEBHOOK_SECRET vide)")
+    if summary.error or not summary.listening:
+        return HealthCheck("GitHub", HealthStatus.ERROR, summary.error or "serveur de webhooks arrêté")
+    last = f"dernier événement : {summary.last_event_at} UTC" if summary.last_event_at else "aucun événement reçu pour l'instant"
+    where = f" sur {summary.address}" if summary.address else ""
+    repo = f" pour {summary.repository}" if summary.repository else ""
+    # Comme pour GitLab : le bot sait seulement qu'il écoute localement.
+    return HealthCheck("GitHub", HealthStatus.OK, f"webhooks actifs{where}{repo}, {last} (accès depuis Internet non vérifié)")
 
 
 def _structure_check(structure: StructureReport | None) -> HealthCheck:

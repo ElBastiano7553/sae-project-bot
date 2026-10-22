@@ -230,6 +230,24 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX meeting_log_meeting ON meeting_log (meeting_id, id);
     """,
+    # v8 : livraisons des webhooks GitHub (dépôt du jeu). Table séparée de gitlab_events :
+    # /stats, /leaderboard, /project et le tableau de bord ne lisent que des données GitLab.
+    # Uniquement une création de table : rien d'existant n'est modifié.
+    """
+    CREATE TABLE github_deliveries (
+        delivery_key TEXT PRIMARY KEY,  -- « <événement>:<X-GitHub-Delivery> »
+        event_type   TEXT NOT NULL,
+        status       TEXT NOT NULL,
+        dedup_key    TEXT,              -- empreinte du fait GitHub (même fait livré deux fois)
+        notification TEXT,              -- JSON, pour renvoyer après un redémarrage
+        title        TEXT,
+        url          TEXT,
+        received_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX github_deliveries_dedup ON github_deliveries (dedup_key) WHERE dedup_key IS NOT NULL;
+    CREATE INDEX github_deliveries_received_at ON github_deliveries (received_at);
+    """,
 ]
 
 

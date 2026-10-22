@@ -17,7 +17,15 @@ from src.discord_bot.help_ui import HelpView, collect_commands, render_pages
 from src.discord_bot.permissions import is_bot_admin
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
 from src.services.backup import list_backups
-from src.services.health import AISummary, AlertsSummary, BackupSummary, HistorySummary, MessagesSummary, build_health_checks
+from src.services.health import (
+    AISummary,
+    AlertsSummary,
+    BackupSummary,
+    GitHubSummary,
+    HistorySummary,
+    MessagesSummary,
+    build_health_checks,
+)
 from src.services.help import GUIDE_PAGES
 
 log = logging.getLogger(__name__)
@@ -63,6 +71,13 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             gitlab_api=bot.gitlab_api is not None,
         ),
         interactions=bot.interaction_stats.summary(),
+        github=GitHubSummary(
+            enabled=bot.settings.github_requested,
+            listening=bot.github_server is not None and bot.github_server.listening,
+            error=bot.github_error,
+            last_event_at=bot.github_deliveries_repo.last_received_at(),
+            repository=bot.settings.github_repository,
+        ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at
     return health_embed(

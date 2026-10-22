@@ -79,6 +79,8 @@ def main() -> int:
     setup_logging(settings.log_level, PROJECT_ROOT / "logs", secrets=secret_values(), errors=errors)
     if settings.gitlab_config_error:
         log.error("Webhooks GitLab désactivés, configuration invalide : %s", settings.gitlab_config_error)
+    if settings.github_config_error:
+        log.error("Webhooks GitHub désactivés, configuration invalide : %s", settings.github_config_error)
     try:
         check_content_files(gitlab_enabled=settings.gitlab_webhooks_enabled)
     except ConfigError as exc:
