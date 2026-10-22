@@ -2,7 +2,7 @@
 
 Ce document présente l'architecture retenue, les difficultés techniques, le flux
 des données entre Discord, GitLab et l'IA, ainsi que le plan de réalisation.
-Les parties marquées **(V2+)** ne sont pas encore implémentées.
+Les parties marquées **(V3+)** ne sont pas encore implémentées.
 
 ## 1. Principes
 
@@ -36,11 +36,12 @@ sae-project-bot/
 ├── config/
 │   ├── server.toml            Structure attendue du serveur : fonction → nom du salon
 │   ├── links.toml             Liens utiles (README, GitLab, journal IA…)
+│   ├── gitlab.toml            (V2) Salons, branches et événements GitLab notifiés
 │   └── planning.toml          Échéances et prochaines étapes (jamais inventées)
 ├── content/messages/          Un fichier TOML par message permanent
 ├── data/                      Base SQLite (ignorée par Git)
 ├── logs/                      Journaux du bot (ignorés par Git)
-├── docs/                      Architecture, guide Windows
+├── docs/                      Architecture, guide Windows, guide des webhooks GitLab
 ├── src/
 │   ├── main.py                Point d'entrée : charge .env, vérifie la config, lance le bot
 │   ├── config.py              Lecture et validation du .env et des fichiers TOML
@@ -60,15 +61,22 @@ sae-project-bot/
 │   │   ├── gateway.py         Opérations Discord utilisées par les services
 │   │   ├── snapshot.py        Conversion du serveur Discord en données simples
 │   │   ├── embeds.py          Mise en forme des embeds
+│   │   ├── gitlab_sender.py   (V2) Publication des notifications GitLab (aucune mention)
 │   │   ├── views.py           Bouton de confirmation avec expiration
 │   │   └── permissions.py     Qui peut utiliser les commandes d'administration
-│   ├── gitlab/                (V2) Serveur de webhooks, validation, client API lecture seule
+│   ├── gitlab/                (V2) Sans dépendance à discord.py
+│   │   ├── webhook.py         Serveur aiohttp : secret, JSON, taille, projet, réponses HTTP
+│   │   ├── dispatcher.py      Déduplication, file d'attente, envoi en tâche de fond
+│   │   ├── events.py          JSON GitLab → notification (push, MR, pipeline)
+│   │   ├── rules.py           Lecture de config/gitlab.toml
+│   │   ├── security.py        Comparaison du secret, nettoyage des textes et des URL
+│   │   ├── samples.py         Exemples de JSON GitLab (tests et démonstration)
+│   │   └── demo.py            python -m src.gitlab.demo : faux webhook pour tester
 │   └── ai/                    (V4) Interface commune des fournisseurs d'IA
 └── tests/                     Tests pytest (aucun vrai token nécessaire)
 ```
 
-Les dossiers `src/gitlab/` et `src/ai/` seront créés à leur étape : ils ne sont pas
-présents dans la V1 pour ne pas livrer de code vide.
+Le dossier `src/ai/` sera créé à son étape (V4) pour ne pas livrer de code vide.
 
 ### Séparation demandée
 
@@ -114,17 +122,34 @@ est détecté (`fetch_message` → introuvable) et recréé au prochain `/refres
 Si la base est perdue, le bot retrouve ses anciens messages grâce à la référence
 écrite dans leur pied de page et les reprend au lieu d'en publier de nouveaux.
 
-### V2 à V4 : GitLab et IA (prévu)
+### V2 : notifications GitLab (implémentée, à valider avec le vrai GitLab)
 
 ```
-GitLab ──webhook HTTPS──► serveur aiohttp (même processus que le bot)
-                            │ 1. vérifie X-Gitlab-Token (comparaison à temps constant)
-                            │ 2. valide le JSON et le type d'événement
-                            │ 3. idempotence : X-Gitlab-Event-UUID déjà vu ? → ignoré
-                            │ 4. masque les secrets éventuels, tronque les textes
-                            ▼
-                    file d'attente interne ──► Discord (#gitlab-activite, #builds-et-tests…)
+GitLab ──HTTPS──► tunnel (Cloudflare / ngrok) ──► aiohttp 127.0.0.1:8080/webhooks/gitlab
+                                                     │ (même processus que le bot)
+   1. X-Gitlab-Token comparé au secret à temps constant, avant de lire le corps → sinon 401
+   2. Content-Type JSON (415), 2 Mo max (413), objet JSON valide (400)
+   3. X-Gitlab-Event : Push / Merge Request / Pipeline Hook ; autre → 200 « ignored »
+   4. project.id = GITLAB_PROJECT_ID si défini → sinon 403
+   5. events.format_* : filtres de config/gitlab.toml, textes nettoyés et tronqués
+   6. SQLite gitlab_events : clé Idempotency-Key ou X-Gitlab-Event-UUID déjà vue → « duplicate »
+   7. file asyncio (100 max, sinon 503 et l'événement est oublié pour que GitLab réessaie) ;
+      la notification est enregistrée avec la clé, pour être republiée si le bot s'arrête avant l'envoi
+                                                     │ réponse 200 immédiate à GitLab
+                                                     ▼
+   tâche de fond ──► channel_bindings (salon associé au /setup) ──► Discord
+                     3 essais (0, 2, 10 s) ; statut enregistré : sent / failed / skipped
+                     au démarrage : notifications « queued » de moins de 24 h remises en file
+```
 
+Le serveur ne démarre que si `GITLAB_WEBHOOK_SECRET` est défini. S'il ne peut pas
+démarrer (variable `GITLAB_*`/`WEBHOOK_*` invalide, port occupé, `config/gitlab.toml`
+invalide, erreur inattendue), l'erreur est journalisée et affichée par `/health`,
+mais la V1 continue de fonctionner.
+
+### V3 et V4 : API GitLab et IA (prévu)
+
+```
 /bilan, /avancement… ──► API GitLab (token lecture seule) ──► données brutes
                                                           │
                                          (V4, facultatif) ▼
@@ -148,14 +173,16 @@ dans les requêtes à l'IA, pour résister aux tentatives d'injection de consign
 | `/setup confirm` n'est pas une syntaxe possible | Discord n'autorise pas une commande à la fois directe et avec sous-commandes. `/setup` affiche donc la prévisualisation avec un bouton « Confirmer » qui expire après 2 minutes et n'est utilisable que par son auteur. |
 | Commandes slash lentes à apparaître | Synchronisation sur le seul serveur configuré : apparition immédiate (la synchronisation globale prend jusqu'à une heure). |
 | Limites de taille de Discord (embed 6000 caractères, champ 1024…) | Module `text_limits` : troncature propre et découpage en plusieurs champs. |
-| Recevoir des webhooks depuis Internet sur un PC Windows (V2) | Le PC n'est pas joignable depuis gitlab.com : il faudra un tunnel (par exemple Cloudflare Tunnel ou ngrok) ou un petit hébergement. Le guide V2 détaillera les options. |
-| Webhook reçu deux fois (V2) | Table des événements traités, clé = UUID fourni par GitLab. |
+| Recevoir des webhooks depuis Internet sur un PC Windows (V2) | Le PC n'est pas joignable depuis gitlab.com : le serveur écoute sur 127.0.0.1 et un tunnel (Cloudflare Quick Tunnel, ngrok ou Cloudflare Tunnel nommé) fournit l'adresse HTTPS publique. Voir [gitlab-webhooks.md](gitlab-webhooks.md). |
+| Webhook reçu deux fois (V2) | Table `gitlab_events`, clé = `Idempotency-Key` (stable entre les tentatives de GitLab) ou, à défaut, `X-Gitlab-Event-UUID`, ou l'empreinte du corps. |
+| GitLab désactive un webhook qui échoue souvent (V2) | Réponse 200 « ignored » pour les événements authentifiés mais non gérés ; envoi Discord hors de la requête pour répondre en moins de 10 secondes. |
+| Messages de commit écrits par n'importe qui (V2) | Markdown échappé, mentions neutralisées, URL validées, `allowed_mentions` désactivé à l'envoi. |
 | Coûts et limites de l'IA (V4) | Fenêtre temporelle explicite, plafonds de taille, cache des résumés, nombre d'appels limité, désactivation possible avec `AI_PROVIDER=none`. |
 | SQLite dans un programme asynchrone | Requêtes minuscules et rapides : `sqlite3` standard suffit, sans dépendance supplémentaire. |
 
 **Dépendances (versions épinglées et testées ensemble)** : `discord.py 2.7.1`
-(commandes slash, boutons), `aiohttp 3.14.5` (déjà requis par discord.py, servira
-aux webhooks en V2), `python-dotenv 1.2.4`, `pytest 9.1.1` et `pytest-asyncio 1.4.0`.
+(commandes slash, boutons), `aiohttp 3.14.5` (déjà requis par discord.py, utilisé
+pour le serveur de webhooks de la V2), `python-dotenv 1.2.4`, `pytest 9.1.1` et `pytest-asyncio 1.4.0`.
 Python **3.12** est recommandé ; les tests passent aussi sous 3.11 et 3.13.
 
 ## 5. Plan de réalisation
@@ -163,7 +190,7 @@ Python **3.12** est recommandé ; les tests passent aussi sous 3.11 et 3.13.
 | Étape | Contenu | Critère de validation |
 |---|---|---|
 | **V1** (livrée) | Bot Discord, `/health`, `/config`, `/setup` avec confirmation, `/refresh`, messages permanents idempotents, SQLite, tests, guide Windows | `/setup` reconnaît les 19 salons ; deux `/refresh` successifs ne créent aucun doublon |
-| **V2** | Serveur de webhooks GitLab (push, Issues, MR, commentaires, pipelines), secret, idempotence, nouvelle table SQLite, redirection vers les salons, guide de configuration du webhook | Un « Test webhook » GitLab apparaît une seule fois dans le bon salon ; un mauvais secret est refusé |
+| **V2** (implémentée et testée automatiquement ; validation sur le vrai GitLab à faire) | Serveur de webhooks GitLab (push, MR, pipelines ; Issues et commentaires reportés), secret, idempotence, nouvelle table SQLite, redirection vers les salons, guide de configuration du webhook | Un « Test webhook » GitLab apparaît une seule fois dans le bon salon ; un mauvais secret est refusé |
 | **V3** | Client API GitLab en lecture seule ; `/avancement`, `/bugs`, `/merge-requests`, `/bilan` fondés sur les données brutes ; bilan hebdomadaire planifié sans répétition au redémarrage | Les chiffres affichés correspondent à GitLab ; aucun bilan en double |
 | **V4** | Interface `AIProvider` (fournisseur configurable, désactivable) ; `/resume-commit`, `/aide-projet`, synthèses ; journal IA volontaire avec export Markdown pour le SAE | Le bot fonctionne sans clé ; les réponses citent leurs liens et signalent les données manquantes |
 | **V5** | Tests complets, durcissement sécurité, documentation finale, préparation à l'usage quotidien (service Windows ou hébergement) | Revue de sécurité et checklist d'exploitation |
@@ -172,13 +199,14 @@ Chaque étape s'appuie sur la précédente sans la réécrire : de nouveaux modu
 (`src/gitlab/`, `src/ai/`), de nouvelles migrations SQLite ajoutées à la fin de la
 liste et de nouveaux cogs.
 
-## 6. Schéma de la base (V1)
+## 6. Schéma de la base (V2)
 
 | Table | Rôle |
 |---|---|
 | `managed_messages` | clé du message, salon, identifiant du message, empreinte du contenu, date |
 | `channel_bindings` | fonction du bot → identifiant du salon (enregistré au `/setup` confirmé) |
 | `kv_store` | état divers, par exemple la date du dernier `/setup` confirmé |
+| `gitlab_events` | (V2) clé de livraison GitLab, type, statut (`queued`, `sent`, `failed`, `skipped`), notification en JSON (migration 3), date ; purgée après 30 jours |
 
 La version du schéma est stockée dans `PRAGMA user_version` ; les migrations sont
 appliquées automatiquement au démarrage.

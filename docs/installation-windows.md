@@ -1,8 +1,8 @@
-# Guide d'installation sous Windows (V1)
+# Guide d'installation sous Windows (V1 et V2)
 
 Ce guide part de zéro. Les commandes sont à copier-coller dans le **terminal
-PowerShell de VS Code**. Les étapes 12 à 14 (GitLab et IA) seront ajoutées avec
-les versions V2 à V4.
+PowerShell de VS Code**. La configuration des notifications GitLab (V2) est
+dans [gitlab-webhooks.md](gitlab-webhooks.md) ; l'IA arrivera en V4.
 
 > 🔒 **Règle d'or** : vos tokens et secrets ne doivent apparaître que dans le
 > fichier `.env` de votre ordinateur. Ne les envoyez à personne, pas même à un
@@ -233,11 +233,32 @@ relancez `/setup`.
 Les textes se modifient dans `content/messages/*.toml`. Les échéances ne sont
 jamais inventées : elles viennent uniquement de `config/planning.toml`.
 
-## 12 à 14. GitLab et IA
+## 12. Notifications GitLab (V2)
 
-Ces étapes seront ajoutées avec les versions V2 (webhooks GitLab), V3 (commandes
-de consultation) et V4 (IA). Ne configurez pas encore les variables `GITLAB_*` et
-`AI_*`. L'IA ne sera activée qu'une fois les autres fonctions validées.
+Une fois les étapes 1 à 11 validées, suivez le guide détaillé
+[gitlab-webhooks.md](gitlab-webhooks.md). En résumé, dans l'ordre :
+
+1. générer un secret (`python -c "import secrets; print(secrets.token_urlsafe(32))"`)
+   et le mettre dans `GITLAB_WEBHOOK_SECRET` du fichier `.env`, puis relancer le bot
+   (**terminal 1**) : `/health` doit afficher GitLab ✅ ;
+2. tester sans GitLab (**terminal 3**) : `python -m src.gitlab.demo push` doit
+   publier un exemple dans `#gitlab-activite`, et `--wrong-secret` doit être refusé (401) ;
+3. installer et lancer le tunnel HTTPS (**terminal 2**) :
+   `winget install --id Cloudflare.cloudflared`, rouvrir VS Code, puis
+   `cloudflared tunnel --url http://127.0.0.1:8080` et noter l'adresse
+   `https://….trycloudflare.com` affichée ;
+4. vérifier le tunnel : `curl.exe -i https://ADRESSE/webhooks/gitlab` doit répondre 405 ;
+5. créer le webhook dans GitLab (Settings > Webhooks) avec l'URL
+   `https://ADRESSE/webhooks/gitlab` et le même secret, puis **Test > Push events** ;
+6. dérouler le tableau « Tests réels, à cocher » du guide.
+
+Tant que `GITLAB_WEBHOOK_SECRET` est vide, la V2 reste désactivée. Une erreur de
+configuration GitLab désactive seulement la V2 : la V1 continue de fonctionner.
+
+## 13 et 14. Commandes GitLab et IA
+
+Elles seront ajoutées avec les versions V3 (commandes de consultation) et V4 (IA).
+Ne configurez pas encore `GITLAB_ACCESS_TOKEN` ni les variables `AI_*`.
 
 ## 15. Diagnostiquer les erreurs fréquentes
 

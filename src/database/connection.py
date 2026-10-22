@@ -38,6 +38,21 @@ MIGRATIONS: list[str] = [
         value TEXT NOT NULL
     );
     """,
+    # Version 2 : événements GitLab déjà reçus (évite les notifications en double).
+    """
+    CREATE TABLE gitlab_events (
+        event_key   TEXT PRIMARY KEY,
+        event_type  TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'queued',
+        received_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX gitlab_events_received_at ON gitlab_events (received_at);
+    """,
+    # Version 3 : contenu de la notification, pour la renvoyer après un arrêt du bot.
+    """
+    ALTER TABLE gitlab_events ADD COLUMN notification TEXT;
+    """,
 ]
 
 

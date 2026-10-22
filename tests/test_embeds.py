@@ -42,7 +42,7 @@ def test_sync_and_health_and_config_embeds():
     assert "création" in sync_embed(results, "Messages").description
     checks = build_health_checks(
         latency_ms=50, database_ok=True, guild_found=True, structure=None,
-        setup_confirmed=False, gitlab_configured=False, ai_provider="none",
+        setup_confirmed=False, ai_provider="none",
     )
     assert len(health_embed(checks, dt.timedelta(hours=26), "0.1.0").fields) == len(checks)
     embed = config_embed(
@@ -53,3 +53,22 @@ def test_sync_and_health_and_config_embeds():
         setup_confirmed_at=None,
     )
     assert "https://discord.com/channels/3/1/2" in embed.fields[2].value
+
+
+def test_gitlab_notification_embeds_respect_discord_limits():
+    from src.discord_bot.embeds import notification_to_embed
+    from src.gitlab.events import format_merge_request, format_pipeline, format_push
+    from src.gitlab.rules import GitLabRules
+    from src.gitlab.samples import merge_request_payload, pipeline_payload, push_payload
+
+    rules = GitLabRules(routes={"push": "a", "merge_request": "a", "pipeline": "b"})
+    for notification in (
+        format_push(push_payload(), rules),
+        format_merge_request(merge_request_payload(title="t" * 1000, description="d" * 5000), rules),
+        format_pipeline(pipeline_payload(), rules),
+    ):
+        embed = notification_to_embed(notification)
+        assert embed.title == notification.title
+        assert embed.url == notification.url
+        assert embed.footer.text == "GitLab · epita/sae-game"
+        assert len(embed) <= 6000

@@ -1,0 +1,33 @@
+# =====================================================================
+#  Notifications GitLab (V2).
+#
+#  Ce fichier n'est lu que si GITLAB_WEBHOOK_SECRET est défini dans .env.
+#  Après une modification, redémarrez le bot.
+# =====================================================================
+
+# Salon Discord de chaque type de notification (clés de config/server.toml).
+[routes]
+push = "gitlab_activite"
+merge_request = "gitlab_activite"
+pipeline = "builds"
+
+[push]
+# Branches suivies. Liste vide = toutes les branches.
+# Les jokers sont acceptés : ["main", "develop", "feature/*"].
+branches = []
+# Nombre maximal de commits détaillés dans une notification (1 à 10).
+max_commits = 5
+
+[merge_request]
+# Actions notifiées parmi : open, reopen, update, close, merge, approved, unapproved.
+# "update" = modification du titre, de la description, des labels, du statut brouillon…
+# Les mises à jour dues à de nouveaux commits ne sont pas renotifiées (la notification
+# de push les signale déjà).
+actions = ["open", "reopen", "update", "merge", "close", "approved"]
+
+[pipeline]
+# Statuts notifiés parmi : success, failed, canceled, skipped, running, pending, manual.
+# Seuls les statuts finaux sont activés pour ne pas inonder le salon.
+statuses = ["success", "failed", "canceled"]
+# Branches suivies (même syntaxe que pour push). Liste vide = toutes.
+branches = []

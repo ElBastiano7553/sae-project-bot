@@ -37,8 +37,11 @@ def build_health_checks(
     guild_found: bool,
     structure: StructureReport | None,
     setup_confirmed: bool,
-    gitlab_configured: bool,
     ai_provider: str,
+    gitlab_enabled: bool = False,
+    gitlab_listening: bool = False,
+    gitlab_error: str | None = None,
+    gitlab_last_event_at: str | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     checks = [
@@ -59,11 +62,7 @@ def build_health_checks(
             HealthStatus.OK if setup_confirmed else HealthStatus.WARNING,
             "configuration confirmée" if setup_confirmed else "lancez /setup puis confirmez",
         ),
-        HealthCheck(
-            "GitLab",
-            HealthStatus.DISABLED,
-            "prévu en V2" + (" (variables déjà renseignées)" if gitlab_configured else ""),
-        ),
+        _gitlab_check(gitlab_enabled, gitlab_listening, gitlab_error, gitlab_last_event_at),
         HealthCheck(
             "IA générative",
             HealthStatus.DISABLED,
@@ -87,6 +86,15 @@ def _discord_check(latency_ms: float | None) -> HealthCheck:
         return HealthCheck("Connexion Discord", HealthStatus.WARNING, "latence inconnue")
     status = HealthStatus.OK if latency_ms < 1000 else HealthStatus.WARNING
     return HealthCheck("Connexion Discord", status, f"latence {latency_ms:.0f} ms")
+
+
+def _gitlab_check(enabled: bool, listening: bool, error: str | None, last_event_at: str | None) -> HealthCheck:
+    if not enabled:
+        return HealthCheck("GitLab", HealthStatus.DISABLED, "désactivé (GITLAB_WEBHOOK_SECRET vide)")
+    if error or not listening:
+        return HealthCheck("GitLab", HealthStatus.ERROR, error or "serveur de webhooks arrêté")
+    last = f"dernier événement : {last_event_at} UTC" if last_event_at else "aucun événement reçu pour l'instant"
+    return HealthCheck("GitLab", HealthStatus.OK, f"webhooks actifs, {last}")
 
 
 def _structure_check(structure: StructureReport | None) -> HealthCheck:

@@ -27,6 +27,8 @@ CONTENT_DIR = PROJECT_ROOT / "content" / "messages"
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 _TRUE_VALUES = {"1", "true", "yes", "oui", "on"}
 _FALSE_VALUES = {"0", "false", "no", "non", "off", ""}
+# Longueur minimale du secret des webhooks GitLab : un secret court se devine.
+MIN_WEBHOOK_SECRET_LENGTH = 16
 
 
 class ConfigError(Exception):
@@ -49,8 +51,23 @@ class Settings:
     log_level: str = "INFO"
     auto_refresh_on_startup: bool = True
     pin_permanent_messages: bool = True
-    gitlab_configured: bool = False
+    gitlab_webhook_secret: str = field(default="", repr=False)
+    gitlab_project_id: int | None = None
+    webhook_host: str = "127.0.0.1"
+    webhook_port: int = 8080
+    # Erreur dans les variables GITLAB_* / WEBHOOK_* : la V2 reste désactivée, la V1 démarre quand même.
+    gitlab_config_error: str | None = None
     ai_provider: str = "none"
+
+    @property
+    def gitlab_webhooks_enabled(self) -> bool:
+        """La V2 (webhooks GitLab) n'est active que si un secret valide est défini."""
+        return bool(self.gitlab_webhook_secret)
+
+    @property
+    def gitlab_requested(self) -> bool:
+        """Vrai si la V2 est configurée, même de façon invalide (affiché en erreur dans /health)."""
+        return self.gitlab_webhooks_enabled or self.gitlab_config_error is not None
 
     @classmethod
     def from_env(
@@ -89,6 +106,35 @@ class Settings:
         auto_refresh = _parse_bool(env, "AUTO_REFRESH_ON_STARTUP", True, errors)
         pin_messages = _parse_bool(env, "PIN_PERMANENT_MESSAGES", True, errors)
 
+        # Les erreurs de la V2 sont rangées à part : elles désactivent la V2 sans empêcher la V1 de démarrer.
+        gitlab_errors: list[str] = []
+        webhook_secret = env.get("GITLAB_WEBHOOK_SECRET", "").strip()
+        if webhook_secret and len(webhook_secret) < MIN_WEBHOOK_SECRET_LENGTH:
+            gitlab_errors.append(
+                f"GITLAB_WEBHOOK_SECRET est trop court (minimum {MIN_WEBHOOK_SECRET_LENGTH} caractères) : "
+                "générez-en un avec la commande indiquée dans .env.example."
+            )
+        project_raw = env.get("GITLAB_PROJECT_ID", "").strip()
+        project_id = None
+        if project_raw:
+            if project_raw.isdigit():
+                project_id = int(project_raw)
+            else:
+                gitlab_errors.append(
+                    "GITLAB_PROJECT_ID doit être l'identifiant numérique du projet "
+                    f"(GitLab > page du projet > « Project ID »), valeur actuelle : {project_raw!r}."
+                )
+        webhook_host = env.get("WEBHOOK_HOST", "").strip() or "127.0.0.1"
+        port_raw = env.get("WEBHOOK_PORT", "").strip() or "8080"
+        webhook_port = 8080
+        if port_raw.isdigit() and 1 <= int(port_raw) <= 65535:
+            webhook_port = int(port_raw)
+        else:
+            gitlab_errors.append(f"WEBHOOK_PORT doit être un nombre entre 1 et 65535 (valeur actuelle : {port_raw!r}).")
+
+        if not webhook_secret:
+            gitlab_errors = []  # V2 non demandée : les autres variables GitLab ne comptent pas
+
         if errors:
             raise ConfigError("Configuration invalide :\n- " + "\n- ".join(errors))
 
@@ -104,7 +150,11 @@ class Settings:
             log_level=log_level,
             auto_refresh_on_startup=auto_refresh,
             pin_permanent_messages=pin_messages,
-            gitlab_configured=bool(env.get("GITLAB_PROJECT_ID", "").strip()),
+            gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
+            gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
+            gitlab_project_id=project_id,
+            webhook_host=webhook_host,
+            webhook_port=webhook_port,
             ai_provider=env.get("AI_PROVIDER", "none").strip().lower() or "none",
         )
 
