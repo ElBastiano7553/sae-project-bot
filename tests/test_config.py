@@ -59,17 +59,55 @@ def test_ai_key_absent_does_not_block_startup():
 
 def test_real_server_layout_matches_discord_structure():
     layout = load_server_layout()
-    assert len(layout.categories) == 8
-    assert len(layout.channels) == 29
+    assert list(layout.categories) == [
+        "accueil", "commun", "conception", "organisation", "developpement", "livrables", "vocal", "administration",
+    ]
     assert layout.channels["planning"].name == "planning"
     assert "planning-et-deadlines" in layout.channels["planning"].aliases  # ancien nom : renommé, pas recréé
     assert layout.channels["reunion"].type == "voice"
+    assert layout.channels["annonces"].type == "announcement" and layout.channels["annonces"].access == "lecture"
     assert layout.categories["developpement"].name == "DÉVELOPPEMENT"
-    assert layout.categories["administration"].private
-    assert {key for key, spec in layout.channels.items() if spec.optional} == {
-        "regles", "presence", "ressources", "votes", "references", "suivi_actions", "configuration",
-    }
-    assert {role.name for role in layout.roles.values()} == {"Responsable projet", "Game Design", "Développement", "Art & Design", "Testeur"}
+    assert layout.categories["administration"].private and layout.categories["administration"].access == "staff"
+    # Chaque catégorie et chaque salon ont un emoji ; chaque salon textuel a un sujet.
+    assert all(spec.emoji for spec in (*layout.categories.values(), *layout.channels.values()))
+    assert all(spec.topic for spec in layout.channels.values() if spec.type in ("text", "announcement", "forum", "media"))
+    # Fonctions utilisées par Samae : jamais facultatives, présentes dans tous les profils.
+    for key in ("bienvenue", "annonces", "decisions", "planning", "documentation", "comptes_rendus", "gitlab_activite", "builds", "logs", "reunions"):
+        assert not layout.channels[key].optional and not layout.channels[key].profiles, key
+    roles = layout.roles
+    assert all(role.color is not None for role in roles.values())
+    assert all(not role.permissions or role.kind == "staff" for role in roles.values())
+    assert {"projet", "communautaire"} <= set(layout.profiles)
+    assert {"sobre", "projet", "professionnel", "communautaire", "gaming"} <= set(layout.styles)
+    assert layout.policy.profile == "projet" and layout.policy.deletions_allowed
+
+
+def _layout(tmp_path: Path, extra: str) -> Path:
+    path = tmp_path / "server.toml"
+    path.write_text('[categories.a]\nname = "A"\n[channels.x]\nname = "x"\ncategory = "a"\n' + extra, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ('[roles.r]\nname = "R"\npermissions = ["administrator"]\n', "administrator"),
+        ('[roles.r]\nname = "R"\npermissions = ["ban_members"]\n', "réservée aux rôles"),
+        ('[roles.r]\nname = "R"\ncolor = "rouge"\n', "#RRGGBB"),
+        ('[roles.r]\nname = "R"\npermissions = ["voler"]\n', "permission inconnue"),
+        ('[access.p]\n[access.p.rules."role:inconnu"]\nallow = ["view_channel"]\n', "cible inconnue"),
+        ('[access.p]\n[access.p.rules."@bot"]\ndeny = ["view_channel"]\n', "retirer l'accès"),
+        ('[access.p]\n[access.p.rules."@everyone"]\nallow = ["send_messages"]\ndeny = ["send_messages"]\n', "à la fois"),
+        ('[styles.s]\nlabel = "S"\nchannel = "{emoji}"\n', "{nom}"),
+        ('[styles.s]\nlabel = "S"\nchannel = "{emoji} {nom}"\n', "espace"),
+        ('[channels.y]\nname = "y"\ncategory = "a"\naccess = "absent"\n', "niveau d'accès inconnu"),
+        ('[channels.y]\nname = "y"\ncategory = "a"\ntype = "fil"\n', "type doit valoir"),
+        ('[refonte]\nstyle = "inexistant"\n[styles.s]\nlabel = "S"\n', "style inconnu"),
+    ],
+)
+def test_layout_rejects_unsafe_or_invalid_redesign_settings(tmp_path: Path, extra: str, message: str):
+    with pytest.raises(ConfigError, match=message):
+        load_server_layout(_layout(tmp_path, extra))
 
 
 def test_layout_with_unknown_category(tmp_path: Path):

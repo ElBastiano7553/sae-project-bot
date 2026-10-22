@@ -361,12 +361,79 @@ def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[st
 # ---------------------------------------------------------------------------
 
 
+# --- Structure du serveur (config/server.toml) -------------------------------------------
+#
+# /setup n'en lit que les catégories et salons (noms et anciens noms). /refonte lit
+# tout : profils, styles d'affichage, emojis, sujets, types de salons, niveaux
+# d'accès (permissions), rôles avec couleurs et politique de réorganisation.
+
+CHANNEL_TYPES = ("text", "voice", "announcement", "forum", "media", "stage")
+TEXT_LIKE_TYPES = ("text", "announcement", "forum", "media")
+# Permissions qu'un rôle ou un niveau d'accès peut citer, avec leur nom dans Discord.
+PERMISSION_LABELS = {
+    "view_channel": "Voir les salons",
+    "send_messages": "Envoyer des messages",
+    "send_messages_in_threads": "Envoyer des messages dans les fils",
+    "create_public_threads": "Créer des fils publics",
+    "create_private_threads": "Créer des fils privés",
+    "embed_links": "Intégrer des liens",
+    "attach_files": "Joindre des fichiers",
+    "add_reactions": "Ajouter des réactions",
+    "use_external_emojis": "Utiliser des emojis externes",
+    "read_message_history": "Voir les anciens messages",
+    "use_application_commands": "Utiliser les commandes",
+    "create_polls": "Créer des sondages",
+    "connect": "Se connecter (vocal)",
+    "speak": "Parler (vocal)",
+    "stream": "Vidéo (vocal)",
+    "use_voice_activation": "Détection de la voix",
+    "request_to_speak": "Demander la parole",
+    "change_nickname": "Changer de pseudo",
+    "create_instant_invite": "Créer une invitation",
+    "create_events": "Créer des événements",
+    "pin_messages": "Épingler des messages",
+    # Permissions de modération : réservées aux rôles kind = "staff".
+    "manage_messages": "Gérer les messages",
+    "manage_threads": "Gérer les fils",
+    "manage_events": "Gérer les événements",
+    "manage_nicknames": "Gérer les pseudos",
+    "moderate_members": "Exclure temporairement",
+    "mute_members": "Rendre muet (vocal)",
+    "deafen_members": "Mettre en sourdine (vocal)",
+    "move_members": "Déplacer des membres (vocal)",
+    "kick_members": "Expulser des membres",
+    "ban_members": "Bannir des membres",
+    "mention_everyone": "Mentionner @everyone",
+    "view_audit_log": "Voir le journal d'audit",
+    "manage_channels": "Gérer les salons",
+    "manage_roles": "Gérer les rôles",
+    "manage_webhooks": "Gérer les webhooks",
+    "manage_guild": "Gérer le serveur",
+}
+# Permissions sensibles : seulement pour un rôle de type « staff », jamais sur un rôle ordinaire.
+SENSITIVE_PERMISSIONS = frozenset(
+    {
+        "manage_messages", "manage_threads", "manage_events", "manage_nicknames", "moderate_members", "mute_members",
+        "deafen_members", "move_members", "kick_members", "ban_members", "mention_everyone", "view_audit_log",
+        "manage_channels", "manage_roles", "manage_webhooks", "manage_guild",
+    }
+)
+# Jamais accordée par Samae, quel que soit le fichier de configuration.
+FORBIDDEN_PERMISSIONS = frozenset({"administrator"})
+ROLE_KINDS = ("staff", "responsabilite", "fonction", "membre", "notification")
+# Cibles spéciales des niveaux d'accès (en plus de « role:<clé> ») :
+ACCESS_TARGETS = ("@everyone", "@bot", "@admin")
+
+
 @dataclass(frozen=True)
 class CategorySpec:
     key: str
     name: str
     aliases: tuple[str, ...] = ()  # anciens noms : la catégorie est renommée au lieu d'être recréée
-    private: bool = False  # créée par /refonte visible seulement du bot et des administrateurs
+    private: bool = False  # réservée au staff (accès « staff » par défaut)
+    emoji: str = ""
+    access: str = ""  # niveau d'accès ([access.<clé>]) ; vide : « public », ou « staff » si private
+    profiles: tuple[str, ...] = ()  # vide : présente dans tous les profils
 
 
 @dataclass(frozen=True)
@@ -374,18 +441,89 @@ class ChannelSpec:
     key: str
     name: str
     category_key: str
-    type: str = "text"  # "text" ou "voice"
+    type: str = "text"  # voir CHANNEL_TYPES
     aliases: tuple[str, ...] = ()  # anciens noms reconnus (renommage plutôt que création)
     optional: bool = False  # créé par /refonte seulement si on le demande ; jamais signalé comme manquant
+    emoji: str = ""
+    topic: str = ""  # sujet affiché sous le nom du salon (salons textuels)
+    access: str = ""  # vide : celui de la catégorie
+    profiles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class RoleSpec:
-    """Rôle de projet proposé par /refonte (créé seulement sur demande, sans aucune permission)."""
+    """Rôle proposé par /refonte : couleur, place dans la hiérarchie (ordre du fichier) et permissions minimales."""
 
     key: str
     name: str
     description: str = ""
+    color: int | None = None  # 0xRRGGBB ; None : couleur par défaut de Discord
+    permissions: tuple[str, ...] = ()  # permissions du serveur, au strict nécessaire
+    kind: str = "fonction"  # voir ROLE_KINDS
+    hoist: bool = False  # affiché séparément dans la liste des membres
+    mentionable: bool = False
+    optional: bool = False
+    self_assignable: bool = False  # destiné à l'auto-attribution (système à venir)
+    aliases: tuple[str, ...] = ()
+    profiles: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AccessRule:
+    """Permissions d'une cible (@everyone, @bot, @admin ou role:<clé>) dans un niveau d'accès."""
+
+    target: str
+    allow: tuple[str, ...] = ()
+    deny: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AccessSpec:
+    key: str
+    label: str
+    rules: tuple[AccessRule, ...] = ()
+
+
+@dataclass(frozen=True)
+class StyleSpec:
+    """Convention de nommage : {emoji} et {nom} ; sans emoji, seul {nom} est gardé."""
+
+    key: str
+    label: str
+    category: str = "{nom}"
+    channel: str = "{nom}"
+    voice: str = "{nom}"
+
+    def render(self, spec: CategorySpec | ChannelSpec) -> str:
+        if isinstance(spec, CategorySpec):
+            pattern = self.category
+        else:
+            pattern = self.voice if spec.type in ("voice", "stage") else self.channel
+        if not spec.emoji or "{emoji}" not in pattern:
+            return spec.name
+        return pattern.replace("{emoji}", spec.emoji).replace("{nom}", spec.name)
+
+
+@dataclass(frozen=True)
+class ProfileSpec:
+    key: str
+    label: str
+    description: str = ""
+    style: str = ""
+
+
+@dataclass(frozen=True)
+class RedesignPolicy:
+    """Section [refonte] : comportement par défaut de /refonte."""
+
+    profile: str = "projet"
+    style: str = "projet"
+    permissions: bool = True  # corriger les permissions des éléments reconnus
+    positions: bool = True  # ordonner catégories, salons et rôles selon le fichier
+    edit_roles: bool = True  # compléter les rôles existants (couleur, permissions manquantes)
+    deletions_allowed: bool = True  # autoriser le mode suppressions:True (toujours sur confirmation séparée)
+    keep: tuple[str, ...] = ()  # éléments personnalisés à conserver tels quels (noms)
+    obsolete: tuple[str, ...] = ()  # éléments déclarés obsolètes : suppression proposée (jamais automatique)
 
 
 @dataclass(frozen=True)
@@ -395,6 +533,10 @@ class ServerLayout:
     categories: dict[str, CategorySpec]
     channels: dict[str, ChannelSpec]
     roles: dict[str, RoleSpec] = field(default_factory=dict)
+    access: dict[str, AccessSpec] = field(default_factory=dict)
+    styles: dict[str, StyleSpec] = field(default_factory=dict)
+    profiles: dict[str, ProfileSpec] = field(default_factory=dict)
+    policy: RedesignPolicy = field(default_factory=RedesignPolicy)
 
 
 @dataclass(frozen=True)
@@ -429,50 +571,203 @@ def load_toml(path: Path) -> dict:
 
 def load_server_layout(path: Path = CONFIG_DIR / "server.toml") -> ServerLayout:
     data = load_toml(path)
+    filename = path.name
+    profiles = _parse_profiles(data, filename)
+    styles = _parse_styles(data, filename)
+    known_profiles = set(profiles)
     categories: dict[str, CategorySpec] = {}
     for key, value in data.get("categories", {}).items():
         where = f"categories.{key}"
+        private = _bool_value(value, "private", where, filename)
         categories[key] = CategorySpec(
             key=key,
             name=_require_str(value, "name", where),
-            aliases=_str_list(value, "aliases", where, path.name),
-            private=_bool_value(value, "private", where, path.name),
+            aliases=_str_list(value, "aliases", where, filename),
+            private=private,
+            emoji=_emoji(value, where, filename),
+            access=str(value.get("access", "staff" if private else "")).strip(),
+            profiles=_profile_list(value, where, filename, known_profiles),
         )
     channels: dict[str, ChannelSpec] = {}
     for key, value in data.get("channels", {}).items():
         where = f"channels.{key}"
         category_key = _require_str(value, "category", where)
         if category_key not in categories:
-            raise ConfigError(f"{path.name} : [{where}] référence une catégorie inconnue « {category_key} ».")
+            raise ConfigError(f"{filename} : [{where}] référence une catégorie inconnue « {category_key} ».")
         channel_type = value.get("type", "text")
-        if channel_type not in {"text", "voice"}:
-            raise ConfigError(f"{path.name} : [{where}] type doit valoir \"text\" ou \"voice\".")
+        if channel_type not in CHANNEL_TYPES:
+            raise ConfigError(f"{filename} : [{where}] type doit valoir l'une de ces valeurs : {', '.join(CHANNEL_TYPES)}.")
         name = _require_str(value, "name", where)
-        if channel_type == "text" and (name != name.lower() or any(ch.isspace() for ch in name) or len(name) > 100):
+        if channel_type in TEXT_LIKE_TYPES and (name != name.lower() or any(ch.isspace() for ch in name) or len(name) > 100):
             # Discord transforme lui-même ces noms : le salon ne correspondrait jamais au nom attendu.
             raise ConfigError(
-                f"{path.name} : [{where}] le nom d'un salon textuel s'écrit en minuscules, sans espace "
+                f"{filename} : [{where}] le nom d'un salon textuel s'écrit en minuscules, sans espace "
                 f"(100 caractères au plus), par exemple « comptes-rendus » (valeur : {name!r})."
             )
+        topic = str(value.get("topic", "")).strip()
+        if len(topic) > 1024:
+            raise ConfigError(f"{filename} : [{where}] le sujet dépasse 1024 caractères (limite de Discord).")
         channels[key] = ChannelSpec(
             key=key,
             name=name,
             category_key=category_key,
             type=channel_type,
-            aliases=_str_list(value, "aliases", where, path.name),
-            optional=_bool_value(value, "optional", where, path.name),
+            aliases=_str_list(value, "aliases", where, filename),
+            optional=_bool_value(value, "optional", where, filename),
+            emoji=_emoji(value, where, filename),
+            topic=topic,
+            access=str(value.get("access", "")).strip(),
+            profiles=_profile_list(value, where, filename, known_profiles),
         )
     if not channels:
-        raise ConfigError(f"{path.name} ne déclare aucun salon.")
-    roles = {
-        key: RoleSpec(
+        raise ConfigError(f"{filename} ne déclare aucun salon.")
+    roles = {key: _parse_role(key, value, filename, known_profiles) for key, value in data.get("roles", {}).items()}
+    access = _parse_access(data, filename, set(roles))
+    for spec in (*categories.values(), *channels.values()):
+        if spec.access and spec.access not in access:
+            kind = "categories" if isinstance(spec, CategorySpec) else "channels"
+            raise ConfigError(f"{filename} : [{kind}.{spec.key}] niveau d'accès inconnu « {spec.access} » (voir [access]).")
+    policy = _parse_policy(data, filename, profiles, styles)
+    layout = ServerLayout(categories, channels, roles, access, styles, profiles, policy)
+    for style in styles.values():
+        for spec in (*categories.values(), *channels.values()):
+            rendered = style.render(spec)
+            if len(rendered) > 100:
+                raise ConfigError(f"{filename} : avec le style « {style.key} », « {rendered} » dépasse 100 caractères.")
+    return layout
+
+
+def _emoji(table: Mapping, where: str, filename: str) -> str:
+    raw = table.get("emoji", "")
+    if not isinstance(raw, str) or len(raw.strip()) > 8 or any(ch.isspace() for ch in raw.strip()):
+        raise ConfigError(f"{filename} : [{where}] « emoji » doit être un seul emoji Unicode, par exemple \"📢\".")
+    return raw.strip()
+
+
+def _profile_list(table: Mapping, where: str, filename: str, known: set[str]) -> tuple[str, ...]:
+    profiles = _str_list(table, "profiles", where, filename)
+    unknown = [p for p in profiles if known and p not in known]
+    if unknown:
+        raise ConfigError(f"{filename} : [{where}] profil inconnu : {', '.join(unknown)} (voir [profiles]).")
+    return profiles
+
+
+def _parse_profiles(data: Mapping, filename: str) -> dict[str, ProfileSpec]:
+    result = {}
+    for key, value in data.get("profiles", {}).items():
+        where = f"profiles.{key}"
+        result[key] = ProfileSpec(
             key=key,
-            name=_require_str(value, "name", f"roles.{key}"),
+            label=_require_str(value, "label", where),
             description=str(value.get("description", "")).strip(),
+            style=str(value.get("style", "")).strip(),
         )
-        for key, value in data.get("roles", {}).items()
-    }
-    return ServerLayout(categories=categories, channels=channels, roles=roles)
+    return result
+
+
+def _parse_styles(data: Mapping, filename: str) -> dict[str, StyleSpec]:
+    result = {}
+    for key, value in data.get("styles", {}).items():
+        where = f"styles.{key}"
+        patterns = {}
+        for field_name in ("category", "channel", "voice"):
+            pattern = str(value.get(field_name, "{nom}"))
+            if "{nom}" not in pattern:
+                raise ConfigError(f"{filename} : [{where}] « {field_name} » doit contenir {{nom}} (valeur : {pattern!r}).")
+            patterns[field_name] = pattern
+        if any(ch.isspace() for ch in patterns["channel"]):
+            raise ConfigError(f"{filename} : [{where}] « channel » ne peut pas contenir d'espace (salons textuels).")
+        result[key] = StyleSpec(key=key, label=_require_str(value, "label", where), **patterns)
+    return result
+
+
+def _parse_role(key: str, value: Mapping, filename: str, known_profiles: set[str]) -> RoleSpec:
+    where = f"roles.{key}"
+    name = _require_str(value, "name", where)
+    if len(name) > 100:
+        raise ConfigError(f"{filename} : [{where}] le nom d'un rôle fait au plus 100 caractères.")
+    color = value.get("color")
+    parsed_color = None
+    if color is not None:
+        if not isinstance(color, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", color.strip()):
+            raise ConfigError(f"{filename} : [{where}] « color » s'écrit \"#RRGGBB\", par exemple \"#8294A8\".")
+        parsed_color = int(color.strip()[1:], 16)
+    kind = str(value.get("kind", "fonction")).strip()
+    if kind not in ROLE_KINDS:
+        raise ConfigError(f"{filename} : [{where}] « kind » doit valoir l'une de ces valeurs : {', '.join(ROLE_KINDS)}.")
+    permissions = _permission_list(value, "permissions", where, filename)
+    sensitive = sorted(set(permissions) & SENSITIVE_PERMISSIONS)
+    if sensitive and kind != "staff":
+        raise ConfigError(
+            f"{filename} : [{where}] {', '.join(sensitive)} : permission sensible réservée aux rôles kind = \"staff\"."
+        )
+    return RoleSpec(
+        key=key,
+        name=name,
+        description=str(value.get("description", "")).strip(),
+        color=parsed_color,
+        permissions=permissions,
+        kind=kind,
+        hoist=_bool_value(value, "hoist", where, filename),
+        mentionable=_bool_value(value, "mentionable", where, filename),
+        optional=_bool_value(value, "optional", where, filename),
+        self_assignable=_bool_value(value, "self_assignable", where, filename),
+        aliases=_str_list(value, "aliases", where, filename),
+        profiles=_profile_list(value, where, filename, known_profiles),
+    )
+
+
+def _permission_list(table: Mapping, key: str, where: str, filename: str) -> tuple[str, ...]:
+    names = _str_list(table, key, where, filename)
+    forbidden = [n for n in names if n in FORBIDDEN_PERMISSIONS]
+    if forbidden:
+        raise ConfigError(f"{filename} : [{where}] Samae n'accorde jamais la permission « administrator ».")
+    unknown = [n for n in names if n not in PERMISSION_LABELS]
+    if unknown:
+        raise ConfigError(f"{filename} : [{where}] permission inconnue : {', '.join(unknown)}.")
+    return names
+
+
+def _parse_access(data: Mapping, filename: str, role_keys: set[str]) -> dict[str, AccessSpec]:
+    result = {}
+    for key, value in data.get("access", {}).items():
+        where = f"access.{key}"
+        rules = []
+        for target, rule in value.get("rules", {}).items():
+            if target not in ACCESS_TARGETS and not (target.startswith("role:") and target[5:] in role_keys):
+                raise ConfigError(
+                    f"{filename} : [{where}.rules] cible inconnue « {target} » : @everyone, @bot, @admin ou role:<clé d'un rôle>."
+                )
+            allow = _permission_list(rule, "allow", f"{where}.rules.{target}", filename)
+            deny = _permission_list(rule, "deny", f"{where}.rules.{target}", filename)
+            if set(allow) & set(deny):
+                raise ConfigError(f"{filename} : [{where}.rules.{target}] une permission est à la fois accordée et refusée.")
+            if target == "@bot" and "view_channel" in deny:
+                raise ConfigError(f"{filename} : [{where}] Samae ne peut pas se retirer l'accès à un salon.")
+            rules.append(AccessRule(target, allow, deny))
+        result[key] = AccessSpec(key=key, label=str(value.get("label", key)).strip() or key, rules=tuple(rules))
+    return result
+
+
+def _parse_policy(data: Mapping, filename: str, profiles: dict, styles: dict) -> RedesignPolicy:
+    raw = data.get("refonte", {})
+    where = "refonte"
+    profile = str(raw.get("profile", "projet" if "projet" in profiles or not profiles else next(iter(profiles))))
+    style = str(raw.get("style", profiles[profile].style if profile in profiles and profiles[profile].style else "projet"))
+    if profiles and profile not in profiles:
+        raise ConfigError(f"{filename} : [refonte] profil inconnu « {profile} ».")
+    if styles and style not in styles:
+        raise ConfigError(f"{filename} : [refonte] style inconnu « {style} ».")
+    return RedesignPolicy(
+        profile=profile,
+        style=style,
+        permissions=_bool_value(raw, "permissions", where, filename, default=True),
+        positions=_bool_value(raw, "positions", where, filename, default=True),
+        edit_roles=_bool_value(raw, "edit_roles", where, filename, default=True),
+        deletions_allowed=_bool_value(raw, "deletions_allowed", where, filename, default=True),
+        keep=_str_list(raw, "keep", where, filename),
+        obsolete=_str_list(raw, "obsolete", where, filename),
+    )
 
 
 def _str_list(table: Mapping, key: str, where: str, filename: str) -> tuple[str, ...]:
@@ -482,8 +777,8 @@ def _str_list(table: Mapping, key: str, where: str, filename: str) -> tuple[str,
     return tuple(v.strip() for v in raw)
 
 
-def _bool_value(table: Mapping, key: str, where: str, filename: str) -> bool:
-    raw = table.get(key, False)
+def _bool_value(table: Mapping, key: str, where: str, filename: str, *, default: bool = False) -> bool:
+    raw = table.get(key, default)
     if not isinstance(raw, bool):
         raise ConfigError(f"{filename} : [{where}] « {key} » doit valoir true ou false, sans guillemets.")
     return raw

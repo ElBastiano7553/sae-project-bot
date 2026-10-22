@@ -71,7 +71,9 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 
 | Commande | Effet | Confirmation |
 |---|---|---|
-| `/refonte [facultatifs] [roles]` | Analyse le serveur, prépare un plan (créer, renommer, déplacer, associer), l'affiche page par page puis l'applique. **Ne supprime jamais rien.** Sauvegarde la base avant, écrit un journal après, met à jour les salons associés par identifiant. `facultatifs:True` crée aussi les salons facultatifs ; `roles:True` crée les rôles d'équipe (sans permission). Exige en plus que l'admin ait lui-même « Gérer les salons » (et « Gérer les rôles » pour `roles`). Guide : [refonte-et-aide.md](refonte-et-aide.md). | Analyse → aperçu → **Appliquer la refonte** → **Confirmer l'application** (10 min) ; le plan est recalculé et comparé avant d'appliquer |
+| `/refonte lancer [profil] [style] [facultatifs] [roles] [permissions] [suppressions]` | Compare le serveur à `config/server.toml` et le transforme : renomme au style choisi (emojis), déplace, corrige sujets, permissions et ordre, crée les catégories, salons et rôles colorés manquants, garde les éléments personnalisés et inconnus. Sauvegarde la base avant, journal détaillé, vérification finale. Les suppressions (doublons vides, catégories vidées, éléments déclarés obsolètes) ne sont proposées qu'avec `suppressions:True`, dans une liste séparée. Exige que l'admin ait lui-même « Gérer les salons » (et « Gérer les rôles » pour les rôles et permissions). Guide : [refonte.md](refonte.md). | Analyse → aperçu → **Appliquer les changements** → **Confirmer l'application** (10 min) ; suppressions : **Examiner** → **Supprimer ces éléments** → **Confirmer les suppressions** |
+| `/refonte retour [journal]` | Rétablit ce qu'une refonte a changé, d'après son journal : noms, catégories, permissions, rôles, positions, associations. Ce qui a changé depuis est laissé tel quel ; les éléments créés sont proposés à la suppression séparément ; les messages supprimés ne reviennent jamais. | Aperçu + **Confirmer l'application** |
+| `/refonte journal` | Dernières refontes, suppressions et retours (état, réussites, échecs, auteur). | — |
 | `/setup` | Compare `config/server.toml` au serveur, puis enregistre les salons reconnus et publie ou met à jour les messages permanents. Ne crée ni ne supprime aucun salon. | Prévisualisation + bouton **Confirmer** (2 min) |
 | `/refresh [message]` | Met à jour les messages permanents **sur place** (même lien, réactions conservées) et recrée ceux qui ont été supprimés. `message` limite l'actualisation à un seul message. | Non (aucune perte possible) |
 | `/config` | Réglages (sans aucun secret), salons associés, liens vers les messages gérés. | — |
@@ -86,11 +88,12 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 
 Le bot n'a **pas** besoin de la permission Administrateur ni d'aucun intent privilégié.
 
-Noms des salons : avant / après `/refonte` (par exemple `#decisions-et-comptes-rendus` devient `#décisions`,
-et les comptes rendus vont dans le nouveau `#comptes-rendus`). Le bot les retrouve par identifiant.
+Noms des salons : avant / après `/refonte` (par exemple `#decisions-et-comptes-rendus` devient `#✅・décisions`,
+et les comptes rendus vont dans le nouveau `#📝・comptes-rendus`). Le bot les retrouve par identifiant.
 
-`/refonte` demande en plus **Gérer les salons** (et **Gérer les rôles** si `roles:True`) sur le serveur,
-et un rôle du bot placé au-dessus des rôles qu'il crée.
+`/refonte` demande en plus **Gérer les salons** et, pour les rôles et les permissions des salons, **Gérer les rôles**,
+avec un rôle du bot placé au-dessus des rôles qu'il gère. Le bot doit aussi avoir lui-même chaque permission qu'il
+pose sur un salon (voir le détail dans [refonte.md](refonte.md#7-permissions-nécessaires)).
 
 | Salons | Permissions |
 |---|---|

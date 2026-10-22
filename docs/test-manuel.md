@@ -68,29 +68,53 @@ Cochez chaque case et notez l'heure de tout résultat inattendu (le journal
 - [ ] `/reunion compte-rendu` : même contenu, paginé si long.
 - [ ] Retirer au bot la permission d'écrire dans `#comptes-rendus`, terminer une autre réunion : message « Attention, compte rendu : … », la réunion est bien terminée, rien n'est présenté comme publié.
 
-## 5. Refonte (`/refonte`) — le plus important
+## 5. Refonte (`/refonte lancer`, `/refonte retour`) — le plus important
 
-Avant : notez le nombre de catégories, salons, rôles, et quelques messages écrits à la main.
+À faire **uniquement sur un serveur de test** qui ressemble au vrai (anciennes catégories
+numérotées, quelques salons personnels, quelques rôles, des messages écrits à la main).
+Avant : notez les catégories, salons, rôles et quelques messages.
 
-- [ ] Compte membre : `/refonte` refusé.
+Accès et aperçu :
+
+- [ ] Compte membre : `/refonte lancer` refusé.
 - [ ] Admin **sans** « Gérer les salons » : refusé avec explication.
-- [ ] `/refonte` : analyse « rien n'a été modifié » ; « Prévisualiser » : plan paginé, dernière ligne « 0 suppression ».
-- [ ] « Annuler » : rien n'a changé sur le serveur.
-- [ ] Ouvrir `/refonte`, ne rien cliquer pendant 10 minutes : vue expirée, rien n'a changé.
-- [ ] Retirer au bot « Gérer les salons » : « Appliquer » est désactivé (point bloquant affiché).
-- [ ] Rendre la permission ; `/refonte` > Prévisualiser > Appliquer, puis créer un salon à la main **avant** de confirmer > Confirmer : « le serveur a changé », nouveau plan, rien appliqué.
-- [ ] `/refonte` > Prévisualiser > Appliquer > **Confirmer l'application** (double-clic rapide) : une seule exécution ; rapport avec réussites, échecs éventuels avec raison, étapes manuelles.
-- [ ] Après : **aucun** salon, rôle, catégorie ou message supprimé ; les messages écrits à la main sont toujours là, dans les salons renommés ; l'historique est intact.
-- [ ] Catégorie ADMINISTRATION invisible pour le compte membre.
-- [ ] `data/backups/` contient une sauvegarde `…avantrefonte…` et `data/refonte/` un journal JSON.
-- [ ] `/refresh` : les messages permanents citent les salons avec leurs nouveaux noms.
-- [ ] Panneau d'une réunion ouverte avant la refonte : boutons toujours fonctionnels.
-- [ ] Deuxième `/refonte` : le plan ne propose plus que des éléments « déjà conformes » (aucune création ni aucun renommage).
-- [ ] `/refonte roles:True` : rôles proposés créés **sans aucune permission** (Paramètres du serveur > Rôles).
+- [ ] `/refonte lancer` : analyse, menus « Profil du serveur » et « Style d'affichage » ; changer de style recalcule le plan ; rien n'a changé sur le serveur.
+- [ ] « Prévisualiser » : structure cible avec emojis, rôles avec couleurs, renommages, déplacements, permissions, ordre, éléments inconnus conservés, risques ; aucune suppression parmi les actions.
+- [ ] Un autre compte admin clique sur les boutons : refusé.
+- [ ] « Annuler » : rien n'a changé. Ne rien cliquer pendant 10 minutes : vue expirée, rien n'a changé.
+- [ ] Retirer au bot « Gérer les salons » : « Appliquer les changements » désactivé (point bloquant affiché). Rendre la permission.
+- [ ] Retirer au bot « Gérer les rôles » : rôles et permissions passent en « à faire à la main ». Rendre la permission.
+- [ ] Placer un rôle de la cible (ex. Testeur) au-dessus du rôle de Samae : signalé, non modifié.
+- [ ] Prévisualiser > Appliquer, puis créer ou renommer un salon à la main **avant** de confirmer > Confirmer : « Le serveur a changé depuis l'aperçu », différences, rien appliqué.
+
+Application :
+
+- [ ] Appliquer > **Confirmer l'application** (double-clic rapide) : une seule exécution ; rapport avec réussites, échecs éventuels avec raison, étapes manuelles, vérification finale.
+- [ ] Catégories et salons renommés avec emojis, dans l'ordre de `config/server.toml` ; historique des salons intact ; salons personnels toujours là.
+- [ ] Rôles créés avec leurs couleurs, dans le bon ordre sous le rôle de Samae ; aucun rôle n'a Administrateur.
+- [ ] Compte membre : ne peut pas écrire dans `#📢・annonces`, `#👋・bienvenue`, `#✅・décisions` ; ne voit pas « 🛡️ ADMINISTRATION ».
+- [ ] Une permission posée à la main pour un autre rôle sur un salon : toujours là.
+- [ ] Samae peut toujours écrire dans `#🧾・bot-logs` et les salons en lecture seule (`/admin diagnostic`).
+- [ ] `data/backups/` contient une sauvegarde `…avantrefonte…` et `data/refonte/` un journal JSON ; `/refonte journal` l'affiche.
+- [ ] `/refresh` : les messages permanents citent les salons avec leurs nouveaux noms ; panneau d'une réunion ouverte avant la refonte toujours fonctionnel ; notifications GitLab/GitHub toujours reçues.
+- [ ] Deuxième `/refonte lancer` : aucune action proposée (hors associations).
+- [ ] Serveur Communauté : `#📢・annonces` devient un vrai salon d'annonces ; avec `facultatifs:True`, forum et conférence créés.
+
+Suppressions :
+
+- [ ] `/refonte lancer suppressions:True` : la catégorie « 04 · GITLAB AUTOMATISÉ » vidée est proposée **à part** ; un salon personnel avec messages n'est **pas** proposé.
+- [ ] « Examiner les suppressions » puis « Annuler » : rien n'est supprimé.
+- [ ] Recommencer jusqu'à « Confirmer les suppressions » : seuls les éléments listés disparaissent.
+
+Retour arrière :
+
+- [ ] Renommer un salon à la main, écrire dans un salon créé par la refonte, puis `/refonte retour` : l'aperçu les signale comme laissés tels quels et affiche les limites.
+- [ ] Confirmer : noms, catégories, permissions, couleurs et ordre d'avant rétablis (au mieux pour l'ordre).
+- [ ] « Examiner les suppressions » du retour : seuls les éléments créés **vides** sont proposés ; confirmer ; le serveur ressemble à celui d'avant.
 - [ ] Sur téléphone : aperçu et rapport lisibles.
 
 ## 6. Après le test
 
 Notez les cases non cochées et les heures des anomalies. Le test d'un serveur de test ne
 garantit pas le résultat sur le vrai serveur (salons, rôles et permissions différents) :
-sur le vrai serveur, lisez attentivement l'aperçu de `/refonte` avant de confirmer.
+sur le vrai serveur, lisez attentivement l'aperçu de `/refonte lancer` avant de confirmer.

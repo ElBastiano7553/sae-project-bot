@@ -5,12 +5,12 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.2.1 (hébergement VPS systemd, fiabilité des interactions)
+## État actuel : version 1.3.0 (refonte complète du serveur)
 
 | Fonction | État |
 |---|---|
 | Reconnaissance des catégories et salons existants (`/setup`, sans jamais en créer) | ✅ V1 |
-| Refonte du serveur (`/refonte`) : analyse, aperçu paginé, confirmation, création et renommage **sans aucune suppression**, sauvegarde et journal, configuration mise à jour par identifiant | ✅ 1.2.0 |
+| Refonte du serveur (`/refonte lancer`) : profils et styles (emojis), rôles colorés et hiérarchie, permissions, ordre, doublons et éléments personnalisés, aperçu paginé, suppressions séparées sur double confirmation, sauvegarde, journal, retour arrière (`/refonte retour`) | ✅ 1.3.0 |
 | Centre d'aide interactif : `/help` (6 pages, menu, navigation) et `/reunion help` | ✅ 1.2.0 |
 | Messages permanents idempotents : mise à jour sur place, recréation automatique s'ils sont supprimés, déplacement sans doublon, verrou contre les actualisations simultanées | ✅ V1 + lot 1 |
 | Liens non configurés : version provisoire « À compléter » (obligatoire / facultatif), sans URL inventée | ✅ lot 1 |
@@ -47,8 +47,8 @@ Le guide détaillé, étape par étape, est dans
 ## Notifications GitLab (V2)
 
 Le bot reçoit les webhooks GitLab et publie dans le salon GitLab (`#gitlab-activite`,
-`#gitlab-et-commits` après `/refonte` : push, merge requests) et le salon des builds
-(`#builds-et-tests`, `#tests-et-builds` après `/refonte` : pipelines). Pour l'activer : un secret dans
+`#🦊・activité-git` après `/refonte` : push, merge requests) et le salon des builds
+(`#builds-et-tests`, `#🧪・tests-et-builds` après `/refonte` : pipelines). Pour l'activer : un secret dans
 `.env`, un tunnel (Cloudflare ou ngrok, car un PC n'est pas joignable depuis
 GitLab) et un webhook dans GitLab. Tout est expliqué pas à pas dans
 [docs/gitlab-webhooks.md](docs/gitlab-webhooks.md), avec un script de test local :
@@ -84,7 +84,7 @@ python -m src.github.demo push
 | `/reunion help [sujet]` | tout le monde | aide des réunions en 6 pages |
 | `/reunion creer` · `voir` · `liste` · `rejoindre` · `quitter` · `progression` · `point` · `reserve` · `action` · `compte-rendu` | tout le monde (contributions : participants) | réunions, panneau public mis à jour sur place ([guide](docs/meetings.md)) |
 | `/reunion demarrer` · `suivante` · `precedente` · `decision` · `inviter` · `terminer` · `annuler` | responsable de la réunion ou admins | déroulement de la réunion, décisions, clôture avec compte rendu |
-| `/refonte [facultatifs] [roles]` | admins | réorganise le serveur selon `config/server.toml` : aperçu, confirmation, application sans suppression ([guide](docs/refonte-et-aide.md)) |
+| `/refonte lancer` · `retour` · `journal` | admins | réorganise le serveur selon `config/server.toml` (profil, style, rôles, permissions, ordre) : aperçu, confirmation, suppressions séparées, retour arrière ([guide](docs/refonte.md)) |
 | `/setup` | admins | prévisualise la structure et les messages, puis applique après clic sur **Confirmer** (2 min) |
 | `/refresh [message]` | admins | met à jour les messages permanents sur place, recrée ceux qui ont été supprimés |
 | `/config` | admins | réglages (sans secret), salons associés, liens vers les messages gérés |
@@ -105,7 +105,7 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 | ajouter un lien (README, GitLab, journal IA…) ou le rendre obligatoire | `config/links.toml` | `/refresh` |
 | publier ou modifier l'annonce en cours | Discord : `/announce` | (immédiat après confirmation) |
 | ajouter une échéance ou une prochaine étape | `config/planning.toml` | `/refresh` |
-| adapter le nom d'un salon | `config/server.toml` | `/refonte` (ou `/setup` si le salon a déjà ce nom) |
+| adapter le nom d'un salon, un emoji, une couleur de rôle, un style | `config/server.toml` | `/refonte lancer` (ou `/setup` si le salon a déjà ce nom) |
 | choisir les salons, branches et événements GitLab notifiés | `config/gitlab.toml` | redémarrer le bot |
 | donner des informations sur le projet à `/ask` | `knowledge/*.md` | (immédiat) |
 
@@ -117,10 +117,12 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - Les secrets définis dans `.env` sont masqués (`***`) dans tous les journaux.
 - IA : secrets masqués avant tout envoi, quotas, réponses éphémères, aucun texte de question ou de réponse conservé ; l'API GitLab n'est utilisée qu'en lecture seule (`read_api`).
 - Les erreurs montrées sur Discord ne contiennent ni trace d'appel ni détail interne.
-- Il ne supprime aucun salon, catégorie, rôle ou message d'utilisateur ; il ne supprime que
-  ses propres messages permanents (déplacement de salon, reconstruction confirmée).
+- Il ne supprime aucun message d'utilisateur ; hors `/refonte`, il ne supprime que ses propres
+  messages permanents (déplacement de salon, reconstruction confirmée).
 - Seule `/refonte`, après aperçu et confirmation d'un admin qui a lui-même « Gérer les salons »,
-  crée ou renomme des catégories, salons et (sur demande) rôles. Les rôles créés n'ont aucune permission.
+  crée, renomme, déplace ou modifie catégories, salons et rôles. Elle ne supprime un élément
+  qu'avec `suppressions:True`, après une seconde confirmation distincte et une revérification ;
+  elle ne donne jamais la permission Administrateur, et les permissions sensibles sont réservées au staff.
 - Webhooks GitLab : secret vérifié à temps constant avant toute lecture, JSON et taille
   contrôlés, événements dédupliqués, textes GitLab nettoyés (aucune mention possible).
 - Webhooks GitHub : signature HMAC-SHA256 vérifiée à temps constant, un seul dépôt accepté,
@@ -139,7 +141,8 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Assistant IA : configuration, coûts, sécurité (lot 3)](docs/ai.md)
 - [Samae 2.0 : audit et plan des lots](docs/samae-2-plan.md)
 - [Réunions : déroulement, permissions, compte rendu (Samae 2.0, lot 1)](docs/meetings.md)
-- [Refonte du serveur, centre d'aide et identité visuelle (1.2.0)](docs/refonte-et-aide.md)
+- [Refonte du serveur : audit, configuration, permissions, retour arrière (1.3.0)](docs/refonte.md)
+- [Centre d'aide et identité visuelle (1.2.0)](docs/refonte-et-aide.md)
 - [Héberger Samae sur le VPS (systemd) : installation, mises à jour, retour arrière, sauvegardes, surveillance](docs/deployment-vps.md)
 - [Plan de test manuel sur un serveur Discord de test (dont `/refonte`)](docs/test-manuel.md)
 
