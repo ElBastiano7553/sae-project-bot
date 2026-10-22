@@ -19,6 +19,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -29,6 +30,8 @@ _TRUE_VALUES = {"1", "true", "yes", "oui", "on"}
 _FALSE_VALUES = {"0", "false", "no", "non", "off", ""}
 # Longueur minimale du secret des webhooks GitLab : un secret court se devine.
 MIN_WEBHOOK_SECRET_LENGTH = 16
+# Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
+SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY")
 
 
 class ConfigError(Exception):
@@ -51,6 +54,7 @@ class Settings:
     log_level: str = "INFO"
     auto_refresh_on_startup: bool = True
     pin_permanent_messages: bool = True
+    auto_recreate_deleted: bool = True
     gitlab_webhook_secret: str = field(default="", repr=False)
     gitlab_project_id: int | None = None
     webhook_host: str = "127.0.0.1"
@@ -105,6 +109,7 @@ class Settings:
 
         auto_refresh = _parse_bool(env, "AUTO_REFRESH_ON_STARTUP", True, errors)
         pin_messages = _parse_bool(env, "PIN_PERMANENT_MESSAGES", True, errors)
+        auto_recreate = _parse_bool(env, "AUTO_RECREATE_DELETED_MESSAGES", True, errors)
 
         # Les erreurs de la V2 sont rangées à part : elles désactivent la V2 sans empêcher la V1 de démarrer.
         gitlab_errors: list[str] = []
@@ -150,6 +155,7 @@ class Settings:
             log_level=log_level,
             auto_refresh_on_startup=auto_refresh,
             pin_permanent_messages=pin_messages,
+            auto_recreate_deleted=auto_recreate,
             gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
             gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
             gitlab_project_id=project_id,
@@ -157,6 +163,12 @@ class Settings:
             webhook_port=webhook_port,
             ai_provider=env.get("AI_PROVIDER", "none").strip().lower() or "none",
         )
+
+
+def secret_values(env: Mapping[str, str] | None = None) -> list[str]:
+    """Valeurs des secrets définis, pour les masquer dans les journaux (jamais affichées)."""
+    env = os.environ if env is None else env
+    return [value.strip() for key in SECRET_ENV_VARS if (value := env.get(key, "")).strip()]
 
 
 def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[str]) -> bool:
@@ -255,18 +267,77 @@ def load_server_layout(path: Path = CONFIG_DIR / "server.toml") -> ServerLayout:
     return ServerLayout(categories=categories, channels=channels)
 
 
+@dataclass(frozen=True)
+class LinkCatalog:
+    """Liens de config/links.toml, avec leur libellé et leur caractère obligatoire ou facultatif."""
+
+    urls: dict[str, str]
+    labels: dict[str, str] = field(default_factory=dict)
+    required: frozenset[str] = frozenset()
+
+    def label(self, key: str) -> str:
+        return self.labels.get(key) or key
+
+    def is_required(self, key: str) -> bool:
+        return key in self.required
+
+    @property
+    def missing(self) -> list[str]:
+        """Liens déclarés mais pas encore renseignés, obligatoires d'abord."""
+        empty = [key for key, url in self.urls.items() if not url]
+        return sorted(empty, key=lambda key: (not self.is_required(key), list(self.urls).index(key)))
+
+
 def load_links(path: Path = CONFIG_DIR / "links.toml") -> dict[str, str]:
     """Retourne les liens configurés. Les valeurs vides sont conservées (lien « à configurer »)."""
-    links = load_toml(path).get("links", {})
+    return load_link_catalog(path).urls
+
+
+def load_link_catalog(path: Path = CONFIG_DIR / "links.toml") -> LinkCatalog:
+    data = load_toml(path)
+    links = data.get("links", {})
     result: dict[str, str] = {}
     for key, value in links.items():
         if not isinstance(value, str):
             raise ConfigError(f"{path.name} : le lien « {key} » doit être une chaîne de caractères.")
         value = value.strip()
-        if value and not value.startswith("https://"):
-            raise ConfigError(f"{path.name} : le lien « {key} » doit commencer par https:// (valeur : {value!r}).")
+        if value and not _is_displayable_url(value):
+            raise ConfigError(
+                f"{path.name} : le lien « {key} » doit être une adresse https:// complète, sans espace "
+                f"ni identifiant de connexion (valeur : {value!r})."
+            )
         result[key] = value
-    return result
+
+    labels_raw = data.get("labels", {})
+    if not isinstance(labels_raw, dict) or not all(isinstance(v, str) for v in labels_raw.values()):
+        raise ConfigError(f"{path.name} : [labels] doit associer chaque lien à un texte.")
+    unknown = sorted(set(labels_raw) - set(result))
+    if unknown:
+        raise ConfigError(f"{path.name} : [labels] cite des liens inconnus : {', '.join(unknown)}.")
+
+    required_raw = data.get("required", [])
+    if not isinstance(required_raw, list) or not all(isinstance(v, str) for v in required_raw):
+        raise ConfigError(f"{path.name} : « required » doit être une liste de noms de liens, par exemple [\"gitlab_project\"].")
+    unknown = sorted(set(required_raw) - set(result))
+    if unknown:
+        raise ConfigError(f"{path.name} : « required » cite des liens inconnus : {', '.join(unknown)}.")
+
+    return LinkCatalog(
+        urls=result,
+        labels={k: v.strip() for k, v in labels_raw.items() if v.strip()},
+        required=frozenset(required_raw),
+    )
+
+
+def _is_displayable_url(value: str) -> bool:
+    """URL publiable dans un message : https, un nom d'hôte, ni espace ni identifiants (``user:mdp@``)."""
+    if not value.startswith("https://") or len(value) > 2048 or any(ch.isspace() for ch in value):
+        return False
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return bool(parts.hostname) and "@" not in parts.netloc
 
 
 def load_planning(path: Path = CONFIG_DIR / "planning.toml") -> Planning:

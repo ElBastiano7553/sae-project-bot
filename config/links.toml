@@ -1,10 +1,18 @@
 # =====================================================================
 #  Liens utiles affichés dans les messages permanents.
 #  Laissez une valeur vide ("") si le lien n'existe pas encore :
-#  le bouton correspondant sera simplement masqué et le texte
-#  indiquera « lien à configurer ».
-#  Seules les adresses https:// sont acceptées.
+#  le bouton correspondant est masqué, le texte indique « lien à configurer »
+#  et le message affiche une section « À compléter ».
+#  Seules les adresses https:// complètes sont acceptées (sans identifiants).
+#  Le bot n'invente aucune adresse : il affiche uniquement ce qui est écrit ici.
+#
+#  Après modification : /refresh sur Discord. Les messages existants sont
+#  modifiés sur place (même lien Discord, mêmes réactions), jamais republiés.
 # =====================================================================
+
+# Liens OBLIGATOIRES : tant qu'ils sont vides, ils sont signalés comme
+# « obligatoire » dans les messages concernés. Les autres sont facultatifs.
+required = ["gitlab_project", "sujet_sae"]
 
 [links]
 gitlab_project = ""
@@ -18,3 +26,17 @@ tests = ""
 comptes_rendus = ""
 preuves_epita = ""
 sujet_sae = ""
+
+# Nom affiché de chaque lien (sinon, la clé est affichée).
+[labels]
+gitlab_project = "Dépôt GitLab"
+gitlab_issues = "Issues GitLab"
+gitlab_merge_requests = "Merge requests GitLab"
+gitlab_board = "Tableau GitLab"
+readme = "README"
+architecture = "Documentation d'architecture"
+journal_ia = "Journal d'utilisation de l'IA"
+tests = "Plan et résultats des tests"
+comptes_rendus = "Comptes rendus de réunion"
+preuves_epita = "Preuves demandées par l'EPITA"
+sujet_sae = "Sujet de la SAE"

@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from src.database.repositories import GitLabEventRepository
+from src.database.repositories import EventSummary, GitLabEventRepository, KeyValueRepository
 from src.gitlab.events import Notification, format_event
 from src.gitlab.rules import GitLabRules
 from src.services.content import EmbedField
@@ -38,6 +38,8 @@ RETENTION_DAYS = 30
 REPLAY_MAX_AGE_HOURS = 24
 # Attente (secondes) avant chaque nouvelle tentative d'envoi sur Discord.
 RETRY_DELAYS: tuple[float, ...] = (2.0, 10.0)
+# Clé (kv_store) de la branche principale indiquée par le dernier webhook reçu.
+DEFAULT_BRANCH_KEY = "gitlab:default_branch"
 
 
 class NotificationSender(Protocol):
@@ -87,6 +89,7 @@ class NotificationDispatcher:
         wait_until_ready: Callable[[], Awaitable[object]] | None = None,
         queue_size: int = DEFAULT_QUEUE_SIZE,
         retry_delays: Sequence[float] = RETRY_DELAYS,
+        state: KeyValueRepository | None = None,
     ) -> None:
         self.repository = repository
         self.rules = rules
@@ -95,15 +98,20 @@ class NotificationDispatcher:
         self._wait_until_ready = wait_until_ready
         self._retry_delays = tuple(retry_delays)
         self._queue: asyncio.Queue[_Job] = asyncio.Queue(maxsize=queue_size)
+        self._state = state
 
     def submit(self, event: IncomingEvent) -> SubmitStatus:
         """Valide, déduplique et met en file. Lève ``InvalidPayload`` si le JSON est incomplet."""
         notification = format_event(event.kind, event.payload, self.rules)
         if notification is None:
             return SubmitStatus.IGNORED
-        if not self.repository.claim(event.event_key, event.kind, notification_to_json(notification)):
+        if not self.repository.claim(
+            event.event_key, event.kind, notification_to_json(notification), summary_of(notification)
+        ):
             log.info("Événement GitLab déjà reçu, ignoré : %s", event.event_key)
             return SubmitStatus.DUPLICATE
+        if self._state is not None and notification.default_branch:
+            self._state.set(DEFAULT_BRANCH_KEY, notification.default_branch)
         try:
             self._queue.put_nowait(_Job(event.event_key, notification))
         except asyncio.QueueFull:
@@ -202,3 +210,15 @@ def notification_from_json(raw: str | None) -> Notification:
     data = json.loads(raw)
     data["fields"] = tuple(EmbedField(**field) for field in data.get("fields", ()))
     return Notification(**data)
+
+
+def summary_of(notification: Notification) -> EventSummary:
+    return EventSummary(
+        dedup_key=notification.dedup_key,
+        action=notification.action,
+        ref=notification.ref,
+        title=notification.title,
+        url=notification.url,
+        author=notification.author,
+        occurred_at=notification.timestamp,
+    )

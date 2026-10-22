@@ -53,6 +53,39 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE gitlab_events ADD COLUMN notification TEXT;
     """,
+    # Version 4 : suivi de l'état des messages permanents, résumé consultable des événements
+    # GitLab (avec empreinte anti-doublon) et journal des actions d'administration.
+    # Uniquement des ajouts : aucune donnée existante n'est modifiée ni supprimée.
+    """
+    ALTER TABLE managed_messages ADD COLUMN last_action TEXT;
+    ALTER TABLE managed_messages ADD COLUMN last_error TEXT;
+    ALTER TABLE managed_messages ADD COLUMN last_checked_at TEXT;
+
+    ALTER TABLE gitlab_events ADD COLUMN dedup_key TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN action TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN ref TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN title TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN url TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN author TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN occurred_at TEXT;
+    CREATE UNIQUE INDEX gitlab_events_dedup ON gitlab_events (dedup_key) WHERE dedup_key IS NOT NULL;
+    CREATE INDEX gitlab_events_type_received ON gitlab_events (event_type, received_at);
+    -- Les événements déjà reçus en V2 gardent leur titre et leur lien dans l'historique.
+    UPDATE gitlab_events
+       SET title = json_extract(notification, '$.title'), url = json_extract(notification, '$.url')
+     WHERE notification IS NOT NULL AND json_valid(notification);
+
+    CREATE TABLE admin_actions (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        at        TEXT    NOT NULL DEFAULT (datetime('now')),
+        user_id   INTEGER NOT NULL,
+        user_name TEXT    NOT NULL,
+        action    TEXT    NOT NULL,
+        target    TEXT    NOT NULL DEFAULT '',
+        outcome   TEXT    NOT NULL DEFAULT ''
+    );
+    CREATE INDEX admin_actions_at ON admin_actions (at);
+    """,
 ]
 
 
@@ -70,11 +103,22 @@ class Database:
 
     def _migrate(self) -> None:
         current = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if current > len(MIGRATIONS):
+            raise RuntimeError(
+                f"La base {self.path} est en version {current}, plus récente que ce bot ({len(MIGRATIONS)}) : "
+                "mettez le bot à jour au lieu d'utiliser une ancienne version."
+            )
         for version, script in enumerate(MIGRATIONS[current:], start=current + 1):
             log.info("Migration de la base de données vers la version %d", version)
-            with self.conn:
-                self.conn.executescript(script)
-                self.conn.execute(f"PRAGMA user_version = {version}")
+            # Une migration est appliquée entièrement ou pas du tout : en cas d'erreur, la base
+            # reste dans sa version précédente, intacte, et la migration sera retentée au démarrage.
+            try:
+                self.conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {version};\nCOMMIT;")
+            except sqlite3.Error:
+                if self.conn.in_transaction:
+                    self.conn.rollback()
+                log.exception("Échec de la migration vers la version %d : base laissée en version %d", version, version - 1)
+                raise
 
     @property
     def schema_version(self) -> int:

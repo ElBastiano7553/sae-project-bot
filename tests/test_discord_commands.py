@@ -1,31 +1,58 @@
 """Vérifie que les commandes slash se chargent correctement, sans se connecter à Discord."""
 
 import pytest
+from discord import app_commands
 
 from src.config import Settings
-from src.discord_bot.bot import SaeBot
+from src.discord_bot.bot import EXTENSIONS, SaeBot
+from src.services.help import HELP_ENTRIES
+
+ADMIN_COMMANDS = {"setup", "refresh", "config", "announce", "admin"}
+PUBLIC_COMMANDS = {"help", "status", "health", "project"}
 
 
 @pytest.fixture
 async def bot(db):
     settings = Settings.from_env({"DISCORD_GUILD_ID": "42"}, require_token=False)
     instance = SaeBot(settings, db)
-    await instance.load_extension("src.discord_bot.cogs.admin")
+    for extension in EXTENSIONS:
+        await instance.load_extension(extension)
     yield instance
     await instance.close()
 
 
+def all_commands(bot):
+    """Commandes finales (« admin diagnostic » pour une sous-commande)."""
+    result = {}
+    for command in bot.tree.get_commands():
+        if isinstance(command, app_commands.Group):
+            for sub in command.commands:
+                result[sub.qualified_name] = sub
+        else:
+            result[command.name] = command
+    return result
+
+
 async def test_slash_commands_are_registered(bot):
     names = {command.name for command in bot.tree.get_commands()}
-    assert names == {"setup", "refresh", "config", "health"}
+    assert names == ADMIN_COMMANDS | PUBLIC_COMMANDS
 
 
 async def test_admin_commands_require_manage_guild_by_default(bot):
     commands = {command.name: command for command in bot.tree.get_commands()}
-    for name in ("setup", "refresh", "config"):
-        assert commands[name].default_permissions.manage_guild
-        assert commands[name].checks, f"/{name} doit avoir une vérification côté bot"
-    assert commands["health"].default_permissions is None
+    for name in ADMIN_COMMANDS:
+        assert commands[name].default_permissions.manage_guild, f"/{name} doit être masquée par défaut"
+    for name, command in all_commands(bot).items():
+        if name.split()[0] in ADMIN_COMMANDS:
+            assert command.checks, f"/{name} doit avoir une vérification côté bot"
+    for name in PUBLIC_COMMANDS:
+        assert commands[name].default_permissions is None
+
+
+async def test_help_lists_exactly_the_registered_commands(bot):
+    assert {entry.command for entry in HELP_ENTRIES} == set(all_commands(bot))
+    for entry in HELP_ENTRIES:
+        assert entry.admin == (entry.command.split()[0] in ADMIN_COMMANDS), entry.command
 
 
 async def test_bot_uses_no_privileged_intents(bot):
@@ -36,7 +63,7 @@ async def test_bot_uses_no_privileged_intents(bot):
 
 async def test_message_service_reads_real_content_files(bot):
     service = bot.build_message_service()
-    assert len(service.templates) == 5
+    assert len(service.templates) == 7
 
 
 async def test_v2_is_disabled_without_webhook_secret(bot):
@@ -77,11 +104,12 @@ async def test_v2_failure_does_not_break_v1(db, unused_tcp_port, monkeypatch):
     )
     instance = SaeBot(settings, db)
     try:
-        await instance.load_extension("src.discord_bot.cogs.admin")
+        for extension in EXTENSIONS:
+            await instance.load_extension(extension)
         await instance.start_gitlab_webhooks()
         assert instance.gitlab_server is None
         assert "erreur de test" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 5  # la V1 fonctionne toujours
+        assert len(instance.build_message_service().templates) == 7  # la V1 fonctionne toujours
     finally:
         await instance.close()
 
@@ -92,11 +120,12 @@ async def test_invalid_gitlab_env_keeps_v1_and_reports_error(db):
     )
     instance = SaeBot(settings, db)
     try:
-        await instance.load_extension("src.discord_bot.cogs.admin")
+        for extension in EXTENSIONS:
+            await instance.load_extension(extension)
         await instance.start_gitlab_webhooks()
         assert instance.gitlab_server is None
         assert "trop court" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 5
+        assert len(instance.build_message_service().templates) == 7
     finally:
         await instance.close()
 
@@ -131,11 +160,12 @@ async def test_port_in_use_keeps_v1(db, unused_tcp_port):
     )
     instance = SaeBot(settings, db)
     try:
-        await instance.load_extension("src.discord_bot.cogs.admin")
+        for extension in EXTENSIONS:
+            await instance.load_extension(extension)
         await instance.start_gitlab_webhooks()
         assert not instance.gitlab_server.listening
         assert "impossible d'écouter" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 5
+        assert len(instance.build_message_service().templates) == 7
     finally:
         await instance.close()
         blocker.close()

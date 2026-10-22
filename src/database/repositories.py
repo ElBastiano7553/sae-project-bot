@@ -14,6 +14,12 @@ class ManagedMessage:
     message_id: int
     content_hash: str
     updated_at: str = ""
+    last_action: str | None = None
+    last_error: str | None = None
+    last_checked_at: str | None = None
+
+
+_MESSAGE_COLUMNS = "key, channel_id, message_id, content_hash, updated_at, last_action, last_error, last_checked_at"
 
 
 class ManagedMessageRepository:
@@ -23,38 +29,53 @@ class ManagedMessageRepository:
         self._conn = db.conn
 
     def get(self, key: str) -> ManagedMessage | None:
-        row = self._conn.execute(
-            "SELECT key, channel_id, message_id, content_hash, updated_at FROM managed_messages WHERE key = ?",
-            (key,),
-        ).fetchone()
+        row = self._conn.execute(f"SELECT {_MESSAGE_COLUMNS} FROM managed_messages WHERE key = ?", (key,)).fetchone()
         return ManagedMessage(**dict(row)) if row else None
 
     def get_by_message_id(self, message_id: int) -> ManagedMessage | None:
         row = self._conn.execute(
-            "SELECT key, channel_id, message_id, content_hash, updated_at FROM managed_messages WHERE message_id = ?",
-            (message_id,),
+            f"SELECT {_MESSAGE_COLUMNS} FROM managed_messages WHERE message_id = ?", (message_id,)
         ).fetchone()
         return ManagedMessage(**dict(row)) if row else None
 
     def list_all(self) -> list[ManagedMessage]:
-        rows = self._conn.execute(
-            "SELECT key, channel_id, message_id, content_hash, updated_at FROM managed_messages ORDER BY key"
-        ).fetchall()
+        rows = self._conn.execute(f"SELECT {_MESSAGE_COLUMNS} FROM managed_messages ORDER BY key").fetchall()
         return [ManagedMessage(**dict(row)) for row in rows]
 
-    def upsert(self, key: str, channel_id: int, message_id: int, content_hash: str) -> None:
+    def upsert(self, key: str, channel_id: int, message_id: int, content_hash: str, action: str | None = None) -> None:
+        """Enregistre l'emplacement et le contenu publiés. N'est appelé qu'après un succès côté Discord."""
         with self._conn:
             self._conn.execute(
                 """
-                INSERT INTO managed_messages (key, channel_id, message_id, content_hash, updated_at)
-                VALUES (?, ?, ?, ?, datetime('now'))
+                INSERT INTO managed_messages
+                    (key, channel_id, message_id, content_hash, updated_at, last_action, last_error, last_checked_at)
+                VALUES (?, ?, ?, ?, datetime('now'), ?, NULL, datetime('now'))
                 ON CONFLICT(key) DO UPDATE SET
                     channel_id = excluded.channel_id,
                     message_id = excluded.message_id,
                     content_hash = excluded.content_hash,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    last_action = excluded.last_action,
+                    last_error = NULL,
+                    last_checked_at = excluded.last_checked_at
                 """,
-                (key, channel_id, message_id, content_hash),
+                (key, channel_id, message_id, content_hash, action),
+            )
+
+    def record_check(self, key: str, action: str, error: str | None = None) -> None:
+        """Mémorise le résultat d'une vérification sans toucher à l'emplacement enregistré.
+
+        Une erreur Discord ne modifie donc jamais ``channel_id`` / ``message_id`` / ``content_hash`` :
+        la base continue de désigner le dernier message publié avec succès.
+        """
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE managed_messages
+                   SET last_action = ?, last_error = ?, last_checked_at = datetime('now')
+                 WHERE key = ?
+                """,
+                (action, error, key),
             )
 
     def delete(self, key: str) -> None:
@@ -100,6 +121,32 @@ class KeyValueRepository:
             )
 
 
+@dataclass(frozen=True)
+class EventSummary:
+    """Résumé d'un événement GitLab enregistré dans l'historique (texte brut, déjà nettoyé)."""
+
+    dedup_key: str | None = None
+    action: str = ""
+    ref: str = ""
+    title: str = ""
+    url: str | None = None
+    author: str = ""
+    occurred_at: str | None = None
+
+
+@dataclass(frozen=True)
+class EventRecord:
+    event_type: str
+    status: str
+    action: str | None
+    ref: str | None
+    title: str | None
+    url: str | None
+    author: str | None
+    occurred_at: str | None
+    received_at: str
+
+
 class GitLabEventRepository:
     """Événements GitLab déjà acceptés, identifiés par la clé de livraison fournie par GitLab.
 
@@ -110,17 +157,77 @@ class GitLabEventRepository:
     def __init__(self, db: Database) -> None:
         self._conn = db.conn
 
-    def claim(self, event_key: str, event_type: str, notification: str | None = None) -> bool:
+    def claim(
+        self,
+        event_key: str,
+        event_type: str,
+        notification: str | None = None,
+        summary: EventSummary | None = None,
+    ) -> bool:
         """Enregistre l'événement. Retourne ``False`` s'il avait déjà été reçu (doublon).
 
         ``notification`` (JSON) permet de renvoyer la notification si le bot s'arrête avant l'envoi.
+        ``summary`` alimente l'historique ; son ``dedup_key`` (contrainte d'unicité) écarte le même
+        fait GitLab livré sous un autre identifiant. Les deux vérifications tiennent en une seule
+        insertion atomique : deux requêtes simultanées ne peuvent pas passer toutes les deux.
         """
+        summary = summary or EventSummary()
         with self._conn:
             cursor = self._conn.execute(
-                "INSERT OR IGNORE INTO gitlab_events (event_key, event_type, notification) VALUES (?, ?, ?)",
-                (event_key, event_type, notification),
+                """
+                INSERT OR IGNORE INTO gitlab_events
+                    (event_key, event_type, notification, dedup_key, action, ref, title, url, author, occurred_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_key,
+                    event_type,
+                    notification,
+                    summary.dedup_key,
+                    summary.action or None,
+                    summary.ref or None,
+                    summary.title or None,
+                    summary.url,
+                    summary.author or None,
+                    summary.occurred_at,
+                ),
             )
         return cursor.rowcount == 1
+
+    def recent(self, kinds: tuple[str, ...] = (), limit: int = 10, statuses: tuple[str, ...] = ()) -> list[EventRecord]:
+        """Derniers événements enregistrés (les plus récents d'abord), filtrables par type et statut."""
+        clauses, params = [], []
+        if kinds:
+            clauses.append(f"event_type IN ({', '.join('?' * len(kinds))})")
+            params.extend(kinds)
+        if statuses:
+            clauses.append(f"status IN ({', '.join('?' * len(statuses))})")
+            params.extend(statuses)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"""
+            SELECT event_type, status, action, ref, title, url, author, occurred_at, received_at
+              FROM gitlab_events {where}
+             ORDER BY received_at DESC, rowid DESC
+             LIMIT ?
+            """,
+            (*params, int(limit)),
+        ).fetchall()
+        return [EventRecord(**dict(row)) for row in rows]
+
+    def latest_pipeline(self, ref: str) -> EventRecord | None:
+        """Dernier pipeline enregistré sur une branche (statut final ou non, tel que reçu)."""
+        row = self._conn.execute(
+            """
+            SELECT event_type, status, action, ref, title, url, author, occurred_at, received_at
+              FROM gitlab_events
+             WHERE event_type = 'pipeline' AND ref = ?
+             ORDER BY COALESCE(occurred_at, received_at) DESC, rowid DESC
+             LIMIT 1
+            """,
+            (ref,),
+        ).fetchone()
+        return EventRecord(**dict(row)) if row else None
 
     def pending(self, max_age_hours: int) -> list[tuple[str, str | None]]:
         """Événements acceptés mais jamais envoyés (bot arrêté entre-temps), du plus ancien au plus récent."""
@@ -173,3 +280,37 @@ class GitLabEventRepository:
                 "DELETE FROM gitlab_events WHERE received_at < datetime('now', ?)", (f"-{int(days)} days",)
             )
         return cursor.rowcount
+
+
+@dataclass(frozen=True)
+class AdminAction:
+    id: int
+    at: str
+    user_id: int
+    user_name: str
+    action: str
+    target: str
+    outcome: str
+
+
+class AdminActionRepository:
+    """Journal des actions d'administration (qui a fait quoi, quand, avec quel résultat)."""
+
+    MAX_TEXT = 300
+
+    def __init__(self, db: Database) -> None:
+        self._conn = db.conn
+
+    def record(self, user_id: int, user_name: str, action: str, target: str = "", outcome: str = "") -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO admin_actions (user_id, user_name, action, target, outcome) VALUES (?, ?, ?, ?, ?)",
+                (int(user_id), user_name[:100], action[:50], target[: self.MAX_TEXT], outcome[: self.MAX_TEXT]),
+            )
+
+    def recent(self, limit: int = 15) -> list[AdminAction]:
+        rows = self._conn.execute(
+            "SELECT id, at, user_id, user_name, action, target, outcome FROM admin_actions ORDER BY id DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [AdminAction(**dict(row)) for row in rows]

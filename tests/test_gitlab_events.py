@@ -208,3 +208,90 @@ def test_project_id_of():
     assert project_id_of(push_payload()) == 4242
     assert project_id_of({"project_id": 7}) == 7
     assert project_id_of({"project": {"id": "7"}}) is None
+
+
+# --- Lot 1 : contenu enrichi et empreintes anti-doublon ---------------------------
+
+
+def test_push_shows_author_files_and_event_time():
+    n = format_push(push_payload(), RULES)
+    fields = {f.name: f.value for f in n.fields}
+    assert fields["Auteur"] == "Alice Martin"
+    # Fichiers distincts sur l'ensemble des commits : main.py modifié deux fois ne compte qu'une fois.
+    assert fields["Fichiers"] == "+1 ajouté(s) · ~2 modifié(s) · −1 supprimé(s)"
+    assert n.timestamp == "2026-10-22T13:04:00+00:00"  # dernier commit, converti en UTC
+    assert (n.action, n.ref, n.default_branch) == ("push", "main", "main")
+
+
+def test_push_without_file_lists_shows_no_fake_statistics():
+    payload = push_payload()
+    for commit in payload["commits"]:
+        for key in ("added", "modified", "removed"):
+            commit.pop(key)
+    assert "Fichiers" not in {f.name for f in format_push(payload, RULES).fields}
+
+
+def test_push_file_stats_mention_partial_coverage():
+    n = format_push(push_payload(total_commits_count=40), RULES)
+    assert "d'après les 2 commits détaillés" in {f.name: f.value for f in n.fields}["Fichiers"]
+
+
+def test_same_fact_gives_same_dedup_key_and_different_facts_differ():
+    assert format_push(push_payload(), RULES).dedup_key == format_push(push_payload(), RULES).dedup_key
+    assert format_push(push_payload(), RULES).dedup_key != format_push(push_payload(after="1" * 40), RULES).dedup_key
+    first = format_pipeline(pipeline_payload(), RULES).dedup_key
+    assert first == format_pipeline(pipeline_payload(), RULES).dedup_key
+    assert first != format_pipeline(pipeline_payload(status="success"), RULES).dedup_key
+    # La même MR refermée plus tard (autre date de mise à jour) est un nouvel événement.
+    closed = format_merge_request(merge_request_payload(action="close"), RULES).dedup_key
+    reclosed = format_merge_request(merge_request_payload(action="close", updated_at="2026-10-23 08:00:00 UTC"), RULES)
+    assert closed != reclosed.dedup_key
+
+
+def test_merge_request_without_update_date_is_not_deduplicated_by_content():
+    assert format_merge_request(merge_request_payload(updated_at=None), RULES).dedup_key is None
+
+
+def test_merge_request_shows_reviewers_assignees_and_status():
+    fields = {f.name: f.value for f in format_merge_request(merge_request_payload(), RULES).fields}
+    assert fields["Relecteurs"] == "Alice Martin"
+    assert fields["Assignés"] == "Bob Durand"
+    assert fields["Statut"] == "ouverte · approbation requise"
+
+
+def test_merge_request_approval_names_the_approver():
+    fields = {f.name: f.value for f in format_merge_request(merge_request_payload(action="approved"), RULES).fields}
+    assert fields["Approuvée par"] == "Bob Durand"
+
+
+def test_merged_request_has_no_redundant_status():
+    n = format_merge_request(merge_request_payload(action="merge", state="merged"), RULES)
+    assert "Statut" not in {f.name for f in n.fields}
+    assert n.color == 0x9B59B6
+
+
+def test_merge_request_people_cannot_ping():
+    payload = merge_request_payload()
+    payload["reviewers"] = [{"name": "@everyone"}]
+    assert "@everyone" not in {f.name: f.value for f in format_merge_request(payload, RULES).fields}["Relecteurs"]
+
+
+def test_pipeline_links_commit_and_shows_source_and_time():
+    n = format_pipeline(pipeline_payload(), RULES)
+    fields = {f.name: f.value for f in n.fields}
+    assert "[`da156088`](https://gitlab.com/epita/sae-game/-/commit/da1560886d4f094c3e6c9ef40349f7d38b5d27d7)" in fields["Commit"]
+    assert fields["Déclenché par"] == "un push"
+    assert n.timestamp == "2026-10-22T13:07:05+00:00"
+    assert n.action == "failed"
+
+
+def test_pipeline_success_never_claims_a_deployment():
+    n = format_pipeline(pipeline_payload(status="success"), RULES)
+    text = " ".join([n.title, n.description, *[f.name + f.value for f in n.fields]]).lower()
+    assert "déploi" not in text
+
+
+def test_unknown_pipeline_status_is_shown_as_received():
+    rules = GitLabRules(routes=RULES.routes, pipeline_statuses=frozenset({"scheduled"}))
+    n = format_pipeline(pipeline_payload(status="scheduled"), rules)
+    assert "scheduled" in n.title

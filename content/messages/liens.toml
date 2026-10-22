@@ -1,0 +1,24 @@
+# Message permanent « Liens utiles » du salon #bienvenue.
+# La liste est construite automatiquement à partir de config/links.toml :
+# les liens renseignés sont cliquables, les autres apparaissent dans « À compléter ».
+# Ajouter un lien puis lancer /refresh modifie CE message (aucune nouvelle publication).
+
+channel = "bienvenue"
+title = "🔗 Liens utiles du projet"
+color = "#3498DB"
+dynamic = "links"
+description = """
+Les liens de référence de l'équipe. Ils sont tenus à jour par les administrateurs du bot.
+"""
+
+[[buttons]]
+label = "Dépôt GitLab"
+link = "gitlab_project"
+
+[[buttons]]
+label = "Issues"
+link = "gitlab_issues"
+
+[[buttons]]
+label = "Merge requests"
+link = "gitlab_merge_requests"

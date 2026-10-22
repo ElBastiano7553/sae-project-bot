@@ -9,6 +9,7 @@ PROJECT = {
     "name": "sae-game",
     "path_with_namespace": "epita/sae-game",
     "web_url": "https://gitlab.com/epita/sae-game",
+    "default_branch": "main",
 }
 
 _PUSH = {
@@ -27,14 +28,22 @@ _PUSH = {
             "message": "Ajoute le menu principal\n\nDétails du commit",
             "title": "Ajoute le menu principal",
             "url": "https://gitlab.com/epita/sae-game/-/commit/b6568db1bc1dcd7f8b4d5a946b0b91f9dacd7327",
+            "timestamp": "2026-10-22T14:58:00+02:00",
             "author": {"name": "Alice Martin", "email": "alice@example.com"},
+            "added": ["src/menu.py"],
+            "modified": ["src/main.py"],
+            "removed": [],
         },
         {
             "id": "da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
             "message": "Corrige la collision du joueur",
             "title": "Corrige la collision du joueur",
             "url": "https://gitlab.com/epita/sae-game/-/commit/da1560886d4f094c3e6c9ef40349f7d38b5d27d7",
+            "timestamp": "2026-10-22T15:04:00+02:00",
             "author": {"name": "Bob Durand", "email": "bob@example.com"},
+            "added": [],
+            "modified": ["src/player.py", "src/main.py"],
+            "removed": ["src/old_collision.py"],
         },
     ],
     "total_commits_count": 2,
@@ -55,8 +64,12 @@ _MERGE_REQUEST = {
         "state": "opened",
         "action": "open",
         "draft": False,
+        "detailed_merge_status": "not_approved",
+        "updated_at": "2026-10-22 13:10:00 UTC",
         "url": "https://gitlab.com/epita/sae-game/-/merge_requests/12",
     },
+    "reviewers": [{"name": "Alice Martin", "username": "alice"}],
+    "assignees": [{"name": "Bob Durand", "username": "bob"}],
 }
 
 _PIPELINE = {
@@ -70,6 +83,8 @@ _PIPELINE = {
         "status": "failed",
         "source": "push",
         "duration": 125,
+        "created_at": "2026-10-22 13:05:00 UTC",
+        "finished_at": "2026-10-22 13:07:05 UTC",
         "url": "https://gitlab.com/epita/sae-game/-/pipelines/31",
     },
     "user": {"name": "Alice Martin", "username": "alice"},

@@ -223,7 +223,7 @@ async def test_full_queue_returns_503(db, sender):
     client = await make_client(dispatcher)
     try:
         assert (await post(client, push_payload(), uuid="u1"))[0] == 200
-        status, data = await post(client, push_payload(), uuid="u2")
+        status, data = await post(client, push_payload(after="1" * 40), uuid="u2")  # autre push
         assert (status, data["status"]) == (503, "busy")
     finally:
         await client.close()

@@ -2,7 +2,46 @@
 
 Ce document présente l'architecture retenue, les difficultés techniques, le flux
 des données entre Discord, GitLab et l'IA, ainsi que le plan de réalisation.
-Les parties marquées **(V3+)** ne sont pas encore implémentées.
+Les parties marquées **(lot 2+)** ne sont pas encore implémentées.
+
+## 0. Architecture cible (lots 1 à 4)
+
+```
+            Discord (commandes, messages)                GitLab (webhooks HTTPS)
+                       │                                          │
+        src/discord_bot/ (adaptateurs discord.py)        src/gitlab/ (aiohttp, sans discord.py)
+        cogs/general.py  /help /status /project          webhook.py   authentification, taille, JSON
+        cogs/admin.py    /setup /refresh /config         dispatcher.py dédup., file, historique
+                         /announce /admin …              events.py    JSON → Notification
+        embeds.py ◄── services/design.py (couleurs, icônes, horodatages, limites)
+                       │                                          │
+                       └──────────► src/services/ ◄───────────────┘
+                         permanent_messages (verrou, idempotence)   content (liens, annonce)
+                         health · monitoring · diagnostics · help   (lot 2) history, stats
+                                         │
+                                 src/database/ (SQLite, migrations versionnées)
+                                         │
+                       (lot 3) src/ai/ : fournisseurs interchangeables, désactivables
+```
+
+| Lot | Contenu | État |
+|---|---|---|
+| 1 | Audit, design des embeds, messages permanents fiables, commandes de base | ✅ livré (version 0.3.0) |
+| 2 | Historique GitLab consultable, statistiques, leaderboard, tableau de bord permanent, alertes | ⏳ |
+| 3 | `src/ai/` multi-fournisseurs, `/ask` (recherche documentaire simple), `/summary`, `/review` | ⏳ |
+| 4 | Fiabilité, sauvegardes SQLite, sécurité, Docker et déploiement Linux (La Banquise) | ⏳ |
+
+Principes ajoutés au lot 1 :
+
+- **Design centralisé** : `services/design.py` définit les couleurs (vert réussite,
+  rouge échec, orange avertissement, bleu information, violet fusion, gris neutre),
+  les icônes, les horodatages Discord (`<t:…>`) et les pieds de page ; `embeds.py`
+  construit tous les embeds avec `make_embed` puis `fit_embed` (limites Discord).
+- **Messages permanents fiables** : un verrou unique sérialise toutes les
+  opérations ; la base n'est modifiée qu'après un succès Discord ; déplacement et
+  reconstruction publient le nouveau message **avant** de supprimer l'ancien.
+- **Pas de donnée inventée** : un lien vide reste « à configurer », `/project`
+  n'affiche que des événements réellement reçus, `/status` dit ce qu'il ne vérifie pas.
 
 ## 1. Principes
 
@@ -22,7 +61,7 @@ Les parties marquées **(V3+)** ne sont pas encore implémentées.
    Les actions qui modifient le serveur passent par une prévisualisation suivie
    d'une confirmation.
 5. **Chaque intégration est optionnelle.** Sans GitLab ou sans clé d'IA, le bot
-   démarre et l'indique dans `/health`.
+   démarre et l'indique dans `/status`.
 
 ## 2. Arborescence et responsabilités
 
@@ -52,17 +91,22 @@ sae-project-bot/
 │   ├── services/              Logique métier, sans dépendance à Discord
 │   │   ├── server_structure.py   Reconnaissance des catégories et salons existants
 │   │   ├── content.py            Chargement et rendu des messages permanents
-│   │   ├── permanent_messages.py Publication idempotente (création / mise à jour / recréation)
-│   │   ├── health.py             Rapport d'état pour /health
+│   │   ├── permanent_messages.py Publication idempotente (création / mise à jour / recréation / déplacement)
+│   │   ├── design.py             Identité visuelle : couleurs, icônes, horodatages (lot 1)
+│   │   ├── health.py             Rapport d'état pour /status
+│   │   ├── monitoring.py         Dernières erreurs, masquage des secrets dans les journaux (lot 1)
+│   │   ├── diagnostics.py        Permissions requises par salon (lot 1)
+│   │   ├── help.py               Catalogue de /help, vérifié par les tests (lot 1)
 │   │   └── text_limits.py        Respect des limites de taille de Discord
 │   ├── discord_bot/           Tout ce qui dépend de discord.py
 │   │   ├── bot.py             Client, synchronisation des commandes, événements
-│   │   ├── cogs/admin.py      Commandes /setup, /refresh, /config, /health
+│   │   ├── cogs/general.py    Commandes /help, /status, /health, /project (lot 1)
+│   │   ├── cogs/admin.py      Commandes /setup, /refresh, /config, /announce, /admin …
 │   │   ├── gateway.py         Opérations Discord utilisées par les services
 │   │   ├── snapshot.py        Conversion du serveur Discord en données simples
 │   │   ├── embeds.py          Mise en forme des embeds
 │   │   ├── gitlab_sender.py   (V2) Publication des notifications GitLab (aucune mention)
-│   │   ├── views.py           Bouton de confirmation avec expiration
+│   │   ├── views.py           Bouton de confirmation avec expiration, formulaire d'annonce
 │   │   └── permissions.py     Qui peut utiliser les commandes d'administration
 │   ├── gitlab/                (V2) Sans dépendance à discord.py
 │   │   ├── webhook.py         Serveur aiohttp : secret, JSON, taille, projet, réponses HTTP
@@ -72,11 +116,11 @@ sae-project-bot/
 │   │   ├── security.py        Comparaison du secret, nettoyage des textes et des URL
 │   │   ├── samples.py         Exemples de JSON GitLab (tests et démonstration)
 │   │   └── demo.py            python -m src.gitlab.demo : faux webhook pour tester
-│   └── ai/                    (V4) Interface commune des fournisseurs d'IA
+│   └── ai/                    (lot 3) Interface commune des fournisseurs d'IA
 └── tests/                     Tests pytest (aucun vrai token nécessaire)
 ```
 
-Le dossier `src/ai/` sera créé à son étape (V4) pour ne pas livrer de code vide.
+Le dossier `src/ai/` sera créé à son étape (lot 3) pour ne pas livrer de code vide.
 
 ### Séparation demandée
 
@@ -117,10 +161,25 @@ SQLite : managed_messages (clé, salon, message, empreinte du contenu)
 ```
 
 Pour chaque message, le service compare l'empreinte (SHA-256) du contenu attendu
-avec celle enregistrée : rien n'est envoyé si rien n'a changé. Un message supprimé
-est détecté (`fetch_message` → introuvable) et recréé au prochain `/refresh`.
-Si la base est perdue, le bot retrouve ses anciens messages grâce à la référence
-écrite dans leur pied de page et les reprend au lieu d'en publier de nouveaux.
+avec celle enregistrée : rien n'est envoyé si rien n'a changé, et un contenu modifié
+est **édité sur place** (même lien, réactions conservées). Un message supprimé à la
+main est recréé automatiquement quelques secondes plus tard (événement Discord de
+suppression), ou au prochain `/refresh`. Si la base est perdue, le bot retrouve ses
+anciens messages grâce à la référence écrite dans leur pied de page et les reprend
+au lieu d'en publier de nouveaux.
+
+Toutes les opérations (`/setup`, `/refresh`, actualisation au démarrage, recréation
+automatique, `/announce`, `/admin rebuild`) passent par **un seul verrou** : deux
+actualisations simultanées s'exécutent l'une après l'autre et la seconde trouve les
+messages à jour. Si le salon d'un message change, le nouveau message est publié et
+enregistré, puis l'ancien message du bot est supprimé (aucun doublon laissé
+volontairement) ; si cette suppression échoue, le rapport demande de le faire à la main.
+Les liens vides de `config/links.toml` ne sont jamais remplacés par une adresse
+inventée : le message affiche une section « À compléter » qui distingue les liens
+obligatoires (`required`) des facultatifs, et disparaît dès qu'ils sont renseignés.
+
+Limite connue : le verrou protège un seul processus. Lancer deux instances du bot
+avec la même base reste à éviter (le lot 4 documentera l'exploitation).
 
 ### V2 : notifications GitLab (implémentée, à valider avec le vrai GitLab)
 
@@ -132,7 +191,8 @@ GitLab ──HTTPS──► tunnel (Cloudflare / ngrok) ──► aiohttp 127.0.
    3. X-Gitlab-Event : Push / Merge Request / Pipeline Hook ; autre → 200 « ignored »
    4. project.id = GITLAB_PROJECT_ID si défini → sinon 403
    5. events.format_* : filtres de config/gitlab.toml, textes nettoyés et tronqués
-   6. SQLite gitlab_events : clé Idempotency-Key ou X-Gitlab-Event-UUID déjà vue → « duplicate »
+   6. SQLite gitlab_events : clé Idempotency-Key ou X-Gitlab-Event-UUID déjà vue → « duplicate » ;
+      même fait GitLab sous un autre identifiant (empreinte dedup_key, index unique) → « duplicate »
    7. file asyncio (100 max, sinon 503 et l'événement est oublié pour que GitLab réessaie) ;
       la notification est enregistrée avec la clé, pour être republiée si le bot s'arrête avant l'envoi
                                                      │ réponse 200 immédiate à GitLab
@@ -144,7 +204,7 @@ GitLab ──HTTPS──► tunnel (Cloudflare / ngrok) ──► aiohttp 127.0.
 
 Le serveur ne démarre que si `GITLAB_WEBHOOK_SECRET` est défini. S'il ne peut pas
 démarrer (variable `GITLAB_*`/`WEBHOOK_*` invalide, port occupé, `config/gitlab.toml`
-invalide, erreur inattendue), l'erreur est journalisée et affichée par `/health`,
+invalide, erreur inattendue), l'erreur est journalisée et affichée par `/status`,
 mais la V1 continue de fonctionner.
 
 ### V3 et V4 : API GitLab et IA (prévu)
@@ -195,18 +255,30 @@ Python **3.12** est recommandé ; les tests passent aussi sous 3.11 et 3.13.
 | **V4** | Interface `AIProvider` (fournisseur configurable, désactivable) ; `/resume-commit`, `/aide-projet`, synthèses ; journal IA volontaire avec export Markdown pour le SAE | Le bot fonctionne sans clé ; les réponses citent leurs liens et signalent les données manquantes |
 | **V5** | Tests complets, durcissement sécurité, documentation finale, préparation à l'usage quotidien (service Windows ou hébergement) | Revue de sécurité et checklist d'exploitation |
 
+Depuis octobre 2026, la suite du travail est organisée en **lots** (section 0) :
+le lot 1 est livré, les lots 2 à 4 reprennent et précisent les étapes V3 à V5.
+
 Chaque étape s'appuie sur la précédente sans la réécrire : de nouveaux modules
 (`src/gitlab/`, `src/ai/`), de nouvelles migrations SQLite ajoutées à la fin de la
 liste et de nouveaux cogs.
 
-## 6. Schéma de la base (V2)
+## 6. Schéma de la base (version 4)
 
 | Table | Rôle |
 |---|---|
-| `managed_messages` | clé du message, salon, identifiant du message, empreinte du contenu, date |
+| `managed_messages` | clé du message, salon, identifiant du message, empreinte du contenu, date ; (v4) dernière action, dernière erreur, dernière vérification |
 | `channel_bindings` | fonction du bot → identifiant du salon (enregistré au `/setup` confirmé) |
-| `kv_store` | état divers, par exemple la date du dernier `/setup` confirmé |
-| `gitlab_events` | (V2) clé de livraison GitLab, type, statut (`queued`, `sent`, `failed`, `skipped`), notification en JSON (migration 3), date ; purgée après 30 jours |
+| `kv_store` | état divers : date du dernier `/setup` confirmé, annonce en cours (JSON), branche principale indiquée par GitLab |
+| `gitlab_events` | (V2) clé de livraison GitLab, type, statut (`queued`, `sent`, `failed`, `skipped`), notification en JSON (migration 3), date ; (v4) empreinte anti-doublon `dedup_key` (index unique), action, branche, titre, lien, auteur, date de l'événement ; purgée après 30 jours |
+| `admin_actions` | (v4) journal des actions d'administration : date, identifiant et nom du membre, action, cible, résultat |
+
+Migrations : chaque migration est exécutée dans **une seule transaction** avec la
+mise à jour de `user_version` ; en cas d'erreur, la base reste intacte dans sa
+version précédente et la migration est retentée au démarrage suivant. La
+migration 4 n'ajoute que des colonnes, un index et une table : aucune donnée
+existante n'est modifiée ni supprimée (le titre et le lien des événements V2 sont
+recopiés depuis leur notification JSON). Une base plus récente que le code est
+refusée au démarrage plutôt qu'utilisée à l'aveugle.
 
 La version du schéma est stockée dans `PRAGMA user_version` ; les migrations sont
 appliquées automatiquement au démarrage.

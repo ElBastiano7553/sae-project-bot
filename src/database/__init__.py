@@ -2,7 +2,11 @@
 
 from src.database.connection import Database
 from src.database.repositories import (
+    AdminAction,
+    AdminActionRepository,
     ChannelBindingRepository,
+    EventRecord,
+    EventSummary,
     GitLabEventRepository,
     KeyValueRepository,
     ManagedMessage,
@@ -10,7 +14,11 @@ from src.database.repositories import (
 )
 
 __all__ = [
+    "AdminAction",
+    "AdminActionRepository",
     "ChannelBindingRepository",
+    "EventRecord",
+    "EventSummary",
     "Database",
     "GitLabEventRepository",
     "KeyValueRepository",
