@@ -18,7 +18,7 @@ import os
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import urlsplit
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -193,12 +193,8 @@ class Settings:
         if errors:
             raise ConfigError("Configuration invalide :\n- " + "\n- ".join(errors))
 
-        db_path = Path(env.get("DATABASE_PATH", "").strip() or "data/sae_bot.sqlite3")
-        if not db_path.is_absolute():
-            db_path = project_root / db_path
-        backup_dir = Path(env.get("BACKUP_DIR", "").strip() or db_path.parent / "backups")
-        if not backup_dir.is_absolute():
-            backup_dir = project_root / backup_dir
+        db_path = resolve_path(env.get("DATABASE_PATH", "").strip() or "data/sae_bot.sqlite3", project_root)
+        backup_dir = resolve_path(env.get("BACKUP_DIR", "").strip() or db_path.parent / "backups", project_root)
 
         return cls(
             discord_token=token,
@@ -225,6 +221,19 @@ class Settings:
             backup_interval_hours=backup_interval,
             heartbeat_path=db_path.parent / "heartbeat",
         )
+
+
+def resolve_path(raw: str | PurePath, project_root: PurePath = PROJECT_ROOT) -> PurePath:
+    """Rattache un chemin relatif au dossier du projet ; garde tel quel un chemin ancré.
+
+    ``is_absolute()`` ne suffit pas : sous Windows, ``/srv/sauvegardes`` a une racine
+    mais pas de lecteur, donc n'est pas « absolu », et ``project_root / chemin`` lui
+    collerait le lecteur du projet (``D:/srv/sauvegardes``). On teste donc l'ancrage
+    (lecteur ou racine). Le type de chemin suit ``project_root``, ce qui permet de
+    tester la sémantique Windows sous Linux avec ``PureWindowsPath``.
+    """
+    path = type(project_root)(raw)
+    return path if path.anchor else project_root / path
 
 
 def _parse_ai(env: Mapping[str, str]) -> dict:
