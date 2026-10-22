@@ -21,6 +21,8 @@ class HelpEntry:
 
 CATEGORIES = {
     "consultation": "🔎 Consulter",
+    "activite": "📈 Activité GitLab",
+    "ia": "🤖 Assistant IA",
     "administration": "🔒 Administrer",
 }
 
@@ -34,6 +36,22 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         "Résumé du projet : liens configurés, branche principale, derniers événements GitLab reçus.",
         "/project",
     ),
+    HelpEntry(
+        "events",
+        "activite",
+        "Historique des événements GitLab reçus, filtrable par type, période et texte (type « erreurs » : admins).",
+        "/events type:Pipelines periode:7 derniers jours recherche:main",
+    ),
+    HelpEntry("stats", "activite", "Commits, merge requests, pipelines et déploiements sur une période, avec l'évolution.", "/stats periode:30 derniers jours"),
+    HelpEntry(
+        "leaderboard",
+        "activite",
+        "Contributions : MR fusionnées, approbations, jours actifs (les commits ne comptent pas). Pas de classement sans assez de données.",
+        "/leaderboard periode:30 derniers jours details:True",
+    ),
+    HelpEntry("ask", "ia", "Question sur le projet : l'IA répond à partir des documents de l'équipe et cite ses sources.", "/ask question:Quand est la prochaine soutenance ?"),
+    HelpEntry("summary", "ia", "Bilan de l'activité GitLab de la période, rédigé par l'IA à partir des événements reçus.", "/summary periode:7 derniers jours"),
+    HelpEntry("review", "ia", "Relecture d'une merge request par l'IA : bugs probables, tests, sécurité (une aide, pas une validation).", "/review mr:12"),
     HelpEntry("setup", "administration", "Prévisualise la structure du serveur et les messages permanents, puis applique après confirmation.", "/setup", True),
     HelpEntry("refresh", "administration", "Met à jour les messages permanents sur place (tous, ou un seul).", "/refresh message:liens", True),
     HelpEntry("config", "administration", "Réglages du bot (sans aucun secret) et salons associés.", "/config", True),
@@ -47,6 +65,7 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         True,
     ),
     HelpEntry("admin diagnostic", "administration", "Vérifie les permissions du bot dans chaque salon utilisé.", "/admin diagnostic", True),
+    HelpEntry("admin backup", "administration", "Sauvegarde immédiate et vérifiée de la base de données (rotation automatique).", "/admin backup", True),
     HelpEntry("admin history", "administration", "Journal des dernières actions d'administration.", "/admin history", True),
 )
 

@@ -40,7 +40,7 @@ def test_all_real_templates_render_and_target_known_channels():
     links = load_links()
     templates = load_message_templates()
     assert {t.key for t in templates} == {
-        "annonce-en-cours", "annonces", "bienvenue", "decisions", "documentation", "liens", "planning"
+        "annonce-en-cours", "annonces", "bienvenue", "decisions", "documentation", "liens", "planning", "tableau-de-bord"
     }
     for t in templates:
         assert t.channel_key in layout.channels

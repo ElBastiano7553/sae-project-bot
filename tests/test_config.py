@@ -183,3 +183,49 @@ def test_gitlab_errors_are_reported_with_v1_errors_only_for_v1():
     with pytest.raises(ConfigError) as exc:
         Settings.from_env({"GITLAB_WEBHOOK_SECRET": "court"})
     assert "GITLAB" not in str(exc.value)
+
+
+def test_ai_settings():
+    fake_key = "cle-factice-pour-test-0000"
+    settings = Settings.from_env({**VALID_ENV, "AI_PROVIDER": "Anthropic", "AI_API_KEY": fake_key, "AI_MODEL": "claude-sonnet-5-5"})
+    assert (settings.ai_provider, settings.ai_model, settings.ai_enabled) == ("anthropic", "claude-sonnet-5-5", True)
+    assert fake_key not in repr(settings)
+    assert settings.ai_daily_limit == 50 and settings.ai_cooldown_seconds == 20
+
+
+@pytest.mark.parametrize(
+    "env, message",
+    [
+        ({"AI_PROVIDER": "anthropic"}, "AI_API_KEY"),
+        ({"AI_PROVIDER": "magique"}, "AI_PROVIDER"),
+        ({"AI_PROVIDER": "fake", "AI_DAILY_LIMIT": "0"}, "AI_DAILY_LIMIT"),
+    ],
+)
+def test_invalid_ai_settings_disable_ai_without_blocking_startup(env, message):
+    settings = Settings.from_env({**VALID_ENV, **env})
+    assert settings.ai_provider == "none" and not settings.ai_enabled
+    assert message in settings.ai_config_error
+
+
+def test_ai_variables_ignored_when_ai_is_off():
+    settings = Settings.from_env({**VALID_ENV, "AI_DAILY_LIMIT": "abc"})
+    assert settings.ai_config_error is None
+
+
+def test_gitlab_api_settings():
+    settings = Settings.from_env({**VALID_ENV, "GITLAB_ACCESS_TOKEN": "jeton-factice-0000", "GITLAB_PROJECT_ID": "12"})
+    assert settings.gitlab_api_enabled and settings.gitlab_base_url == "https://gitlab.com"
+    assert "jeton-factice-0000" not in repr(settings)
+    insecure = Settings.from_env({**VALID_ENV, "GITLAB_ACCESS_TOKEN": "jeton-factice-0000", "GITLAB_PROJECT_ID": "12",
+                                  "GITLAB_BASE_URL": "http://gitlab.example.com"})
+    assert not insecure.gitlab_api_enabled and "https://" in insecure.gitlab_api_error
+
+
+def test_backup_settings(tmp_path: Path):
+    settings = Settings.from_env(VALID_ENV, project_root=tmp_path)
+    assert settings.backup_dir == tmp_path / "data" / "backups"
+    assert (settings.backup_keep, settings.backup_interval_hours) == (14, 24)
+    custom = Settings.from_env({**VALID_ENV, "BACKUP_DIR": "/srv/sauvegardes", "BACKUP_KEEP": "3", "BACKUP_INTERVAL_HOURS": "0"})
+    assert custom.backup_dir == Path("/srv/sauvegardes") and custom.backup_interval_hours == 0
+    with pytest.raises(ConfigError, match="BACKUP_KEEP"):
+        Settings.from_env({**VALID_ENV, "BACKUP_KEEP": "0"})

@@ -52,6 +52,10 @@ def build_health_checks(
     database_schema: int | None = None,
     messages: MessagesSummary | None = None,
     gitlab_address: str | None = None,
+    alerts: AlertsSummary | None = None,
+    history: HistorySummary | None = None,
+    ai: AISummary | None = None,
+    backups: BackupSummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -68,15 +72,96 @@ def build_health_checks(
         _structure_check(structure),
         _messages_check(setup_confirmed, messages),
         _gitlab_check(gitlab_enabled, gitlab_listening, gitlab_error, gitlab_last_event_at, gitlab_address),
-        HealthCheck(
-            "IA générative",
-            HealthStatus.DISABLED,
-            "désactivée (AI_PROVIDER=none)"
-            if ai_provider == "none"
-            else f"non intégrée dans cette version (AI_PROVIDER={ai_provider} ignoré)",
-        ),
+        _ai_check(ai or AISummary(provider=ai_provider)),
     ]
+    if history is not None:
+        checks.append(_history_check(history))
+    if alerts is not None:
+        checks.append(_alerts_check(alerts))
+    if backups is not None:
+        checks.append(_backup_check(backups))
     return checks
+
+
+@dataclass(frozen=True)
+class BackupSummary:
+    interval_hours: int  # 0 = sauvegardes automatiques désactivées
+    last_age_hours: float | None  # None = aucune sauvegarde
+    count: int = 0
+
+
+def _backup_check(summary: BackupSummary) -> HealthCheck:
+    name = "Sauvegardes"
+    if summary.last_age_hours is None:
+        status = HealthStatus.WARNING
+        detail = "aucune sauvegarde : `/admin backup`"
+    else:
+        detail = f"dernière il y a {summary.last_age_hours:.0f} h, {summary.count} conservée(s)"
+        late = summary.interval_hours and summary.last_age_hours > 2 * summary.interval_hours
+        status = HealthStatus.WARNING if late else HealthStatus.OK
+        if late:
+            detail += " : en retard, voir logs/bot.log"
+    if not summary.interval_hours:
+        detail += " (automatiques désactivées : BACKUP_INTERVAL_HOURS=0)"
+    return HealthCheck(name, status, detail)
+
+
+@dataclass(frozen=True)
+class AISummary:
+    provider: str  # "none", "anthropic", "fake"
+    model: str | None = None
+    config_error: str | None = None
+    used_today: int = 0
+    daily_limit: int = 0
+    gitlab_api: bool = False  # /review possible
+
+
+def _ai_check(summary: AISummary) -> HealthCheck:
+    name = "IA générative"
+    if summary.config_error:
+        return HealthCheck(name, HealthStatus.WARNING, f"désactivée, configuration invalide : {summary.config_error}")
+    if summary.provider == "none":
+        return HealthCheck(name, HealthStatus.DISABLED, "désactivée (AI_PROVIDER=none)")
+    usage = f"{summary.used_today}/{summary.daily_limit} demandes aujourd'hui"
+    review = "" if summary.gitlab_api else " ; /review indisponible (API GitLab non configurée)"
+    if summary.provider == "fake":
+        return HealthCheck(name, HealthStatus.WARNING, f"faux fournisseur de test (AI_PROVIDER=fake) : aucune vraie IA, {usage}{review}")
+    # La clé n'est pas testée ici : un appel coûterait une demande. Une clé refusée apparaît dans « Dernière erreur ».
+    return HealthCheck(name, HealthStatus.OK, f"Claude ({summary.model or 'modèle par défaut'}), {usage}{review}")
+
+
+@dataclass(frozen=True)
+class AlertsSummary:
+    channel_key: str | None  # ALERTS_CHANNEL
+    channel_bound: bool  # salon associé par /setup
+    errors_24h: int  # erreurs distinctes vues dans les dernières 24 heures
+
+
+@dataclass(frozen=True)
+class HistorySummary:
+    retention_days: int
+    events: int
+    first_event_at: str | None
+    deployments: int
+
+
+def _alerts_check(summary: AlertsSummary) -> HealthCheck:
+    errors = f"{summary.errors_24h} erreur(s) distincte(s) en 24 h"
+    if not summary.channel_key:
+        return HealthCheck("Alertes", HealthStatus.DISABLED, f"désactivées (ALERTS_CHANNEL vide), {errors}")
+    if not summary.channel_bound:
+        return HealthCheck(
+            "Alertes", HealthStatus.WARNING, f"salon « {summary.channel_key} » non associé : vérifiez ALERTS_CHANNEL puis /setup"
+        )
+    return HealthCheck("Alertes", HealthStatus.OK, f"actives dans « {summary.channel_key} », {errors}")
+
+
+def _history_check(summary: HistorySummary) -> HealthCheck:
+    if not summary.events:
+        detail = "aucun événement enregistré"
+    else:
+        detail = f"{summary.events} événement(s) depuis le {summary.first_event_at[:10]}, dont {summary.deployments} déploiement(s)"
+    return HealthCheck("Historique", HealthStatus.OK, f"{detail} ; conservé {summary.retention_days} jours")
 
 
 @dataclass(frozen=True)

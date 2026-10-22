@@ -24,7 +24,7 @@ _PLACEHOLDER = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
 _MISSING_LINK = "*lien à configurer*"
 MISSING_FIELD_NAME = "🛠️ À compléter"
 # Contenus calculés par le bot (clé « dynamic » d'un fichier de content/messages/).
-DYNAMIC_KINDS = {"planning", "links", "announcement"}
+DYNAMIC_KINDS = {"planning", "links", "announcement", "dashboard"}
 ANNOUNCEMENT_TITLE_MAX = 200
 ANNOUNCEMENT_BODY_MAX = 3500
 
@@ -51,7 +51,7 @@ class MessageTemplate:
     color: int = DEFAULT_COLOR
     fields: tuple[FieldTemplate, ...] = ()
     buttons: tuple[ButtonTemplate, ...] = ()
-    dynamic: str | None = None  # "planning", "links" ou "announcement" (voir DYNAMIC_KINDS)
+    dynamic: str | None = None  # "planning", "links", "announcement" ou "dashboard" (voir DYNAMIC_KINDS)
 
 
 @dataclass(frozen=True)
@@ -172,6 +172,7 @@ def render_message(
     today: dt.date | None = None,
     *,
     announcement: Announcement | None = None,
+    dashboard: list[EmbedField] | tuple[EmbedField, ...] | None = None,
 ) -> MessagePayload:
     """Construit le contenu final d'un message en respectant les limites de Discord.
 
@@ -199,6 +200,9 @@ def render_message(
     elif template.dynamic == "announcement":
         title, description, extra = announcement_content(template, announcement)
         fields.extend(extra)
+    elif template.dynamic == "dashboard":
+        # Champs calculés par services.dashboard à partir de l'historique GitLab enregistré.
+        fields.extend(dashboard if dashboard is not None else [EmbedField("⏳ Données", "*tableau de bord pas encore calculé*")])
     elif template.dynamic is not None:
         raise ConfigError(f"{template.key}.toml : valeur « dynamic » inconnue : {template.dynamic!r}.")
 

@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : V2 + lot 1 (version 0.3.0)
+## État actuel : V2 + lots 1 à 4 (version 1.0.0)
 
 | Fonction | État |
 |---|---|
@@ -16,11 +16,12 @@ et bilans assistés par IA.
 | Identité visuelle commune des embeds (vert / rouge / orange / bleu, horodatages Discord, limites respectées) | ✅ lot 1 |
 | Notifications GitLab par webhooks : push (fichiers, hash, compare), merge requests (relecteurs, statut), pipelines (commit, durée, origine) ; doublons écartés même sous un autre identifiant | ✅ V2 + lot 1 |
 | `/help`, `/status`, `/project`, `/admin messages`, `/admin rebuild`, `/admin diagnostic`, `/admin history` | ✅ lot 1 |
-| Historique GitLab consultable, statistiques, leaderboard, tableau de bord, alertes | ⏳ lot 2 |
-| IA : `/ask`, `/summary`, `/review` | ⏳ lot 3 |
-| Sauvegardes, Docker, déploiement chez La Banquise | ⏳ lot 4 |
+| Historique GitLab consultable (`/events`), statistiques (`/stats`), contributions (`/leaderboard`), déploiements GitLab, tableau de bord permanent, alertes d'erreurs répétées | ✅ lot 2 |
+| IA (désactivée par défaut) : `/ask` (questions sur les documents de l'équipe, sources citées), `/summary` (bilan GitLab), `/review` (relecture d'une MR, API GitLab en lecture seule), quotas, secrets masqués | ✅ lot 3 |
+| Sauvegardes SQLite vérifiées (automatiques, avant migration, `/admin backup`), arrêt propre, contrôle de santé, image Docker non root et guide de déploiement Linux | ✅ lot 4 (déploiement réel à faire) |
 
-Rien de ce qui est marqué ⏳ n'est disponible : `/help` ne liste que les commandes réellement présentes.
+`/help` ne liste que les commandes réellement présentes. Déploiement sur un serveur Linux :
+[docs/deployment-linux.md](docs/deployment-linux.md) ; sécurité : [docs/security.md](docs/security.md).
 
 ## Démarrage rapide (Windows, PowerShell)
 
@@ -55,6 +56,10 @@ python -m src.gitlab.demo push
 | `/help` | tout le monde | aide par catégorie, avec exemples |
 | `/status` (ancien nom : `/health`) | tout le monde | état mesuré du bot, de la base, des salons, des messages, de GitLab et de l'IA, dernière erreur |
 | `/project` | tout le monde | liens configurés, branche principale, derniers événements GitLab reçus |
+| `/events [type] [periode] [recherche]` | tout le monde (type « erreurs » : admins) | historique des événements GitLab reçus |
+| `/stats [periode]` | tout le monde | commits, MR, pipelines, déploiements, évolution |
+| `/leaderboard [periode] [details]` | tout le monde | contributions (MR fusionnées, approbations, jours actifs ; pas les commits) |
+| `/ask question` · `/summary [periode]` · `/review mr` | tout le monde, si l'IA est activée | réponses de l'IA, éphémères, avec leurs sources |
 | `/setup` | admins | prévisualise la structure et les messages, puis applique après clic sur **Confirmer** (2 min) |
 | `/refresh [message]` | admins | met à jour les messages permanents sur place, recrée ceux qui ont été supprimés |
 | `/config` | admins | réglages (sans secret), salons associés, liens vers les messages gérés |
@@ -76,6 +81,7 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 | ajouter une échéance ou une prochaine étape | `config/planning.toml` | `/refresh` |
 | adapter le nom d'un salon | `config/server.toml` | `/setup` |
 | choisir les salons, branches et événements GitLab notifiés | `config/gitlab.toml` | redémarrer le bot |
+| donner des informations sur le projet à `/ask` | `knowledge/*.md` | (immédiat) |
 
 ## Sécurité
 
@@ -83,6 +89,7 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - Le bot n'a pas besoin de la permission Administrateur ni d'aucun intent privilégié.
 - Aucun message du bot ne peut notifier `@everyone`, un rôle ou un membre (mentions désactivées partout).
 - Les secrets définis dans `.env` sont masqués (`***`) dans tous les journaux.
+- IA : secrets masqués avant tout envoi, quotas, réponses éphémères, aucun texte de question ou de réponse conservé ; l'API GitLab n'est utilisée qu'en lecture seule (`read_api`).
 - Les erreurs montrées sur Discord ne contiennent ni trace d'appel ni détail interne.
 - Il ne crée, ne renomme et ne supprime aucun salon, rôle ou message d'utilisateur ; il ne
   supprime que ses propres messages permanents (déplacement de salon, reconstruction confirmée).
@@ -97,6 +104,8 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Commandes et permissions](docs/commands.md)
 - [Guide d'installation Windows](docs/installation-windows.md)
 - [Configurer et tester les notifications GitLab (V2)](docs/gitlab-webhooks.md)
+- [Historique, statistiques, classement, tableau de bord et alertes (lot 2)](docs/history-and-stats.md)
+- [Assistant IA : configuration, coûts, sécurité (lot 3)](docs/ai.md)
 
 ## Tests
 

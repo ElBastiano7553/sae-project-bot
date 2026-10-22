@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from src.config import ConfigError, load_server_layout
-from src.gitlab.rules import load_gitlab_rules
+from src.gitlab.rules import GitLabRules, load_gitlab_rules
 
 
 def write(tmp_path: Path, text: str) -> Path:
@@ -18,7 +18,9 @@ ROUTES = '[routes]\npush = "gitlab_activite"\nmerge_request = "gitlab_activite"\
 def test_real_file_is_valid_and_routes_to_existing_channels():
     layout = load_server_layout()
     rules = load_gitlab_rules(channel_keys=layout.channels.keys())
-    assert rules.routes == {"push": "gitlab_activite", "merge_request": "gitlab_activite", "pipeline": "builds"}
+    assert rules.routes == {
+        "push": "gitlab_activite", "merge_request": "gitlab_activite", "pipeline": "builds", "deployment": "builds"
+    }
     assert {"open", "update", "merge"} <= rules.mr_actions
     assert rules.pipeline_statuses == {"success", "failed", "canceled"}
 
@@ -59,3 +61,19 @@ def test_route_to_unknown_channel(tmp_path):
 def test_invalid_values(tmp_path, extra, message):
     with pytest.raises(ConfigError, match=message):
         load_gitlab_rules(write(tmp_path, ROUTES + extra))
+
+
+def test_deployment_route_defaults_to_pipeline_route(tmp_path):
+    path = tmp_path / "gitlab.toml"
+    path.write_text('[routes]\npush = "a"\nmerge_request = "a"\npipeline = "b"\n', encoding="utf-8")
+    rules = load_gitlab_rules(path)
+    assert rules.routes["deployment"] == "b"
+    assert rules.deployment_statuses == {"success", "failed", "canceled"}
+
+
+def test_history_rules_keep_every_useful_event():
+    from src.gitlab.rules import history_rules
+
+    rules = history_rules(GitLabRules(routes={}, push_branches=("main",), pipeline_branches=("main",)))
+    assert rules.follows_push_branch("feature/x") and rules.follows_pipeline_branch("feature/x")
+    assert "running" not in rules.pipeline_statuses and "success" in rules.pipeline_statuses

@@ -30,6 +30,14 @@ _TRUE_VALUES = {"1", "true", "yes", "oui", "on"}
 _FALSE_VALUES = {"0", "false", "no", "non", "off", ""}
 # Longueur minimale du secret des webhooks GitLab : un secret court se devine.
 MIN_WEBHOOK_SECRET_LENGTH = 16
+# Conservation de l'historique : jamais moins que la durée pendant laquelle GitLab peut renvoyer un événement.
+MIN_RETENTION_DAYS = 30
+DEFAULT_RETENTION_DAYS = 365
+AI_PROVIDERS = ("none", "anthropic", "fake")
+DEFAULT_BACKUP_KEEP = 14
+DEFAULT_BACKUP_INTERVAL_HOURS = 24
+DEFAULT_AI_DAILY_LIMIT = 50
+DEFAULT_AI_COOLDOWN_SECONDS = 20
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
 SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY")
 
@@ -55,13 +63,37 @@ class Settings:
     auto_refresh_on_startup: bool = True
     pin_permanent_messages: bool = True
     auto_recreate_deleted: bool = True
+    history_retention_days: int = DEFAULT_RETENTION_DAYS
+    alerts_channel: str | None = None  # clé de salon (config/server.toml) ; None = alertes désactivées
     gitlab_webhook_secret: str = field(default="", repr=False)
     gitlab_project_id: int | None = None
     webhook_host: str = "127.0.0.1"
     webhook_port: int = 8080
     # Erreur dans les variables GITLAB_* / WEBHOOK_* : la V2 reste désactivée, la V1 démarre quand même.
     gitlab_config_error: str | None = None
-    ai_provider: str = "none"
+    ai_provider: str = "none"  # "none" si l'IA est désactivée ou mal configurée
+    ai_api_key: str = field(default="", repr=False)
+    ai_model: str | None = None
+    ai_daily_limit: int = DEFAULT_AI_DAILY_LIMIT  # demandes par jour, toute l'équipe
+    ai_cooldown_seconds: int = DEFAULT_AI_COOLDOWN_SECONDS  # délai entre deux demandes d'un membre
+    # Erreur dans les variables AI_* : l'IA reste désactivée, le reste du bot démarre.
+    ai_config_error: str | None = None
+    gitlab_base_url: str = "https://gitlab.com"
+    gitlab_access_token: str = field(default="", repr=False)
+    gitlab_api_error: str | None = None
+    backup_dir: Path | None = None  # None : <dossier de la base>/backups
+    backup_keep: int = DEFAULT_BACKUP_KEEP
+    backup_interval_hours: int = DEFAULT_BACKUP_INTERVAL_HOURS  # 0 = pas de sauvegarde automatique
+    heartbeat_path: Path | None = None  # fichier de vie lu par le contrôle de santé Docker
+
+    @property
+    def ai_enabled(self) -> bool:
+        return self.ai_provider != "none"
+
+    @property
+    def gitlab_api_enabled(self) -> bool:
+        """API GitLab (lecture seule) : token et identifiant du projet nécessaires."""
+        return bool(self.gitlab_access_token and self.gitlab_project_id)
 
     @property
     def gitlab_webhooks_enabled(self) -> bool:
@@ -110,6 +142,14 @@ class Settings:
         auto_refresh = _parse_bool(env, "AUTO_REFRESH_ON_STARTUP", True, errors)
         pin_messages = _parse_bool(env, "PIN_PERMANENT_MESSAGES", True, errors)
         auto_recreate = _parse_bool(env, "AUTO_RECREATE_DELETED_MESSAGES", True, errors)
+        retention_raw = env.get("HISTORY_RETENTION_DAYS", "").strip() or str(DEFAULT_RETENTION_DAYS)
+        retention = DEFAULT_RETENTION_DAYS
+        if retention_raw.isdigit() and int(retention_raw) >= MIN_RETENTION_DAYS:
+            retention = int(retention_raw)
+        else:
+            errors.append(
+                f"HISTORY_RETENTION_DAYS doit être un nombre de jours ≥ {MIN_RETENTION_DAYS} (valeur actuelle : {retention_raw!r})."
+            )
 
         # Les erreurs de la V2 sont rangées à part : elles désactivent la V2 sans empêcher la V1 de démarrer.
         gitlab_errors: list[str] = []
@@ -140,12 +180,25 @@ class Settings:
         if not webhook_secret:
             gitlab_errors = []  # V2 non demandée : les autres variables GitLab ne comptent pas
 
+        backup_keep = _parse_int(env, "BACKUP_KEEP", DEFAULT_BACKUP_KEEP, 1, errors)
+        backup_interval = _parse_int(env, "BACKUP_INTERVAL_HOURS", DEFAULT_BACKUP_INTERVAL_HOURS, 0, errors)
+
+        ai = _parse_ai(env)
+        gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
+        gitlab_api_error = None
+        if not gitlab_base_url.startswith("https://") or "@" in gitlab_base_url:
+            # Le token ne doit jamais partir en clair : l'API GitLab reste désactivée.
+            gitlab_api_error = f"GITLAB_BASE_URL doit être une adresse https:// sans identifiants (valeur actuelle : {gitlab_base_url!r})"
+
         if errors:
             raise ConfigError("Configuration invalide :\n- " + "\n- ".join(errors))
 
         db_path = Path(env.get("DATABASE_PATH", "").strip() or "data/sae_bot.sqlite3")
         if not db_path.is_absolute():
             db_path = project_root / db_path
+        backup_dir = Path(env.get("BACKUP_DIR", "").strip() or db_path.parent / "backups")
+        if not backup_dir.is_absolute():
+            backup_dir = project_root / backup_dir
 
         return cls(
             discord_token=token,
@@ -156,19 +209,66 @@ class Settings:
             auto_refresh_on_startup=auto_refresh,
             pin_permanent_messages=pin_messages,
             auto_recreate_deleted=auto_recreate,
+            history_retention_days=retention,
+            alerts_channel=env.get("ALERTS_CHANNEL", "").strip() or None,
             gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
             gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
             gitlab_project_id=project_id,
             webhook_host=webhook_host,
             webhook_port=webhook_port,
-            ai_provider=env.get("AI_PROVIDER", "none").strip().lower() or "none",
+            **ai,
+            gitlab_base_url=gitlab_base_url,
+            gitlab_access_token="" if gitlab_api_error else env.get("GITLAB_ACCESS_TOKEN", "").strip(),
+            gitlab_api_error=gitlab_api_error,
+            backup_dir=backup_dir,
+            backup_keep=backup_keep,
+            backup_interval_hours=backup_interval,
+            heartbeat_path=db_path.parent / "heartbeat",
         )
+
+
+def _parse_ai(env: Mapping[str, str]) -> dict:
+    """Réglages de l'IA. Une erreur désactive l'IA (``ai_config_error``) sans bloquer le démarrage."""
+    provider = env.get("AI_PROVIDER", "none").strip().lower() or "none"
+    key = env.get("AI_API_KEY", "").strip()
+    model = env.get("AI_MODEL", "").strip() or None
+    problems: list[str] = []
+    if provider not in AI_PROVIDERS:
+        problems.append(f"AI_PROVIDER doit valoir {', '.join(AI_PROVIDERS)} (valeur actuelle : {provider!r})")
+    elif provider == "anthropic" and not key:
+        problems.append("AI_API_KEY est vide alors que AI_PROVIDER=anthropic")
+    limits = {}
+    for name, var, default, minimum in (
+        ("ai_daily_limit", "AI_DAILY_LIMIT", DEFAULT_AI_DAILY_LIMIT, 1),
+        ("ai_cooldown_seconds", "AI_COOLDOWN_SECONDS", DEFAULT_AI_COOLDOWN_SECONDS, 0),
+    ):
+        raw = env.get(var, "").strip() or str(default)
+        if raw.isdigit() and int(raw) >= minimum:
+            limits[name] = int(raw)
+        else:
+            limits[name] = default
+            problems.append(f"{var} doit être un nombre entier ≥ {minimum} (valeur actuelle : {raw!r})")
+    if provider == "none":
+        problems = []  # IA non demandée : les autres variables AI_* ne comptent pas
+    if problems:
+        return {"ai_provider": "none", "ai_config_error": " ; ".join(problems), **limits}
+    return {"ai_provider": provider, "ai_api_key": key, "ai_model": model, **limits}
 
 
 def secret_values(env: Mapping[str, str] | None = None) -> list[str]:
     """Valeurs des secrets définis, pour les masquer dans les journaux (jamais affichées)."""
     env = os.environ if env is None else env
     return [value.strip() for key in SECRET_ENV_VARS if (value := env.get(key, "")).strip()]
+
+
+def _parse_int(env: Mapping[str, str], key: str, default: int, minimum: int, errors: list[str]) -> int:
+    raw = env.get(key, "").strip()
+    if not raw:
+        return default
+    if raw.isdigit() and int(raw) >= minimum:
+        return int(raw)
+    errors.append(f"{key} doit être un nombre entier ≥ {minimum} (valeur actuelle : {raw!r}).")
+    return default
 
 
 def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[str]) -> bool:

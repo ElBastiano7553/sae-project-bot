@@ -8,6 +8,10 @@ une nouvelle migration à la fin de la liste, sans modifier les précédentes.
 SQLite est utilisé de façon synchrone : les requêtes du bot sont minuscules
 (quelques lignes) et durent bien moins d'une milliseconde, ce qui ne bloque
 pas la boucle asynchrone de Discord de façon perceptible.
+
+Avant toute migration d'une base existante, une sauvegarde vérifiée est créée
+(``data/backups/sae_bot-…-avantvN.sqlite3``) ; si elle échoue, la migration n'a
+pas lieu et le bot ne démarre pas, plutôt que de modifier la base sans filet.
 """
 
 from __future__ import annotations
@@ -86,19 +90,79 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX admin_actions_at ON admin_actions (at);
     """,
+    # Version 5 : historique exploitable pour les statistiques (lot 2). Tous les événements
+    # authentifiés utiles sont conservés, même ceux qui ne sont pas notifiés (statut « recorded »).
+    # Uniquement des ajouts ; les lignes existantes reçoivent une date d'événement calculée.
+    """
+    ALTER TABLE gitlab_events ADD COLUMN source TEXT NOT NULL DEFAULT 'webhook';
+    ALTER TABLE gitlab_events ADD COLUMN event_at TEXT;
+    ALTER TABLE gitlab_events ADD COLUMN user_id INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN subject_id INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN subject_author_id INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN commit_count INTEGER;
+    ALTER TABLE gitlab_events ADD COLUMN environment TEXT;
+    UPDATE gitlab_events SET event_at = COALESCE(datetime(occurred_at), received_at);
+    CREATE INDEX gitlab_events_type_event_at ON gitlab_events (event_type, event_at);
+    CREATE INDEX gitlab_events_user ON gitlab_events (user_id, event_at);
+
+    CREATE TABLE gitlab_users (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL,
+        username   TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE bot_errors (
+        fingerprint TEXT PRIMARY KEY,
+        source      TEXT NOT NULL,
+        message     TEXT NOT NULL,
+        first_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        last_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        count       INTEGER NOT NULL DEFAULT 1,
+        alerted_at  TEXT
+    );
+    CREATE INDEX bot_errors_last_at ON bot_errors (last_at);
+    """,
+    # v6 (lot 3) : journal des demandes à l'IA (quotas, suivi des coûts, journal IA du SAE).
+    # Le texte des questions et des réponses n'est pas conservé.
+    """
+    CREATE TABLE ai_requests (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        at            TEXT NOT NULL DEFAULT (datetime('now')),
+        user_id       INTEGER NOT NULL,
+        command       TEXT NOT NULL,
+        model         TEXT,
+        input_tokens  INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL
+    );
+    CREATE INDEX ai_requests_at ON ai_requests (at);
+    CREATE INDEX ai_requests_user ON ai_requests (user_id, at);
+    """,
 ]
+
+
+# Sauvegardes faites avant une migration : conservées plus longtemps que les sauvegardes régulières.
+PRE_MIGRATION_KEEP = 30
 
 
 class Database:
     """Petite enveloppe autour de ``sqlite3`` qui applique les migrations à l'ouverture."""
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, backup_dir: Path | None = None) -> None:
         self.path = str(path)
-        if self.path != ":memory:":
+        self.in_memory = self.path == ":memory:"
+        if not self.in_memory:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self.backup_dir = backup_dir or (None if self.in_memory else Path(self.path).parent / "backups")
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
+        # Une écriture concurrente (sauvegarde, outil externe) attend au lieu d'échouer aussitôt.
+        self.conn.execute("PRAGMA busy_timeout = 5000")
+        if not self.in_memory:
+            # WAL : lectures pendant les écritures, meilleure résistance à un arrêt brutal.
+            self.conn.execute("PRAGMA journal_mode = WAL")
         self._migrate()
 
     def _migrate(self) -> None:
@@ -108,6 +172,11 @@ class Database:
                 f"La base {self.path} est en version {current}, plus récente que ce bot ({len(MIGRATIONS)}) : "
                 "mettez le bot à jour au lieu d'utiliser une ancienne version."
             )
+        if 0 < current < len(MIGRATIONS) and self.backup_dir is not None:
+            from src.services.backup import create_backup  # import local : pas de dépendance circulaire
+
+            info = create_backup(self.conn, self.backup_dir, keep=PRE_MIGRATION_KEEP, reason=f"avantv{len(MIGRATIONS)}")
+            log.info("Sauvegarde avant migration (v%d → v%d) : %s", current, len(MIGRATIONS), info.path)
         for version, script in enumerate(MIGRATIONS[current:], start=current + 1):
             log.info("Migration de la base de données vers la version %d", version)
             # Une migration est appliquée entièrement ou pas du tout : en cas d'erreur, la base
@@ -123,6 +192,17 @@ class Database:
     @property
     def schema_version(self) -> int:
         return int(self.conn.execute("PRAGMA user_version").fetchone()[0])
+
+    def integrity_ok(self) -> bool:
+        """Vérification rapide de la base (``PRAGMA quick_check``), faite au démarrage."""
+        try:
+            result = self.conn.execute("PRAGMA quick_check").fetchone()[0]
+        except sqlite3.Error:
+            log.exception("Vérification de la base impossible")
+            return False
+        if result != "ok":
+            log.error("La base %s est endommagée (%s) : restaurez une sauvegarde (docs/deployment-linux.md)", self.path, result)
+        return result == "ok"
 
     def ping(self) -> bool:
         """Vérifie que la base répond (utilisé par /health)."""

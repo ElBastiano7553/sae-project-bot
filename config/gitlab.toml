@@ -10,6 +10,8 @@
 push = "gitlab_activite"
 merge_request = "gitlab_activite"
 pipeline = "builds"
+# Facultatif : salon des déploiements (par défaut, celui des pipelines).
+deployment = "builds"
 
 [push]
 # Branches suivies. Liste vide = toutes les branches.
@@ -31,3 +33,10 @@ actions = ["open", "reopen", "update", "merge", "close", "approved"]
 statuses = ["success", "failed", "canceled"]
 # Branches suivies (même syntaxe que pour push). Liste vide = toutes.
 branches = []
+
+[deployment]
+# Événements « Deployment » de GitLab (cochez « Deployment events » dans le webhook).
+# C'est la seule source utilisée pour annoncer un déploiement : un pipeline réussi
+# n'est jamais présenté comme un déploiement.
+# Statuts notifiés parmi : created, running, success, failed, canceled.
+statuses = ["success", "failed", "canceled"]

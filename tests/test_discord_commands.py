@@ -8,7 +8,7 @@ from src.discord_bot.bot import EXTENSIONS, SaeBot
 from src.services.help import HELP_ENTRIES
 
 ADMIN_COMMANDS = {"setup", "refresh", "config", "announce", "admin"}
-PUBLIC_COMMANDS = {"help", "status", "health", "project"}
+PUBLIC_COMMANDS = {"help", "status", "health", "project", "events", "stats", "leaderboard", "ask", "summary", "review"}
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ async def test_bot_uses_no_privileged_intents(bot):
 
 async def test_message_service_reads_real_content_files(bot):
     service = bot.build_message_service()
-    assert len(service.templates) == 7
+    assert len(service.templates) == 8
 
 
 async def test_v2_is_disabled_without_webhook_secret(bot):
@@ -109,7 +109,7 @@ async def test_v2_failure_does_not_break_v1(db, unused_tcp_port, monkeypatch):
         await instance.start_gitlab_webhooks()
         assert instance.gitlab_server is None
         assert "erreur de test" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 7  # la V1 fonctionne toujours
+        assert len(instance.build_message_service().templates) == 8  # la V1 fonctionne toujours
     finally:
         await instance.close()
 
@@ -125,13 +125,13 @@ async def test_invalid_gitlab_env_keeps_v1_and_reports_error(db):
         await instance.start_gitlab_webhooks()
         assert instance.gitlab_server is None
         assert "trop court" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 7
+        assert len(instance.build_message_service().templates) == 8
     finally:
         await instance.close()
 
 
 async def test_unexpected_v2_startup_error_keeps_v1(db, unused_tcp_port, monkeypatch):
-    def explode(days):
+    def explode(**kwargs):
         raise RuntimeError("disque plein")
 
     settings = Settings.from_env(
@@ -139,7 +139,9 @@ async def test_unexpected_v2_startup_error_keeps_v1(db, unused_tcp_port, monkeyp
         require_token=False,
     )
     instance = SaeBot(settings, db)
-    monkeypatch.setattr(instance.gitlab_events_repo, "purge_older_than", explode)
+    # L'oubli des vieux événements a quitté le démarrage de la V2 (voir purge_history) :
+    # l'erreur inattendue est provoquée à la création du serveur de webhooks.
+    monkeypatch.setattr("src.discord_bot.bot.create_webhook_app", explode)
     try:
         await instance.start_gitlab_webhooks()
         assert "RuntimeError" in instance.gitlab_error
@@ -165,7 +167,7 @@ async def test_port_in_use_keeps_v1(db, unused_tcp_port):
         await instance.start_gitlab_webhooks()
         assert not instance.gitlab_server.listening
         assert "impossible d'écouter" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 7
+        assert len(instance.build_message_service().templates) == 8
     finally:
         await instance.close()
         blocker.close()

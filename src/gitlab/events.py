@@ -26,6 +26,7 @@ SUPPORTED_EVENTS = {
     "Push Hook": "push",
     "Merge Request Hook": "merge_request",
     "Pipeline Hook": "pipeline",
+    "Deployment Hook": "deployment",
 }
 
 ZERO_SHA = "0" * 40
@@ -69,6 +70,14 @@ PIPELINE_SOURCES = {
     "trigger": "un déclencheur",
     "pipeline": "un autre pipeline",
     "parent_pipeline": "un pipeline parent",
+}
+
+DEPLOYMENT_LABELS = {
+    "success": ("🚀", "réussi", COLOR_SUCCESS),
+    "failed": ("❌", "en échec", COLOR_FAILURE),
+    "canceled": ("⏹️", "annulé", COLOR_NEUTRAL),
+    "running": ("⏳", "en cours", COLOR_PUSH),
+    "created": ("🆕", "créé", COLOR_PUSH),
 }
 
 MAX_FAILED_JOBS = 10
@@ -123,6 +132,13 @@ class Notification:
     ref: str = ""  # branche concernée
     author: str = ""
     default_branch: str = ""  # branche principale du projet, si GitLab l'indique
+    # Lot 2 : identifiants utilisés par l'historique, /stats et /leaderboard.
+    user_id: int | None = None  # auteur de l'action d'après GitLab
+    user_username: str = ""
+    subject_id: int | None = None  # numéro de MR, identifiant de pipeline ou de déploiement
+    subject_author_id: int | None = None  # auteur de la MR
+    commit_count: int | None = None
+    environment: str = ""
 
 
 def format_event(kind: str, payload: dict, rules: GitLabRules) -> Notification | None:
@@ -130,6 +146,7 @@ def format_event(kind: str, payload: dict, rules: GitLabRules) -> Notification |
         "push": format_push,
         "merge_request": format_merge_request,
         "pipeline": format_pipeline,
+        "deployment": format_deployment,
     }[kind]
     return formatter(payload, rules)
 
@@ -182,6 +199,8 @@ def format_push(payload: dict, rules: GitLabRules) -> Notification | None:
             ref=branch_plain,
             author=author_plain,
             default_branch=project.default_branch,
+            user_id=_int(payload.get("user_id")),
+            user_username=plain_text(payload.get("user_username"), 100),
         )
 
     created = before == ZERO_SHA
@@ -241,6 +260,9 @@ def format_push(payload: dict, rules: GitLabRules) -> Notification | None:
         ref=branch_plain,
         author=author_plain,
         default_branch=project.default_branch,
+        user_id=_int(payload.get("user_id")),
+        user_username=plain_text(payload.get("user_username"), 100),
+        commit_count=total,
     )
 
 
@@ -336,6 +358,10 @@ def format_merge_request(payload: dict, rules: GitLabRules) -> Notification | No
         ref=plain_text(attrs.get("target_branch"), 100),
         author=plain_text(user.get("name") or user.get("username"), 100),
         default_branch=project.default_branch,
+        user_id=_int(user.get("id")),
+        user_username=plain_text(user.get("username"), 100),
+        subject_id=iid,
+        subject_author_id=_int(attrs.get("author_id")),
     )
 
 
@@ -436,6 +462,67 @@ def format_pipeline(payload: dict, rules: GitLabRules) -> Notification | None:
         ref=plain_text(ref, 100),
         author=plain_text(user.get("name") or user.get("username"), 100),
         default_branch=project.default_branch,
+        user_id=_int(user.get("id")),
+        user_username=plain_text(user.get("username"), 100),
+        subject_id=pipeline_id,
+    )
+
+
+# --- Déploiements ----------------------------------------------------------
+
+
+def format_deployment(payload: dict, rules: GitLabRules) -> Notification | None:
+    """Événement de déploiement GitLab : seule source fiable pour annoncer un déploiement."""
+    _expect_kind(payload, "deployment")
+    status = payload.get("status")
+    if not isinstance(status, str) or status not in rules.deployment_statuses:
+        return None
+    deployment_id = payload.get("deployment_id")
+    if not isinstance(deployment_id, int) or isinstance(deployment_id, bool):
+        raise InvalidPayload("« deployment_id » manquant")
+    project = _project(payload)
+    icon, label, color = DEPLOYMENT_LABELS.get(status, ("ℹ️", status, COLOR_NEUTRAL))
+    environment = plain_text(payload.get("environment"), 100) or "environnement inconnu"
+
+    env_url = safe_url(payload.get("environment_external_url"))
+    env_txt = clean_text(environment, 100, single_line=True)
+    fields = [EmbedField("Environnement", f"[{env_txt}]({env_url})" if env_url else env_txt, inline=True)]
+    ref = plain_text(payload.get("ref"), 100)
+    if ref:
+        fields.append(EmbedField("Branche", inline_code(ref, 100), inline=True))
+    user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
+    user_txt = clean_text(user.get("name") or user.get("username"), 100, single_line=True)
+    if user_txt:
+        fields.append(EmbedField("Lancé par", user_txt, inline=True))
+    sha = short_sha(plain_text(payload.get("short_sha"), 40).replace("`", ""))
+    commit_title = clean_text(first_line(payload.get("commit_title")), 150, single_line=True)
+    if sha or commit_title:
+        commit_url = safe_url(payload.get("commit_url"))
+        ref_txt = f"[`{sha}`]({commit_url})" if commit_url and sha else f"`{sha or '?'}`"
+        fields.append(EmbedField("Commit", f"{ref_txt} {commit_title}".strip(), inline=False))
+
+    url = safe_url(payload.get("deployable_url"))
+    if url is None and project.url:
+        url = safe_url(f"{project.url}/-/environments")
+    moment = payload.get("status_changed_at")
+    return Notification(
+        kind="deployment",
+        title=limits.truncate(f"{icon} Déploiement {label} : {environment} · {project.name_plain}", limits.EMBED_TITLE),
+        description="",
+        color=color,
+        url=url,
+        fields=tuple(fields),
+        footer=project.footer,
+        timestamp=_iso(moment),
+        dedup_key=_dedup("deployment", project, deployment_id, status, moment),
+        action=status,
+        ref=ref,
+        author=plain_text(user.get("name") or user.get("username"), 100),
+        default_branch=project.default_branch,
+        user_id=_int(user.get("id")),
+        user_username=plain_text(user.get("username"), 100),
+        subject_id=deployment_id,
+        environment=environment,
     )
 
 
@@ -469,6 +556,10 @@ def _dedup(kind: str, project: _Project, *parts: object) -> str:
     """Empreinte d'un événement : deux livraisons du même fait GitLab donnent la même clé."""
     raw = json.dumps([kind, project.id, *[p if isinstance(p, (str, int, list)) else str(p) for p in parts]])
     return f"{kind}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:32]}"
+
+
+def _int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _iso(value: object) -> str | None:

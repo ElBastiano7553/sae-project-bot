@@ -15,9 +15,10 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.config import ConfigError, load_link_catalog, load_server_layout
-from src.discord_bot.bot import SaeBot, install_error_handler
+from src.discord_bot.bot import SaeBot, install_error_handler, send_error
 from src.discord_bot.cogs.general import build_status_embed
 from src.discord_bot.embeds import (
+    backup_embed,
     config_embed,
     diagnostic_embed,
     history_embed,
@@ -31,6 +32,7 @@ from src.discord_bot.permissions import is_bot_admin
 from src.discord_bot.views import AnnouncementModal, ConfirmView
 from src.gitlab.rules import load_gitlab_rules
 from src.services.content import ANNOUNCEMENT_BODY_MAX, ANNOUNCEMENT_TITLE_MAX, Announcement, load_message_templates
+from src.services.backup import BackupError, list_backups
 from src.services.design import Tone
 from src.services.diagnostics import ChannelDiagnostic, channel_uses, missing_permissions, required_permissions
 from src.services.permanent_messages import SyncAction
@@ -148,7 +150,11 @@ class AdminCog(commands.Cog):
             f"Épinglage des messages : {'oui' if settings.pin_permanent_messages else 'non'}",
             f"Recréation auto. des messages supprimés : {'oui' if settings.auto_recreate_deleted else 'non'}",
             self._gitlab_config_line(),
-            "IA : non intégrée dans cette version",
+            f"Historique conservé : {settings.history_retention_days} jours",
+            f"Alertes d'erreurs : salon `{settings.alerts_channel}`" if settings.alerts_channel else "Alertes d'erreurs : désactivées",
+            self._ai_config_line(),
+            "API GitLab (lecture seule) : " + ("configurée ✅ (token jamais affiché)" if settings.gitlab_api_enabled
+                                               else (settings.gitlab_api_error or "non configurée (GITLAB_ACCESS_TOKEN, GITLAB_PROJECT_ID)")),
         ]
         await interaction.response.send_message(
             embed=config_embed(
@@ -276,6 +282,19 @@ class AdminCog(commands.Cog):
     async def admin_history(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(embed=history_embed(self.bot.admin_log.recent(HISTORY_LIMIT)), ephemeral=True)
 
+    @admin.command(name="backup", description="Sauvegarder la base de données maintenant (copie vérifiée)")
+    @admin_only()
+    async def admin_backup(self, interaction: discord.Interaction) -> None:
+        try:
+            info = self.bot.run_backup(reason="manuelle")
+        except BackupError as exc:
+            self.bot.record_admin_action(interaction, "admin backup", outcome=f"échec : {exc}")
+            await send_error(interaction, f"Sauvegarde impossible : {exc}")
+            return
+        self.bot.record_admin_action(interaction, "admin backup", info.path.name, "ok")
+        backups = list_backups(self.bot.settings.backup_dir)
+        await interaction.response.send_message(embed=backup_embed(info, backups, self.bot.settings.backup_keep), ephemeral=True)
+
     def _diagnose_channels(self, guild: discord.Guild, bindings: dict[str, int]) -> list[ChannelDiagnostic]:
         message_channels = [t.channel_key for t in load_message_templates()]
         notification_channels: list[str] = []
@@ -309,6 +328,19 @@ class AdminCog(commands.Cog):
         return (
             f"Webhooks GitLab : secret défini ✅ (jamais affiché), écoute sur "
             f"`{settings.webhook_host}:{settings.webhook_port}`, {project}"
+        )
+
+    def _ai_config_line(self) -> str:
+        settings = self.bot.settings
+        if settings.ai_config_error:
+            return f"IA : configuration invalide, désactivée ({settings.ai_config_error})"
+        if not settings.ai_enabled:
+            return "IA : désactivée (AI_PROVIDER=none)"
+        model = self.bot.ai_provider.model if self.bot.ai_provider else "?"
+        key = "clé définie ✅ (jamais affichée)" if settings.ai_api_key else "sans clé"
+        return (
+            f"IA : `{settings.ai_provider}`, modèle `{model}`, {key}, "
+            f"{settings.ai_daily_limit} demandes/jour, {settings.ai_cooldown_seconds} s entre deux demandes d'un membre"
         )
 
     def _guild(self, interaction: discord.Interaction) -> discord.Guild:

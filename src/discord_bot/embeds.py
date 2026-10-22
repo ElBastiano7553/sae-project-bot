@@ -12,15 +12,19 @@ import datetime as dt
 import discord
 
 from src.config import LinkCatalog
-from src.database.repositories import AdminAction, EventRecord, ManagedMessage
+from src.database.repositories import AdminAction, BotError, EventRecord, ManagedMessage
 from src.gitlab.events import Notification
 from src.services import design
 from src.services import text_limits as limits
 from src.services.content import MessagePayload
+from src.services.ai_assistant import AssistantAnswer
+from src.services.alerts import Alert
+from src.services.backup import BackupInfo
 from src.services.design import ICONS, Tone
 from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
 from src.services.help import CATEGORIES, HelpEntry
+from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
 from src.services.server_structure import ChannelStatus, StructureReport
@@ -380,3 +384,198 @@ def _event_lines(records: list[EventRecord]) -> str:
         when = design.relative_time(r.occurred_at or r.received_at)
         lines.append(f"{design.md_link(r.title or r.event_type, r.url)} · {when}")
     return "\n".join(limits.chunk_lines(lines, limits.FIELD_VALUE)[:1])
+
+
+# --- Historique, statistiques, classement, alertes ---------------------------------
+
+EVENT_ICONS = {
+    "push": ICONS["push"],
+    "merge_request": ICONS["merge_request"],
+    "pipeline": ICONS["pipeline"],
+    "deployment": "🚀",
+}
+STATUS_NOTES = {"recorded": "non notifié", "failed": "notification en échec", "skipped": "aucun salon associé"}
+
+
+def _coverage_text(first_event_at: str | None, total: int) -> str:
+    if not total:
+        return "aucun événement GitLab enregistré"
+    return f"{design.plural(total, 'événement')} reçu(s) depuis {design.relative_time(first_event_at)}"
+
+
+def events_embed(
+    records: list[EventRecord], *, filters: str, coverage: tuple[str | None, int], limit: int
+) -> discord.Embed:
+    embed = make_embed(f"{ICONS['history']} Événements GitLab", tone=Tone.INFO)
+    lines = []
+    for r in records:
+        note = STATUS_NOTES.get(r.status)
+        when = design.relative_time(r.event_at or r.received_at)
+        lines.append(
+            f"{EVENT_ICONS.get(r.event_type, '•')} {design.md_link(r.title or r.event_type, r.url)} · {when}"
+            + (f" · *{note}*" if note else "")
+        )
+    _add_lines(embed, lines or ["*Aucun événement ne correspond à ces critères.*"])
+    embed.set_footer(
+        text=design.footer(filters, f"{limit} au plus", f"historique : {_coverage_text(*coverage)}")
+    )
+    return fit_embed(embed)
+
+
+def errors_embed(errors: list[BotError], *, period: str) -> discord.Embed:
+    embed = make_embed("🧯 Erreurs du bot", tone=Tone.WARNING if errors else Tone.SUCCESS)
+    lines = [
+        f"`{design.escape_markdown(e.source)}` · {design.plural(e.count, 'fois', 'fois')} · "
+        f"dernière {design.relative_time(e.last_at)}\n  ↳ {design.escape_markdown(e.message)}"
+        for e in errors
+    ]
+    _add_lines(embed, lines or ["*Aucune erreur enregistrée sur la période.*"])
+    embed.set_footer(text=design.footer(period, "erreurs regroupées par source et message", "détail dans logs/bot.log"))
+    return fit_embed(embed)
+
+
+def _trend(current: int, previous: int | None) -> str:
+    if previous is None:
+        return ""
+    if current == previous:
+        return " (=)"
+    return f" ({'+' if current > previous else ''}{current - previous})"
+
+
+def stats_embed(
+    stats: ActivityStats,
+    *,
+    period: str,
+    previous: ActivityStats | None,
+    weekly: list[tuple[str, int, int]],
+    coverage: tuple[str | None, int],
+    gitlab_enabled: bool,
+) -> discord.Embed:
+    embed = make_embed(f"{ICONS['status']} Statistiques GitLab", f"Période : **{period}**")
+    p = previous
+    add_field(
+        embed,
+        f"{ICONS['push']} Code",
+        f"{design.plural(stats.commits, 'commit')}{_trend(stats.commits, p and p.commits)}\n"
+        f"{design.plural(stats.pushes, 'push', 'pushs')}{_trend(stats.pushes, p and p.pushes)}",
+        inline=True,
+    )
+    add_field(
+        embed,
+        f"{ICONS['merge_request']} Merge requests",
+        f"{stats.mr_opened} ouverte(s){_trend(stats.mr_opened, p and p.mr_opened)}\n"
+        f"{stats.mr_merged} fusionnée(s){_trend(stats.mr_merged, p and p.mr_merged)}",
+        inline=True,
+    )
+    total = sum(stats.pipelines.values())
+    success = stats.pipelines.get("success", 0)
+    rate = f" · {success * 100 // total} % de réussite" if total else ""
+    add_field(
+        embed,
+        f"{ICONS['pipeline']} Pipelines terminés",
+        f"{success} réussi(s), {stats.pipelines.get('failed', 0)} échoué(s), "
+        f"{stats.pipelines.get('canceled', 0)} annulé(s){rate}",
+        inline=True,
+    )
+    if stats.deployments:
+        add_field(
+            embed,
+            "🚀 Déploiements",
+            ", ".join(f"{count} {status}" for status, count in sorted(stats.deployments.items())),
+            inline=True,
+        )
+    if weekly:
+        lines = [f"`{label}` · {design.plural(commits, 'commit')} · {merged} MR fusionnée(s)" for label, commits, merged in weekly]
+        add_field(embed, "🗓️ Par semaine (4 dernières)", "\n".join(lines))
+    notes = []
+    if previous is not None:
+        notes.append("Entre parenthèses : écart avec la période précédente de même durée.")
+    notes.append("Le nombre de commits ne mesure ni la qualité ni la quantité du travail.")
+    add_field(embed, "ℹ️ À savoir", " ".join(notes))
+    source = "webhooks GitLab reçus" if gitlab_enabled else "webhooks GitLab désactivés"
+    embed.set_footer(text=design.footer(f"source : {source}", _coverage_text(*coverage)))
+    return fit_embed(embed)
+
+
+def leaderboard_embed(board: Leaderboard, *, period: str, details: bool) -> discord.Embed:
+    embed = make_embed("🏅 Contributions de l'équipe", f"Période : **{period}**")
+    if not board.contributions:
+        embed.description += "\n\n*Aucune contribution mesurée sur la période.*"
+    elif board.ranked:
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        lines = []
+        for rank, c in board.ranks():
+            line = (
+                f"{medals.get(rank, f'**{rank}.**')} **{design.escape_markdown(c.name)}** · "
+                f"{design.plural(c.merged_mrs, 'MR fusionnée', 'MR fusionnées')} · "
+                f"{design.plural(c.approvals, 'approbation')} · {design.plural(c.active_days, 'jour actif', 'jours actifs')}"
+            )
+            if details:
+                line += f"\n  ↳ {c.mrs_opened} MR ouverte(s), {design.plural(c.commits, 'commit')} (indicatif)"
+            lines.append(line)
+        add_field(embed, "Classement", "\n".join(lines))
+    else:
+        lines = [
+            f"• **{design.escape_markdown(c.name)}** · {c.merged_mrs} MR fusionnée(s) · {c.approvals} approbation(s) · "
+            f"{c.active_days} jour(s) actif(s)" + (f" · {c.commits} commit(s)" if details else "")
+            for c in board.contributions
+        ]
+        add_field(embed, "Activité (sans classement)", "\n".join(lines))
+        add_field(embed, "Pourquoi pas de classement ?", f"Pas assez de données : {board.reason}.")
+    if board.unattributed_merges:
+        add_field(
+            embed,
+            "⚠️ Non attribuées",
+            f"{design.plural(board.unattributed_merges, 'MR fusionnée')} sans auteur indiqué par GitLab.",
+        )
+    add_field(
+        embed,
+        "ℹ️ Méthode",
+        "Ordre : MR fusionnées (attribuées à leur auteur), puis approbations données aux autres, "
+        "puis jours avec au moins un push. Les commits ne comptent pas. "
+        "Un outil de suivi, pas une évaluation : le travail hors GitLab (design, réunions, docs) n'apparaît pas.",
+    )
+    embed.set_footer(text=design.footer("source : webhooks GitLab reçus", design.plural(board.events, "événement")))
+    return fit_embed(embed)
+
+
+def alert_embed(alert: Alert) -> discord.Embed:
+    minutes = int(alert.window.total_seconds() // 60)
+    embed = make_embed(
+        "🚨 Erreur répétée du bot",
+        f"{design.plural(alert.occurrences, 'occurrence')} en moins de {minutes} minutes.",
+        tone=Tone.FAILURE,
+    )
+    add_field(embed, "Source", f"`{design.escape_markdown(alert.error.source)}`", inline=True)
+    add_field(embed, "Total enregistré", design.plural(alert.error.count, "fois", "fois"), inline=True)
+    add_field(embed, "Message", design.escape_markdown(alert.error.message))
+    add_field(embed, "Que faire ?", "Consulter `logs/bot.log` sur le serveur et `/status`. Aucune nouvelle alerte pour cette erreur pendant 1 heure.")
+    return fit_embed(embed)
+
+
+def ai_answer_embed(answer: AssistantAnswer, *, title: str, subject: str = "", url: str | None = None) -> discord.Embed:
+    """Réponse de l'IA : texte, sources utilisées, précisions, et mention claire de son origine."""
+    embed = make_embed(f"🤖 {title}", answer.text, url=url)
+    if subject:
+        embed.description = limits.truncate(f"> {design.escape_markdown(subject)}\n\n{answer.text}", limits.EMBED_DESCRIPTION)
+    if answer.sources:
+        add_field(embed, "📚 Sources transmises", "\n".join(design.escape_markdown(s) for s in answer.sources))
+    if answer.notes:
+        add_field(embed, "ℹ️ À savoir", "\n".join(f"• {n}" for n in answer.notes))
+    origin = f"réponse générée par IA ({answer.model}), à vérifier" if answer.model else "aucune IA appelée"
+    embed.set_footer(text=design.footer(origin))
+    return fit_embed(embed)
+
+
+def backup_embed(info: BackupInfo, backups: list[BackupInfo], keep: int) -> discord.Embed:
+    embed = make_embed("💾 Sauvegarde créée", f"`{info.path.name}` · {info.size / 1024:.0f} Ko · vérifiée ✅", tone=Tone.SUCCESS)
+    lines = [f"• `{b.path.name}` · {design.discord_timestamp(b.created_at, 'R')}" for b in backups[:10]]
+    add_field(embed, f"Sauvegardes conservées ({len(backups)}, {keep} au plus)", "\n".join(lines) or "—")
+    add_field(
+        embed,
+        "Restaurer",
+        "Jamais depuis Discord : arrêter le bot, remplacer le fichier de la base par une sauvegarde, redémarrer "
+        "(procédure : docs/deployment-linux.md).",
+    )
+    embed.set_footer(text=design.footer("les fichiers restent sur le serveur du bot ; aucune copie n'est envoyée sur Discord"))
+    return fit_embed(embed)
