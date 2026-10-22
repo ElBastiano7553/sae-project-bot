@@ -622,7 +622,7 @@ def load_server_layout(path: Path = CONFIG_DIR / "server.toml") -> ServerLayout:
     if not channels:
         raise ConfigError(f"{filename} ne déclare aucun salon.")
     roles = {key: _parse_role(key, value, filename, known_profiles) for key, value in data.get("roles", {}).items()}
-    access = _parse_access(data, filename, set(roles))
+    access = _parse_access(data, filename, set(roles), {k for k, r in roles.items() if r.kind == "staff"})
     for spec in (*categories.values(), *channels.values()):
         if spec.access and spec.access not in access:
             kind = "categories" if isinstance(spec, CategorySpec) else "channels"
@@ -728,7 +728,7 @@ def _permission_list(table: Mapping, key: str, where: str, filename: str) -> tup
     return names
 
 
-def _parse_access(data: Mapping, filename: str, role_keys: set[str]) -> dict[str, AccessSpec]:
+def _parse_access(data: Mapping, filename: str, role_keys: set[str], staff_keys: set[str] = frozenset()) -> dict[str, AccessSpec]:
     result = {}
     for key, value in data.get("access", {}).items():
         where = f"access.{key}"
@@ -742,6 +742,12 @@ def _parse_access(data: Mapping, filename: str, role_keys: set[str]) -> dict[str
             deny = _permission_list(rule, "deny", f"{where}.rules.{target}", filename)
             if set(allow) & set(deny):
                 raise ConfigError(f"{filename} : [{where}.rules.{target}] une permission est à la fois accordée et refusée.")
+            sensitive = sorted(set(allow) & SENSITIVE_PERMISSIONS)
+            if sensitive and target not in ("@bot", "@admin") and not (target.startswith("role:") and target[5:] in staff_keys):
+                raise ConfigError(
+                    f"{filename} : [{where}.rules.{target}] permission sensible ({', '.join(sensitive)}) réservée à Samae, "
+                    "@admin et aux rôles de type « staff »."
+                )
             if target == "@bot" and "view_channel" in deny:
                 raise ConfigError(f"{filename} : [{where}] Samae ne peut pas se retirer l'accès à un salon.")
             rules.append(AccessRule(target, allow, deny))

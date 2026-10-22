@@ -103,6 +103,8 @@ def _layout(tmp_path: Path, extra: str) -> Path:
         ('[channels.y]\nname = "y"\ncategory = "a"\naccess = "absent"\n', "niveau d'accès inconnu"),
         ('[channels.y]\nname = "y"\ncategory = "a"\ntype = "fil"\n', "type doit valoir"),
         ('[refonte]\nstyle = "inexistant"\n[styles.s]\nlabel = "S"\n', "style inconnu"),
+        ('[access.p]\n[access.p.rules."@everyone"]\nallow = ["manage_messages"]\n', "permission sensible"),
+        ('[roles.r]\nname = "R"\n[access.p]\n[access.p.rules."role:r"]\nallow = ["manage_roles"]\n', "permission sensible"),
     ],
 )
 def test_layout_rejects_unsafe_or_invalid_redesign_settings(tmp_path: Path, extra: str, message: str):

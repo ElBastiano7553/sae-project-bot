@@ -46,7 +46,7 @@ retour arrière, tests et limites) est dans **[refonte.md](refonte.md)**.
 
 - `tests/test_help_center.py` : contenu, limites Discord, navigation de `/help`.
 - Tests de `/refonte` : voir [refonte.md](refonte.md#10-tests).
-- Suite complète (1.3.0) : 730 tests verts.
+- Suite complète (1.3.0) : 736 tests verts.
 
 ## 10. Lancer et synchroniser les commandes (Windows)
 

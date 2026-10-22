@@ -371,3 +371,47 @@ async def test_rollback_does_not_touch_what_changed_since_and_states_its_limits(
     assert reunions.id not in {op.object_id for op in rollback.deletions}
     assert any(op.object_id in (renamed.id, reunions.id) for op in rollback.of(OpKind.MANUAL))
     assert any("messages" in risk for risk in rollback.risks)
+
+
+async def test_rollback_restores_existing_roles_and_category_order():
+    guild = sae_server()
+    dev = guild.add_role("Dev", color=0x123456)
+    before = guild.snapshot()
+    order = [c.name for c in guild.categories]
+    results, _ = await run(guild, plan_for(guild))
+    assert dev.name == "Développement" and [c.name for c in guild.categories] != order
+    rollback = build_rollback_plan(journal_of(results, before), guild.snapshot())
+    await run(guild, rollback)
+    assert (dev.name, dev.colour.value) == ("Dev", 0x123456)
+    assert dev.permissions.value == 0
+    assert [c.name for c in guild.categories if c.name in order] == order
+
+
+def test_shipped_configuration_never_grants_excessive_rights():
+    from src.config import SENSITIVE_PERMISSIONS
+
+    staff = {key for key, spec in LAYOUT.roles.items() if spec.kind == "staff"}
+    for key, spec in LAYOUT.roles.items():
+        assert "administrator" not in spec.permissions
+        if key not in staff:
+            assert not set(spec.permissions) & SENSITIVE_PERMISSIONS, key
+    for access in LAYOUT.access.values():
+        for rule in access.rules:
+            if rule.target in ("@everyone",) or (rule.target.startswith("role:") and rule.target[5:] not in staff):
+                assert not set(rule.allow) & SENSITIVE_PERMISSIONS, (access.key, rule.target)
+            if rule.target in ("@bot", "@admin") or rule.target[5:] in staff:
+                assert "view_channel" not in rule.deny
+
+
+@pytest.mark.parametrize("profile", ["projet", "communautaire"])
+def test_every_profile_keeps_public_channels_and_staff_access(profile):
+    plan = plan_for(FakeGuild(), options=RedesignOptions(profile=profile, create_optional=True))
+    assert plan.can_apply
+    created = plan.of(OpKind.CREATE_CHANNEL)
+    visible = [op for op in created if op.params["type"] in ("text", "announcement")
+               and "view_channel" not in op.params.get("overwrites", {}).get("@everyone", {}).get("deny", [])]
+    assert visible, "au moins un salon textuel reste visible par @everyone"
+    for op in [*created, *plan.of(OpKind.CREATE_CATEGORY)]:
+        rules = op.params.get("overwrites", {})
+        if "view_channel" in rules.get("@everyone", {}).get("deny", []):
+            assert "view_channel" in rules["@bot"]["allow"]

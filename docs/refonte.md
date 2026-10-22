@@ -150,7 +150,8 @@ Garde-fous :
 
 - `administrator` est refusé dans la configuration ;
 - les permissions sensibles (gérer les messages, expulser…) sont réservées aux rôles
-  de type staff ;
+  de type staff, dans les rôles comme dans les permissions des salons (@everyone et
+  les autres rôles ne peuvent pas les recevoir) ;
 - Samae n'accorde que ce qu'il possède lui-même ;
 - rien n'est fait que vous ne pourriez pas faire vous-même ;
 - un plan qui masquerait tous les salons textuels à @everyone est bloqué ;
@@ -237,9 +238,9 @@ Chaque refonte, suppression ou retour apparaît dans `/admin history`.
 
 | Fichier | Contenu |
 |---|---|
-| `tests/test_server_redesign.py` | 26 tests sur le plan et l'exécuteur avec le faux serveur `tests/fake_guild.py`. |
+| `tests/test_server_redesign.py` | 30 tests sur le plan et l'exécuteur avec le faux serveur `tests/fake_guild.py`. |
 | `tests/test_redesign_command.py` | 31 tests de la commande complète. |
-| `tests/test_config.py` | Validation de la configuration, avec 12 configurations invalides. |
+| `tests/test_config.py` | Validation de la configuration, avec 14 configurations invalides (dont permissions sensibles hors staff). |
 
 Le plan et l'exécuteur couvrent :
 
@@ -263,7 +264,7 @@ La commande complète couvre :
 - réunions préservées ;
 - sauvegarde et journal.
 
-Suite complète : `python -m pytest -q` (730 tests).
+Suite complète : `python -m pytest -q` (736 tests).
 
 Ces tests simulent Discord : la lecture du vrai serveur (`snapshot.py`) et les appels
 réels (positions groupées, conversion en annonces, limites de débit) restent à
