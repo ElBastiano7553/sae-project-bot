@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # SAE Project Bot
 
 Bot Discord de l'équipe SAE EPITA (serveur « SAE · GAME DEV »). Il centralise les
@@ -73,7 +72,3 @@ python -m pytest
 
 Les tests n'utilisent ni token, ni réseau, ni vrai serveur Discord : Discord est
 remplacé par une fausse implémentation en mémoire.
-=======
-# sae-project-bot
-Développer un bot Discord intelligent en Python pour centraliser la gestion de notre serveur SAE EPITA, automatiser les notifications GitLab, gérer les messages permanents et intégrer une IA générative capable de résumer les modifications du code, suivre l'avancement du projet et aider les cinq membres de l'équipe à collaborer efficacement.
->>>>>>> origin/main
