@@ -13,9 +13,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.config import ConfigError, Settings, load_link_catalog, load_planning, load_server_layout
+from src.ai import build_provider
+from src.config import ConfigError, Settings, load_link_catalog, load_planning, load_server_layout, secret_values
 from src.database import (
     AdminActionRepository,
+    AIRequestRepository,
     BotErrorRepository,
     ChannelBindingRepository,
     Database,
@@ -28,9 +30,11 @@ from src.discord_bot.embeds import error_embed
 from src.discord_bot.gateway import DiscordMessageGateway
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
+from src.gitlab.api import GitLabAPI
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY, NotificationDispatcher
 from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
+from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
 from src.services.content import Announcement, EmbedField, MessagePayload, load_message_templates, render_message
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
@@ -42,7 +46,12 @@ log = logging.getLogger(__name__)
 
 SETUP_CONFIRMED_KEY = "setup_confirmed_at"
 ANNOUNCEMENT_KEY = "announcement"
-EXTENSIONS = ("src.discord_bot.cogs.general", "src.discord_bot.cogs.activity", "src.discord_bot.cogs.admin")
+EXTENSIONS = (
+    "src.discord_bot.cogs.general",
+    "src.discord_bot.cogs.activity",
+    "src.discord_bot.cogs.ai",
+    "src.discord_bot.cogs.admin",
+)
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
 # Délai entre un événement GitLab et l'actualisation du tableau de bord (regroupe les rafales).
@@ -74,6 +83,26 @@ class SaeBot(commands.Bot):
         self.gitlab_events_repo = GitLabEventRepository(database)
         self.bot_errors_repo = BotErrorRepository(database)
         self.alerts = AlertManager(self.bot_errors_repo)
+        self.ai_requests_repo = AIRequestRepository(database)
+        # IA (lot 3) : None si désactivée. Aucun appel n'est fait au démarrage.
+        self.ai_provider = build_provider(settings.ai_provider, settings.ai_api_key, settings.ai_model)
+        self.assistant = (
+            AIAssistant(
+                self.ai_provider,
+                self.ai_requests_repo,
+                daily_limit=settings.ai_daily_limit,
+                cooldown_seconds=settings.ai_cooldown_seconds,
+                secrets=secret_values(),
+            )
+            if self.ai_provider is not None
+            else None
+        )
+        # API GitLab en lecture seule (/review) : None sans GITLAB_ACCESS_TOKEN et GITLAB_PROJECT_ID.
+        self.gitlab_api = (
+            GitLabAPI(settings.gitlab_base_url, settings.gitlab_access_token, settings.gitlab_project_id)
+            if settings.gitlab_api_enabled
+            else None
+        )
         self.gitlab_server: GitLabWebhookServer | None = None
         self.gitlab_error: str | None = None
         self.errors = errors or RecentErrors()
@@ -166,6 +195,12 @@ class SaeBot(commands.Bot):
             self._gitlab_task = None
         if self.gitlab_server is not None:
             await self.gitlab_server.stop()
+        for client in (self.ai_provider, self.gitlab_api):
+            if client is not None:
+                try:
+                    await client.close()
+                except Exception:
+                    log.warning("Fermeture d'un client externe impossible", exc_info=True)
         await super().close()
 
     async def on_ready(self) -> None:
@@ -316,6 +351,7 @@ class SaeBot(commands.Bot):
             ("événement(s) GitLab", self.gitlab_events_repo),
             ("action(s) d'administration", self.admin_log),
             ("erreur(s)", self.bot_errors_repo),
+            ("demande(s) à l'IA", self.ai_requests_repo),
         ):
             try:
                 purged[label] = repository.purge_older_than(days)

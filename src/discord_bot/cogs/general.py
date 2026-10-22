@@ -15,7 +15,7 @@ from src.discord_bot.bot import SaeBot
 from src.discord_bot.embeds import health_embed, help_embed, project_embed
 from src.discord_bot.permissions import is_bot_admin
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
-from src.services.health import AlertsSummary, HistorySummary, MessagesSummary, build_health_checks
+from src.services.health import AISummary, AlertsSummary, HistorySummary, MessagesSummary, build_health_checks
 from src.services.help import entries_by_category
 
 log = logging.getLogger(__name__)
@@ -50,6 +50,14 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             errors_24h=len(bot.bot_errors_repo.recent(_hours_ago(24), limit=1000)),
         ),
         history=_history_summary(bot),
+        ai=AISummary(
+            provider=bot.settings.ai_provider,
+            model=bot.ai_provider.model if bot.ai_provider else None,
+            config_error=bot.settings.ai_config_error,
+            used_today=bot.assistant.today_usage() if bot.assistant else 0,
+            daily_limit=bot.settings.ai_daily_limit,
+            gitlab_api=bot.gitlab_api is not None,
+        ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at
     return health_embed(

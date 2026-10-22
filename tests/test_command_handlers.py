@@ -370,3 +370,83 @@ async def test_history_purge_respects_retention(bot):
     purged = bot.purge_history()
     assert purged["événement(s) GitLab"] == 1
     assert bot.gitlab_events_repo.recent() == []
+
+
+# --- Lot 3 : IA -------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def ai_bot(db):
+    settings = Settings.from_env({"DISCORD_GUILD_ID": str(GUILD_ID), "AI_PROVIDER": "fake", "AI_COOLDOWN_SECONDS": "0"},
+                                 require_token=False)
+    instance = SaeBot(settings, db)
+    for extension in EXTENSIONS:
+        await instance.load_extension(extension)
+    yield instance
+    await instance.close()
+
+
+async def test_ai_commands_explain_when_ai_is_disabled(bot):
+    ai = cog(bot, "AICog")
+    interaction = FakeInteraction(bot)
+    await ai.ask.callback(ai, interaction, question="Quand est la démo ?")
+    text = embed_text(interaction.response.sent[0]["embed"])
+    assert "IA est désactivée" in text and "AI_PROVIDER=none" in text
+
+
+async def test_ask_with_fake_provider_cites_sources(ai_bot):
+    ai = cog(ai_bot, "AICog")
+    interaction = FakeInteraction(ai_bot)
+    await ai.ask.callback(ai, interaction, question="Comment configurer les webhooks GitLab ?")
+    embed = interaction.followup.sent[0]["embed"]
+    text = embed_text(embed)
+    assert "Réponse de test" in text and "Sources transmises" in text
+    assert "réponse générée par IA (fake-model)" in embed.footer.text
+    assert interaction.followup.sent[0]["ephemeral"]
+
+
+async def test_summary_without_events_does_not_call_the_ai(ai_bot):
+    ai = cog(ai_bot, "AICog")
+    interaction = FakeInteraction(ai_bot)
+    await ai.summary.callback(ai, interaction)
+    embed = interaction.followup.sent[0]["embed"]
+    assert "rien à résumer" in embed_text(embed) and "aucune IA appelée" in embed.footer.text
+    assert ai_bot.ai_provider.calls == []
+
+
+async def test_review_requires_gitlab_api(ai_bot):
+    ai = cog(ai_bot, "AICog")
+    interaction = FakeInteraction(ai_bot)
+    await ai.review.callback(ai, interaction, mr=12)
+    assert "GITLAB_ACCESS_TOKEN" in embed_text(interaction.response.sent[0]["embed"])
+
+
+async def test_review_with_fake_gitlab_and_fake_ai(ai_bot):
+    from src.gitlab.api import FileDiff, MergeRequestInfo
+
+    class FakeAPI:
+        async def merge_request(self, iid):
+            return MergeRequestInfo(iid, "Score", "", "Bob", "feature/score", "main", "opened", "https://gitlab.com/x/-/merge_requests/12")
+
+        async def merge_request_diffs(self, iid):
+            return [FileDiff("src/score.py", "+def score():\n+    return 1\n")]
+
+        async def close(self):
+            pass
+
+    ai_bot.gitlab_api = FakeAPI()
+    ai_bot.ai_provider.replies = ["Verdict : prête à fusionner"]
+    ai = cog(ai_bot, "AICog")
+    interaction = FakeInteraction(ai_bot)
+    await ai.review.callback(ai, interaction, mr=12)
+    embed = interaction.followup.sent[0]["embed"]
+    assert "Relecture de !12" in embed.title and "Verdict" in embed.description
+    assert "src/score.py" in ai_bot.ai_provider.calls[0][1]
+
+
+async def test_status_shows_ai_usage(ai_bot):
+    general = cog(ai_bot, "GeneralCog")
+    interaction = FakeInteraction(ai_bot)
+    await general.status.callback(general, interaction)
+    text = embed_text(interaction.response.sent[0]["embed"])
+    assert "faux fournisseur de test" in text and "0/50 demandes" in text and "/review indisponible" in text

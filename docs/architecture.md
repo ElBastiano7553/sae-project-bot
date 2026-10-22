@@ -2,7 +2,7 @@
 
 Ce document présente l'architecture retenue, les difficultés techniques, le flux
 des données entre Discord, GitLab et l'IA, ainsi que le plan de réalisation.
-Les parties marquées **(lot 3+)** ne sont pas encore implémentées.
+Les parties marquées **(lot 4)** ne sont pas encore implémentées.
 
 ## 0. Architecture cible (lots 1 à 4)
 
@@ -12,6 +12,7 @@ Les parties marquées **(lot 3+)** ne sont pas encore implémentées.
         src/discord_bot/ (adaptateurs discord.py)        src/gitlab/ (aiohttp, sans discord.py)
         cogs/general.py  /help /status /project          webhook.py   authentification, taille, JSON
         cogs/activity.py /events /stats /leaderboard
+        cogs/ai.py       /ask /summary /review
         cogs/admin.py    /setup /refresh /config         dispatcher.py dédup., file, historique
                          /announce /admin …              events.py    JSON → Notification
         embeds.py ◄── services/design.py (couleurs, icônes, horodatages, limites)
@@ -22,14 +23,15 @@ Les parties marquées **(lot 3+)** ne sont pas encore implémentées.
                                          │
                                  src/database/ (SQLite, migrations versionnées)
                                          │
-                       (lot 3) src/ai/ : fournisseurs interchangeables, désactivables
+                       src/ai/ : fournisseurs interchangeables (Claude, faux fournisseur), désactivables
+                       src/gitlab/api.py : API GitLab en lecture seule (diffs pour /review)
 ```
 
 | Lot | Contenu | État |
 |---|---|---|
 | 1 | Audit, design des embeds, messages permanents fiables, commandes de base | ✅ livré (version 0.3.0) |
 | 2 | Historique GitLab consultable, statistiques, leaderboard, tableau de bord permanent, alertes | ✅ livré (version 0.4.0) |
-| 3 | `src/ai/` multi-fournisseurs, `/ask` (recherche documentaire simple), `/summary`, `/review` | ⏳ |
+| 3 | `src/ai/` multi-fournisseurs, `/ask` (recherche documentaire simple), `/summary`, `/review` | ✅ livré (version 0.5.0) |
 | 4 | Fiabilité, sauvegardes SQLite, sécurité, Docker et déploiement Linux (La Banquise) | ⏳ |
 
 Principes ajoutés au lot 1 :
@@ -81,7 +83,8 @@ sae-project-bot/
 ├── content/messages/          Un fichier TOML par message permanent
 ├── data/                      Base SQLite (ignorée par Git)
 ├── logs/                      Journaux du bot (ignorés par Git)
-├── docs/                      Architecture, guide Windows, guide des webhooks GitLab
+├── docs/                      Architecture, guides (Windows, webhooks GitLab, historique, IA)
+├── knowledge/                 (lot 3) Notes de l'équipe consultées par /ask
 ├── src/
 │   ├── main.py                Point d'entrée : charge .env, vérifie la config, lance le bot
 │   ├── config.py              Lecture et validation du .env et des fichiers TOML
@@ -101,11 +104,14 @@ sae-project-bot/
 │   │   ├── history.py            Statistiques et classement calculés sur l'historique (lot 2)
 │   │   ├── dashboard.py          Contenu du tableau de bord de #gitlab-activite (lot 2)
 │   │   ├── alerts.py             Regroupement des erreurs et décision d'alerte (lot 2)
+│   │   ├── knowledge.py          Recherche des passages utiles pour /ask (lot 3)
+│   │   ├── ai_assistant.py       Consignes, quotas, masquage des secrets, journal des demandes (lot 3)
 │   │   └── text_limits.py        Respect des limites de taille de Discord
 │   ├── discord_bot/           Tout ce qui dépend de discord.py
 │   │   ├── bot.py             Client, synchronisation des commandes, événements
 │   │   ├── cogs/general.py    Commandes /help, /status, /health, /project (lot 1)
 │   │   ├── cogs/activity.py   Commandes /events, /stats, /leaderboard (lot 2)
+│   │   ├── cogs/ai.py         Commandes /ask, /summary, /review (lot 3)
 │   │   ├── alerts.py          Publication des alertes dans ALERTS_CHANNEL (lot 2)
 │   │   ├── cogs/admin.py      Commandes /setup, /refresh, /config, /announce, /admin …
 │   │   ├── gateway.py         Opérations Discord utilisées par les services
@@ -119,10 +125,15 @@ sae-project-bot/
 │   │   ├── dispatcher.py      Déduplication, file d'attente, envoi en tâche de fond
 │   │   ├── events.py          JSON GitLab → notification (push, MR, pipeline, déploiement)
 │   │   ├── rules.py           Lecture de config/gitlab.toml
+│   │   ├── api.py             (lot 3) API GitLab en lecture seule : MR et diffs
 │   │   ├── security.py        Comparaison du secret, nettoyage des textes et des URL
 │   │   ├── samples.py         Exemples de JSON GitLab (tests et démonstration)
 │   │   └── demo.py            python -m src.gitlab.demo : faux webhook pour tester
-│   └── ai/                    (lot 3) Interface commune des fournisseurs d'IA
+│   ├── ai/                    (lot 3) Sans dépendance à discord.py
+│   │   ├── base.py            Interface commune AIProvider, erreurs lisibles
+│   │   ├── anthropic_provider.py  Claude via le SDK officiel anthropic
+│   │   ├── fake.py            Faux fournisseur (tests, AI_PROVIDER=fake)
+│   │   └── factory.py         Choix du fournisseur d'après AI_PROVIDER
 └── tests/                     Tests pytest (aucun vrai token nécessaire)
 ```
 
@@ -262,13 +273,13 @@ Python **3.12** est recommandé ; les tests passent aussi sous 3.11 et 3.13.
 | **V5** | Tests complets, durcissement sécurité, documentation finale, préparation à l'usage quotidien (service Windows ou hébergement) | Revue de sécurité et checklist d'exploitation |
 
 Depuis octobre 2026, la suite du travail est organisée en **lots** (section 0) :
-les lots 1 et 2 sont livrés, les lots 3 et 4 reprennent et précisent les étapes V3 à V5.
+les lots 1 à 3 sont livrés, le lot 4 reprend et précisent les étapes V3 à V5.
 
 Chaque étape s'appuie sur la précédente sans la réécrire : de nouveaux modules
 (`src/gitlab/`, `src/ai/`), de nouvelles migrations SQLite ajoutées à la fin de la
 liste et de nouveaux cogs.
 
-## 6. Schéma de la base (version 5)
+## 6. Schéma de la base (version 6)
 
 | Table | Rôle |
 |---|---|
@@ -278,6 +289,7 @@ liste et de nouveaux cogs.
 | `gitlab_events` | (V2) clé de livraison GitLab, type, statut (`queued`, `sent`, `failed`, `skipped`), notification en JSON (migration 3), date ; (v4) empreinte anti-doublon `dedup_key` (index unique), action, branche, titre, lien, auteur, date de l'événement ; (v5) `source`, `event_at` (date UTC normalisée), identifiants GitLab du membre, de la MR / du pipeline / du déploiement et de l'auteur de la MR, nombre de commits, environnement, statut `recorded` ; conservée `HISTORY_RETENTION_DAYS` jours (365 par défaut) |
 | `admin_actions` | (v4) journal des actions d'administration : date, identifiant et nom du membre, action, cible, résultat |
 | `gitlab_users` | (v5) identifiant GitLab → dernier nom et pseudo reçus (affichage de `/leaderboard`) |
+| `ai_requests` | (v6) une ligne par demande à l'IA : date, membre, commande, modèle, tokens, résultat (jamais le texte) |
 | `bot_errors` | (v5) erreurs regroupées par empreinte : source, dernier message, première et dernière occurrence, nombre, date de la dernière alerte |
 
 Migrations : chaque migration est exécutée dans **une seule transaction** avec la

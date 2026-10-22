@@ -150,7 +150,9 @@ class AdminCog(commands.Cog):
             self._gitlab_config_line(),
             f"Historique conservé : {settings.history_retention_days} jours",
             f"Alertes d'erreurs : salon `{settings.alerts_channel}`" if settings.alerts_channel else "Alertes d'erreurs : désactivées",
-            "IA : non intégrée dans cette version",
+            self._ai_config_line(),
+            "API GitLab (lecture seule) : " + ("configurée ✅ (token jamais affiché)" if settings.gitlab_api_enabled
+                                               else (settings.gitlab_api_error or "non configurée (GITLAB_ACCESS_TOKEN, GITLAB_PROJECT_ID)")),
         ]
         await interaction.response.send_message(
             embed=config_embed(
@@ -311,6 +313,19 @@ class AdminCog(commands.Cog):
         return (
             f"Webhooks GitLab : secret défini ✅ (jamais affiché), écoute sur "
             f"`{settings.webhook_host}:{settings.webhook_port}`, {project}"
+        )
+
+    def _ai_config_line(self) -> str:
+        settings = self.bot.settings
+        if settings.ai_config_error:
+            return f"IA : configuration invalide, désactivée ({settings.ai_config_error})"
+        if not settings.ai_enabled:
+            return "IA : désactivée (AI_PROVIDER=none)"
+        model = self.bot.ai_provider.model if self.bot.ai_provider else "?"
+        key = "clé définie ✅ (jamais affichée)" if settings.ai_api_key else "sans clé"
+        return (
+            f"IA : `{settings.ai_provider}`, modèle `{model}`, {key}, "
+            f"{settings.ai_daily_limit} demandes/jour, {settings.ai_cooldown_seconds} s entre deux demandes d'un membre"
         )
 
     def _guild(self, interaction: discord.Interaction) -> discord.Guild:

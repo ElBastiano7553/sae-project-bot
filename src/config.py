@@ -33,6 +33,9 @@ MIN_WEBHOOK_SECRET_LENGTH = 16
 # Conservation de l'historique : jamais moins que la durée pendant laquelle GitLab peut renvoyer un événement.
 MIN_RETENTION_DAYS = 30
 DEFAULT_RETENTION_DAYS = 365
+AI_PROVIDERS = ("none", "anthropic", "fake")
+DEFAULT_AI_DAILY_LIMIT = 50
+DEFAULT_AI_COOLDOWN_SECONDS = 20
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
 SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY")
 
@@ -66,7 +69,25 @@ class Settings:
     webhook_port: int = 8080
     # Erreur dans les variables GITLAB_* / WEBHOOK_* : la V2 reste désactivée, la V1 démarre quand même.
     gitlab_config_error: str | None = None
-    ai_provider: str = "none"
+    ai_provider: str = "none"  # "none" si l'IA est désactivée ou mal configurée
+    ai_api_key: str = field(default="", repr=False)
+    ai_model: str | None = None
+    ai_daily_limit: int = DEFAULT_AI_DAILY_LIMIT  # demandes par jour, toute l'équipe
+    ai_cooldown_seconds: int = DEFAULT_AI_COOLDOWN_SECONDS  # délai entre deux demandes d'un membre
+    # Erreur dans les variables AI_* : l'IA reste désactivée, le reste du bot démarre.
+    ai_config_error: str | None = None
+    gitlab_base_url: str = "https://gitlab.com"
+    gitlab_access_token: str = field(default="", repr=False)
+    gitlab_api_error: str | None = None
+
+    @property
+    def ai_enabled(self) -> bool:
+        return self.ai_provider != "none"
+
+    @property
+    def gitlab_api_enabled(self) -> bool:
+        """API GitLab (lecture seule) : token et identifiant du projet nécessaires."""
+        return bool(self.gitlab_access_token and self.gitlab_project_id)
 
     @property
     def gitlab_webhooks_enabled(self) -> bool:
@@ -153,6 +174,13 @@ class Settings:
         if not webhook_secret:
             gitlab_errors = []  # V2 non demandée : les autres variables GitLab ne comptent pas
 
+        ai = _parse_ai(env)
+        gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
+        gitlab_api_error = None
+        if not gitlab_base_url.startswith("https://") or "@" in gitlab_base_url:
+            # Le token ne doit jamais partir en clair : l'API GitLab reste désactivée.
+            gitlab_api_error = f"GITLAB_BASE_URL doit être une adresse https:// sans identifiants (valeur actuelle : {gitlab_base_url!r})"
+
         if errors:
             raise ConfigError("Configuration invalide :\n- " + "\n- ".join(errors))
 
@@ -176,8 +204,39 @@ class Settings:
             gitlab_project_id=project_id,
             webhook_host=webhook_host,
             webhook_port=webhook_port,
-            ai_provider=env.get("AI_PROVIDER", "none").strip().lower() or "none",
+            **ai,
+            gitlab_base_url=gitlab_base_url,
+            gitlab_access_token="" if gitlab_api_error else env.get("GITLAB_ACCESS_TOKEN", "").strip(),
+            gitlab_api_error=gitlab_api_error,
         )
+
+
+def _parse_ai(env: Mapping[str, str]) -> dict:
+    """Réglages de l'IA. Une erreur désactive l'IA (``ai_config_error``) sans bloquer le démarrage."""
+    provider = env.get("AI_PROVIDER", "none").strip().lower() or "none"
+    key = env.get("AI_API_KEY", "").strip()
+    model = env.get("AI_MODEL", "").strip() or None
+    problems: list[str] = []
+    if provider not in AI_PROVIDERS:
+        problems.append(f"AI_PROVIDER doit valoir {', '.join(AI_PROVIDERS)} (valeur actuelle : {provider!r})")
+    elif provider == "anthropic" and not key:
+        problems.append("AI_API_KEY est vide alors que AI_PROVIDER=anthropic")
+    limits = {}
+    for name, var, default, minimum in (
+        ("ai_daily_limit", "AI_DAILY_LIMIT", DEFAULT_AI_DAILY_LIMIT, 1),
+        ("ai_cooldown_seconds", "AI_COOLDOWN_SECONDS", DEFAULT_AI_COOLDOWN_SECONDS, 0),
+    ):
+        raw = env.get(var, "").strip() or str(default)
+        if raw.isdigit() and int(raw) >= minimum:
+            limits[name] = int(raw)
+        else:
+            limits[name] = default
+            problems.append(f"{var} doit être un nombre entier ≥ {minimum} (valeur actuelle : {raw!r})")
+    if provider == "none":
+        problems = []  # IA non demandée : les autres variables AI_* ne comptent pas
+    if problems:
+        return {"ai_provider": "none", "ai_config_error": " ; ".join(problems), **limits}
+    return {"ai_provider": provider, "ai_api_key": key, "ai_model": model, **limits}
 
 
 def secret_values(env: Mapping[str, str] | None = None) -> list[str]:

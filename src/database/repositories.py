@@ -472,3 +472,45 @@ class BotErrorRepository:
         with self._conn:
             cursor = self._conn.execute("DELETE FROM bot_errors WHERE last_at < datetime('now', ?)", (f"-{int(days)} days",))
         return cursor.rowcount
+
+
+@dataclass(frozen=True)
+class AIUsage:
+    requests: int
+    input_tokens: int
+    output_tokens: int
+
+
+class AIRequestRepository:
+    """Demandes faites à l'IA : qui, quelle commande, quel modèle, combien de tokens (jamais le texte)."""
+
+    def __init__(self, db: Database) -> None:
+        self._conn = db.conn
+
+    def record(self, user_id: int, command: str, model: str | None, status: str, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO ai_requests (user_id, command, model, input_tokens, output_tokens, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (int(user_id), command[:30], (model or "")[:100] or None, int(input_tokens), int(output_tokens), status[:20]),
+            )
+
+    def usage_since(self, since: str, user_id: int | None = None) -> AIUsage:
+        where, params = "at >= ?", [since]
+        if user_id is not None:
+            where += " AND user_id = ?"
+            params.append(int(user_id))
+        row = self._conn.execute(
+            f"SELECT COUNT(*) AS n, COALESCE(SUM(input_tokens), 0) AS i, COALESCE(SUM(output_tokens), 0) AS o "
+            f"FROM ai_requests WHERE {where}",
+            params,
+        ).fetchone()
+        return AIUsage(int(row["n"]), int(row["i"]), int(row["o"]))
+
+    def last_request_at(self, user_id: int) -> str | None:
+        row = self._conn.execute("SELECT MAX(at) AS last FROM ai_requests WHERE user_id = ?", (int(user_id),)).fetchone()
+        return row["last"] if row else None
+
+    def purge_older_than(self, days: int) -> int:
+        with self._conn:
+            cursor = self._conn.execute("DELETE FROM ai_requests WHERE at < datetime('now', ?)", (f"-{int(days)} days",))
+        return cursor.rowcount

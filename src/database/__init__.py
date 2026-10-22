@@ -4,6 +4,8 @@ from src.database.connection import Database
 from src.database.repositories import (
     AdminAction,
     AdminActionRepository,
+    AIRequestRepository,
+    AIUsage,
     BotError,
     BotErrorRepository,
     ChannelBindingRepository,
@@ -18,6 +20,8 @@ from src.database.repositories import (
 __all__ = [
     "AdminAction",
     "AdminActionRepository",
+    "AIRequestRepository",
+    "AIUsage",
     "BotError",
     "BotErrorRepository",
     "ChannelBindingRepository",

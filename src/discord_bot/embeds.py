@@ -17,6 +17,7 @@ from src.gitlab.events import Notification
 from src.services import design
 from src.services import text_limits as limits
 from src.services.content import MessagePayload
+from src.services.ai_assistant import AssistantAnswer
 from src.services.alerts import Alert
 from src.services.design import ICONS, Tone
 from src.services.diagnostics import ChannelDiagnostic
@@ -548,4 +549,18 @@ def alert_embed(alert: Alert) -> discord.Embed:
     add_field(embed, "Total enregistré", design.plural(alert.error.count, "fois", "fois"), inline=True)
     add_field(embed, "Message", design.escape_markdown(alert.error.message))
     add_field(embed, "Que faire ?", "Consulter `logs/bot.log` sur le serveur et `/status`. Aucune nouvelle alerte pour cette erreur pendant 1 heure.")
+    return fit_embed(embed)
+
+
+def ai_answer_embed(answer: AssistantAnswer, *, title: str, subject: str = "", url: str | None = None) -> discord.Embed:
+    """Réponse de l'IA : texte, sources utilisées, précisions, et mention claire de son origine."""
+    embed = make_embed(f"🤖 {title}", answer.text, url=url)
+    if subject:
+        embed.description = limits.truncate(f"> {design.escape_markdown(subject)}\n\n{answer.text}", limits.EMBED_DESCRIPTION)
+    if answer.sources:
+        add_field(embed, "📚 Sources transmises", "\n".join(design.escape_markdown(s) for s in answer.sources))
+    if answer.notes:
+        add_field(embed, "ℹ️ À savoir", "\n".join(f"• {n}" for n in answer.notes))
+    origin = f"réponse générée par IA ({answer.model}), à vérifier" if answer.model else "aucune IA appelée"
+    embed.set_footer(text=design.footer(origin))
     return fit_embed(embed)

@@ -119,6 +119,22 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX bot_errors_last_at ON bot_errors (last_at);
     """,
+    # v6 (lot 3) : journal des demandes à l'IA (quotas, suivi des coûts, journal IA du SAE).
+    # Le texte des questions et des réponses n'est pas conservé.
+    """
+    CREATE TABLE ai_requests (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        at            TEXT NOT NULL DEFAULT (datetime('now')),
+        user_id       INTEGER NOT NULL,
+        command       TEXT NOT NULL,
+        model         TEXT,
+        input_tokens  INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        status        TEXT NOT NULL
+    );
+    CREATE INDEX ai_requests_at ON ai_requests (at);
+    CREATE INDEX ai_requests_user ON ai_requests (user_id, at);
+    """,
 ]
 
 

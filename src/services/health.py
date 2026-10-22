@@ -54,6 +54,7 @@ def build_health_checks(
     gitlab_address: str | None = None,
     alerts: AlertsSummary | None = None,
     history: HistorySummary | None = None,
+    ai: AISummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -70,19 +71,37 @@ def build_health_checks(
         _structure_check(structure),
         _messages_check(setup_confirmed, messages),
         _gitlab_check(gitlab_enabled, gitlab_listening, gitlab_error, gitlab_last_event_at, gitlab_address),
-        HealthCheck(
-            "IA générative",
-            HealthStatus.DISABLED,
-            "désactivée (AI_PROVIDER=none)"
-            if ai_provider == "none"
-            else f"non intégrée dans cette version (AI_PROVIDER={ai_provider} ignoré)",
-        ),
+        _ai_check(ai or AISummary(provider=ai_provider)),
     ]
     if history is not None:
         checks.append(_history_check(history))
     if alerts is not None:
         checks.append(_alerts_check(alerts))
     return checks
+
+
+@dataclass(frozen=True)
+class AISummary:
+    provider: str  # "none", "anthropic", "fake"
+    model: str | None = None
+    config_error: str | None = None
+    used_today: int = 0
+    daily_limit: int = 0
+    gitlab_api: bool = False  # /review possible
+
+
+def _ai_check(summary: AISummary) -> HealthCheck:
+    name = "IA générative"
+    if summary.config_error:
+        return HealthCheck(name, HealthStatus.WARNING, f"désactivée, configuration invalide : {summary.config_error}")
+    if summary.provider == "none":
+        return HealthCheck(name, HealthStatus.DISABLED, "désactivée (AI_PROVIDER=none)")
+    usage = f"{summary.used_today}/{summary.daily_limit} demandes aujourd'hui"
+    review = "" if summary.gitlab_api else " ; /review indisponible (API GitLab non configurée)"
+    if summary.provider == "fake":
+        return HealthCheck(name, HealthStatus.WARNING, f"faux fournisseur de test (AI_PROVIDER=fake) : aucune vraie IA, {usage}{review}")
+    # La clé n'est pas testée ici : un appel coûterait une demande. Une clé refusée apparaît dans « Dernière erreur ».
+    return HealthCheck(name, HealthStatus.OK, f"Claude ({summary.model or 'modèle par défaut'}), {usage}{review}")
 
 
 @dataclass(frozen=True)
