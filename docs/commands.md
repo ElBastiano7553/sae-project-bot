@@ -17,7 +17,7 @@ protégées deux fois :
 
 | Commande | Effet |
 |---|---|
-| `/help` | Aide par catégorie, avec exemples. Les commandes d'administration n'y figurent que pour les admins du bot. Un test vérifie que l'aide correspond exactement aux commandes enregistrées. |
+| `/help [section]` | Centre d'aide en 6 pages (Accueil, Réunions, Commandes, Organisation, Administration, Dépannage) avec menu de sections, boutons Précédent / Accueil / Suivant et indicateur de page. La page « Commandes » est générée à partir des commandes enregistrées dans Discord. Les commandes et sections d'administration n'apparaissent que pour les admins du bot. Les boutons ne servent qu'à la personne qui a ouvert l'aide et disparaissent après 10 minutes. |
 | `/status` | État mesuré à l'instant : connexion Discord (latence), base SQLite (version du schéma), serveur Discord et salons, messages permanents (publiés, en erreur, liens à compléter), webhooks GitLab (écoute locale ; l'accès depuis Internet n'est **pas** vérifié), IA (fournisseur, modèle, demandes du jour ; la clé n'est pas testée pour ne pas consommer de demande), historique, alertes, dernière erreur (une ligne, sans trace d'appel ni secret), version et durée de fonctionnement. Répondre à `/status` ne prouve pas que le bot est disponible en continu. |
 | `/health` | Ancien nom de `/status`, conservé pour compatibilité. |
 | `/project` | Liens configurés (et nombre de liens à compléter), branche principale d'après le dernier webhook reçu, dernier pipeline sur cette branche, dernières merge requests, derniers pipelines et derniers pushs **reçus par le bot**. Aucun statut global n'est calculé. |
@@ -52,6 +52,7 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 
 | Commande | Qui | Effet |
 |---|---|---|
+| `/reunion help [sujet]` | tous | Aide des réunions en 6 pages : créer, participer, animer, décisions et réserves, terminer, qui peut faire quoi. |
 | `/reunion creer titre [objectifs] [etapes] [responsable] [participants] [duree] [description]` | tous | Crée la réunion et publie son panneau dans le salon courant. Étapes séparées par « ; », participants mentionnés avec `@`. |
 | `/reunion voir [reunion] [publier]` | tous ; `publier` : responsable ou admin | Affiche la réunion ; `publier:True` déplace le panneau dans ce salon (nouveau panneau publié avant la suppression de l'ancien). |
 | `/reunion liste [statut]` | tous | Réunions prévues ou en cours, terminées, annulées ou toutes. |
@@ -70,6 +71,7 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 
 | Commande | Effet | Confirmation |
 |---|---|---|
+| `/refonte [facultatifs] [roles]` | Analyse le serveur, prépare un plan (créer, renommer, déplacer, associer), l'affiche page par page puis l'applique. **Ne supprime jamais rien.** Sauvegarde la base avant, écrit un journal après, met à jour les salons associés par identifiant. `facultatifs:True` crée aussi les salons facultatifs ; `roles:True` crée les rôles d'équipe (sans permission). Exige en plus que l'admin ait lui-même « Gérer les salons » (et « Gérer les rôles » pour `roles`). Guide : [refonte-et-aide.md](refonte-et-aide.md). | Analyse → aperçu → **Appliquer la refonte** → **Confirmer l'application** (10 min) ; le plan est recalculé et comparé avant d'appliquer |
 | `/setup` | Compare `config/server.toml` au serveur, puis enregistre les salons reconnus et publie ou met à jour les messages permanents. Ne crée ni ne supprime aucun salon. | Prévisualisation + bouton **Confirmer** (2 min) |
 | `/refresh [message]` | Met à jour les messages permanents **sur place** (même lien, réactions conservées) et recrée ceux qui ont été supprimés. `message` limite l'actualisation à un seul message. | Non (aucune perte possible) |
 | `/config` | Réglages (sans aucun secret), salons associés, liens vers les messages gérés. | — |
@@ -84,11 +86,17 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 
 Le bot n'a **pas** besoin de la permission Administrateur ni d'aucun intent privilégié.
 
+Noms des salons : avant / après `/refonte` (par exemple `#decisions-et-comptes-rendus` devient `#décisions`,
+et les comptes rendus vont dans le nouveau `#comptes-rendus`). Le bot les retrouve par identifiant.
+
+`/refonte` demande en plus **Gérer les salons** (et **Gérer les rôles** si `roles:True`) sur le serveur,
+et un rôle du bot placé au-dessus des rôles qu'il crée.
+
 | Salons | Permissions |
 |---|---|
 | Salons des messages permanents (`#bienvenue`, `#annonces`, `#planning-et-deadlines`, `#decisions-et-comptes-rendus`, `#documentation-et-preuves`) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages, Épingler des messages (si `PIN_PERMANENT_MESSAGES=true`) |
 | Salons des notifications GitLab (`#gitlab-activite`, `#builds-et-tests`) | Voir le salon, Envoyer des messages, Intégrer des liens (et Voir les anciens messages, Épingler pour le tableau de bord de `#gitlab-activite`) |
 | Salon des alertes (`ALERTS_CHANNEL`, facultatif) | Voir le salon, Envoyer des messages, Intégrer des liens |
-| Salons où sont créées les réunions, et `#decisions-et-comptes-rendus` (comptes rendus) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
+| Salons où sont créées les réunions, et `#comptes-rendus` (ou, avant la refonte, `#decisions-et-comptes-rendus`) pour les comptes rendus | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
 
 `/admin diagnostic` indique, salon par salon, les permissions qui manquent.

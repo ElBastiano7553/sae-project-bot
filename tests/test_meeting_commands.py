@@ -400,12 +400,26 @@ def test_report_embeds_keep_mentions_intact(db):
     assert f"<@{LEADER_ID}>" in pages[0].description  # pas d'échappement qui casserait la mention
 
 
-def test_help_keeps_every_category_within_discord_limits():
-    from src.discord_bot.embeds import help_embed
-    from src.services.help import CATEGORIES, entries_by_category
+async def test_reunion_help_is_registered_and_paginated(env):
+    bot, cog, channels = env
+    interaction = FakeInteraction(bot, MEMBER, channels[CHANNEL_ID])
+    await cog.aide.callback(cog, interaction)
+    sent = interaction.response.sent[0]
+    assert sent["ephemeral"]
+    assert sent["embed"].title.startswith("Aide des réunions · Créer une réunion")
+    assert "/reunion creer titre:" in text_of(sent["embed"])
+    assert all(len(page.embed) <= limits.EMBED_TOTAL for page in sent["view"].pages)
 
-    for admin in (False, True):
-        embed = help_embed(entries_by_category(admin), show_admin_note=admin)
-        names = {field.name.removesuffix(" (suite)") for field in embed.fields}
-        expected = {label for key, label in CATEGORIES.items() if admin or key != "administration"}
-        assert names == expected and len(embed) <= limits.EMBED_TOTAL
+
+async def test_report_prefers_the_minutes_channel_after_redesign(env):
+    bot, cog, channels = env
+    channels[300] = FakeChannel(300)
+    bot.bindings_repo.replace_all({"decisions": DECISIONS_CHANNEL_ID, "comptes_rendus": 300})
+    await create(bot, cog, channels)
+    meeting = bot.meetings.repo.list()[0]
+    leader = Actor(LEADER_ID, "Alice")
+    bot.meetings.start(meeting.id, leader)
+    bot.meetings.finish(meeting.id, leader)
+    url, problem = await cog.publish_report(bot.meetings.get(meeting.id))
+    assert problem is None and "/300/" in url
+    assert channels[300].messages and not channels[DECISIONS_CHANNEL_ID].messages

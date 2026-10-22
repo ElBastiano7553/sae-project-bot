@@ -1,8 +1,7 @@
 # Message permanent du salon #annonces : règles de fonctionnement de l'équipe.
 
 channel = "annonces"
-title = "📜 Règles de fonctionnement de l'équipe"
-color = "#ED4245"
+title = "Règles de fonctionnement de l'équipe"
 description = """
 Ces règles s'appliquent à tous les membres. Elles nous évitent les oublis, les conflits de code et les mauvaises surprises lors des revues.
 """
@@ -21,7 +20,7 @@ value = "Aucun envoi direct sur la branche principale : toute modification est r
 
 [[fields]]
 name = "4. Les décisions techniques sont documentées"
-value = "Les décisions importantes sont résumées dans #decisions-et-comptes-rendus."
+value = "Les décisions importantes sont résumées dans {{#decisions}} ; les comptes rendus de réunion sont publiés dans {{#comptes_rendus}}."
 
 [[fields]]
 name = "5. Les propositions de l'IA sont vérifiées"

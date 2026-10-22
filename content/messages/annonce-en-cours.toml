@@ -5,7 +5,6 @@
 
 channel = "annonces"
 title = "📣 Annonce en cours"
-color = "#E67E22"
 dynamic = "announcement"
 description = """
 Aucune annonce en cours pour le moment.

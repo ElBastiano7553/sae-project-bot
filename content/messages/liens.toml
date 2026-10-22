@@ -4,8 +4,7 @@
 # Ajouter un lien puis lancer /refresh modifie CE message (aucune nouvelle publication).
 
 channel = "bienvenue"
-title = "🔗 Liens utiles du projet"
-color = "#3498DB"
+title = "Liens utiles du projet"
 dynamic = "links"
 description = """
 Les liens de référence de l'équipe. Ils sont tenus à jour par les administrateurs du bot.

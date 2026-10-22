@@ -12,6 +12,7 @@ from src.config import Settings
 from src.database.connection import MIGRATIONS
 from src.discord_bot import bot as bot_module
 from src.discord_bot.bot import EXTENSIONS, SaeBot
+from src.services import design
 from src.services.content import Announcement
 
 GUILD_ID = 42
@@ -58,7 +59,9 @@ class FakeGuild:
     id = GUILD_ID
     categories: list = []
     channels: list = []
+    roles: list = []
     me = None
+    default_role = None
 
     def get_channel(self, channel_id):
         return None
@@ -219,7 +222,7 @@ async def test_error_handler_never_shows_internal_details(bot):
     await bot.tree.on_error(interaction, error)
     embed = interaction.response.sent[0]["embed"]
     assert "chemin secret" not in embed_text(embed)
-    assert embed.color.value == 0xE74C3C
+    assert embed.color.value == design.Color.FAILURE
 
 
 async def test_error_handler_explains_missing_admin_rights(bot):

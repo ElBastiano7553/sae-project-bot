@@ -14,7 +14,7 @@ def test_tone_colors_follow_the_agreed_palette():
 
 
 def test_footer_is_branded_and_bounded():
-    assert design.footer("a", "", "b") == "SAE Project Bot · a · b"
+    assert design.footer("a", "", "b") == "Samae · a · b"
     assert len(design.footer("x" * 5000)) <= 2048
 
 

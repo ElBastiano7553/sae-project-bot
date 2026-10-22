@@ -7,7 +7,7 @@ from src.config import Settings
 from src.discord_bot.bot import EXTENSIONS, SaeBot
 from src.services.help import HELP_ENTRIES
 
-ADMIN_COMMANDS = {"setup", "refresh", "config", "announce", "admin"}
+ADMIN_COMMANDS = {"setup", "refresh", "config", "announce", "admin", "refonte"}
 PUBLIC_COMMANDS = {"help", "status", "health", "project", "events", "stats", "leaderboard", "ask", "summary", "review", "reunion"}
 
 

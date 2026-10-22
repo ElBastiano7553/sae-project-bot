@@ -15,10 +15,10 @@ import re
 import discord
 
 from src.database.meetings import MeetingDetail
-from src.discord_bot.embeds import add_field, fit_embed, make_embed
+from src.discord_bot.embeds import add_field, fit_embed, make_embed, success_embed
 from src.services import design
 from src.services import text_limits as limits
-from src.services.design import Color, ICONS, Tone
+from src.services.design import Color, Tone
 from src.services.meetings import (
     CANCELLED,
     DECISION,
@@ -31,11 +31,12 @@ from src.services.meetings import (
 
 log = logging.getLogger(__name__)
 
-STATUS_STYLE = {
-    PLANNED: ("🗓️", Color.SAMAE_VIOLET),
-    RUNNING: ("🔴", Color.SAMAE_CRIMSON),
-    FINISHED: ("✅", Color.SAMAE_NIGHT),
-    CANCELLED: ("⛔", Color.NEUTRAL),
+# Couleur de la barre de l'embed selon l'état de la réunion (palette de Samae, services.design).
+STATUS_COLORS = {
+    PLANNED: Color.INFO,
+    RUNNING: Color.LIVE,
+    FINISHED: Color.SUCCESS,
+    CANCELLED: Color.NEUTRAL,
 }
 STEP_ICONS = {"done": "✅", "current": "▶️", "pending": "▫️"}
 # Éléments récents affichés sur le panneau (le compte rendu, lui, contient tout).
@@ -44,15 +45,15 @@ REPORT_PAGE_SIZE = 3800
 
 BUTTON_TEMPLATE = r"samae:mtg:(?P<id>\d+):(?P<action>[a-z]+):(?P<rev>\d+)"
 BUTTONS = {
-    # action : (libellé, emoji, style)
-    "join": ("Rejoindre", "➕", discord.ButtonStyle.secondary),
-    "leave": ("Quitter", "➖", discord.ButtonStyle.secondary),
-    "report": ("Compte rendu", "📝", discord.ButtonStyle.secondary),
-    "start": ("Démarrer", "▶️", discord.ButtonStyle.success),
-    "cancel": ("Annuler", "✖️", discord.ButtonStyle.danger),
-    "prev": ("Étape précédente", "⏮️", discord.ButtonStyle.secondary),
-    "next": ("Étape suivante", "⏭️", discord.ButtonStyle.primary),
-    "finish": ("Terminer", "🏁", discord.ButtonStyle.danger),
+    # action : (libellé, style) ; libellés explicites, sans emoji
+    "join": ("Rejoindre", discord.ButtonStyle.secondary),
+    "leave": ("Quitter", discord.ButtonStyle.secondary),
+    "report": ("Compte rendu", discord.ButtonStyle.secondary),
+    "start": ("Démarrer", discord.ButtonStyle.success),
+    "cancel": ("Annuler la réunion", discord.ButtonStyle.danger),
+    "prev": ("Étape précédente", discord.ButtonStyle.secondary),
+    "next": ("Étape suivante", discord.ButtonStyle.primary),
+    "finish": ("Terminer", discord.ButtonStyle.danger),
 }
 
 
@@ -77,16 +78,16 @@ def panel_embed(detail: MeetingDetail, *, now: dt.datetime | None = None, report
     """Panneau récapitulatif d'une réunion, toujours dans les limites de Discord."""
     now = now or dt.datetime.now(dt.UTC)
     m = detail.meeting
-    icon, color = STATUS_STYLE[m.status]
+    color = STATUS_COLORS[m.status]
     embed = make_embed(
-        f"{ICONS['meeting']} Réunion {meeting_label(m)}",
+        f"Réunion {meeting_label(m)}",
         _text(m.description) if m.description else None,
         footer=design.footer(f"réunion #{m.id}", f"révision {m.revision}"),
         timestamp=now,
     )
     embed.color = discord.Color(color)
 
-    status = f"{icon} {STATUS_LABELS[m.status].capitalize()}"
+    status = STATUS_LABELS[m.status].capitalize()
     if m.status == RUNNING and m.started_at:
         status += f" · depuis {design.relative_time(m.started_at)}"
     elif m.status in (FINISHED, CANCELLED) and m.ended_at:
@@ -99,12 +100,12 @@ def panel_embed(detail: MeetingDetail, *, now: dt.datetime | None = None, report
         if m.planned_minutes:
             duration += f" / {m.planned_minutes} min prévues"
             if elapsed is not None and elapsed > m.planned_minutes:
-                duration += " ⚠️"
+                duration += " (dépassée)"
         add_field(embed, "Durée", duration, inline=True)
 
     add_field(embed, f"Participants ({len(detail.participants)})", ", ".join(_person(p.user_id) for p in detail.participants))
     if m.objectives:
-        add_field(embed, "🎯 Objectifs", _text(m.objectives))
+        add_field(embed, "Objectifs", _text(m.objectives))
 
     done = sum(1 for s in detail.steps if s.status == "done")
     steps = [
@@ -113,24 +114,24 @@ def panel_embed(detail: MeetingDetail, *, now: dt.datetime | None = None, report
     ]
     add_field(
         embed,
-        f"📋 Ordre du jour ({done}/{len(detail.steps)})",
+        f"Ordre du jour ({done}/{len(detail.steps)})",
         limits.chunk_lines(steps, limits.FIELD_VALUE)[0] if steps else "*Aucun point : `/reunion point` pour en ajouter.*",
     )
 
     decisions = [n for n in detail.notes if n.kind == DECISION]
     reserves = [n for n in detail.notes if n.kind != DECISION]
     if decisions:
-        add_field(embed, f"⚖️ Décisions ({len(decisions)})", _recent([_text(n.content) for n in decisions]))
+        add_field(embed, f"Décisions officielles ({len(decisions)})", _recent([_text(n.content) for n in decisions]))
     if reserves:
         add_field(
             embed,
-            f"⚠️ Réserves et désaccords ({len(reserves)})",
+            f"Réserves et désaccords ({len(reserves)})",
             _recent([f"{'Réserve' if n.kind == 'reserve' else 'Désaccord'} de {_person(n.author_id)} : {_text(n.content)}" for n in reserves]),
         )
     if detail.actions:
         add_field(
             embed,
-            f"📌 Actions ({len(detail.actions)})",
+            f"Actions ({len(detail.actions)})",
             _recent(
                 [
                     f"{_text(a.description)} → {_person(a.assignee_id)}" + (f" · {a.due_date}" if a.due_date else "")
@@ -139,7 +140,7 @@ def panel_embed(detail: MeetingDetail, *, now: dt.datetime | None = None, report
             ),
         )
     if report_url:
-        add_field(embed, f"{ICONS['report']} Compte rendu", f"[Lire le compte rendu]({report_url})")
+        add_field(embed, "Compte rendu", f"[Lire le compte rendu]({report_url})")
     return fit_embed(embed)
 
 
@@ -154,7 +155,7 @@ def _recent(lines: list[str]) -> str:
 
 def report_embeds(report: MeetingReport) -> list[discord.Embed]:
     """Compte rendu découpé en pages qui respectent les limites de Discord."""
-    icon, color = STATUS_STYLE.get(report.status, ("📝", Color.SAMAE_NIGHT))
+    color = STATUS_COLORS.get(report.status, Color.INFO)
     lines: list[str] = []
     for section in report.sections:
         lines.append(f"**{section.title}**")
@@ -170,8 +171,8 @@ def report_embeds(report: MeetingReport) -> list[discord.Embed]:
     kind = "compte rendu final" if report.final else "aperçu provisoire (réunion non terminée)"
     embeds = []
     for number, page in enumerate(pages, start=1):
-        title = f"{ICONS['report']} Compte rendu · #{report.meeting_id} {_text(report.title)}"
-        header = f"{icon} {date}\n\n" if number == 1 else ""
+        title = f"Compte rendu · #{report.meeting_id} {_text(report.title)}"
+        header = f"{date}\n\n" if number == 1 else ""
         embed = make_embed(
             title,
             header + page,
@@ -186,16 +187,16 @@ def progress_embed(detail: MeetingDetail, *, now: dt.datetime | None = None) -> 
     """Progression : étapes avec leurs horaires, temps écoulé par rapport à la durée prévue."""
     now = now or dt.datetime.now(dt.UTC)
     m = detail.meeting
-    icon, color = STATUS_STYLE[m.status]
+    color = STATUS_COLORS[m.status]
     done = sum(1 for s in detail.steps if s.status == "done")
     total = len(detail.steps)
-    embed = make_embed(f"📊 Progression · {meeting_label(m)}", footer=design.footer(f"réunion #{m.id}"))
+    embed = make_embed(f"Progression · {meeting_label(m)}", footer=design.footer(f"réunion #{m.id}"))
     embed.color = discord.Color(color)
     filled = round(10 * done / total) if total else 0
-    summary = [f"{icon} {STATUS_LABELS[m.status].capitalize()}", f"`{'▰' * filled}{'▱' * (10 - filled)}` {done}/{total} étapes traitées"]
+    summary = [STATUS_LABELS[m.status].capitalize(), f"`{'▰' * filled}{'▱' * (10 - filled)}` {done}/{total} étapes traitées"]
     elapsed = _elapsed_minutes(m.started_at, now) if m.status == RUNNING else None
     if elapsed is not None:
-        summary.append(f"⏱️ {elapsed} min écoulées" + (f" sur {m.planned_minutes} prévues" if m.planned_minutes else ""))
+        summary.append(f"{elapsed} min écoulées" + (f" sur {m.planned_minutes} prévues" if m.planned_minutes else ""))
         if m.planned_minutes and total and done < total:
             summary.append(f"≈ {max(m.planned_minutes - elapsed, 0) // max(total - done, 1)} min par étape restante")
     embed.description = "\n".join(summary)
@@ -213,19 +214,14 @@ def progress_embed(detail: MeetingDetail, *, now: dt.datetime | None = None) -> 
 
 
 def meeting_list_embed(meetings, title: str) -> discord.Embed:
-    embed = make_embed(f"{ICONS['meeting']} {title}", tone=Tone.INFO)
-    embed.color = discord.Color(Color.SAMAE_VIOLET)
+    embed = make_embed(title, tone=Tone.INFO)
     lines = [
-        f"{STATUS_STYLE[m.status][0]} **#{m.id}** {_text(m.title)} · {_person(m.leader_id)} · {STATUS_LABELS[m.status]}"
+        f"**#{m.id}** {_text(m.title)} · {_person(m.leader_id)} · {STATUS_LABELS[m.status]}"
         f" · {design.relative_time(m.started_at or m.created_at)}"
         for m in meetings
     ]
     embed.description = limits.chunk_lines(lines, limits.EMBED_DESCRIPTION)[0] if lines else "*Aucune réunion.*"
     return fit_embed(embed)
-
-
-def success_embed(message: str, title: str = "C'est noté") -> discord.Embed:
-    return make_embed(f"✅ {title}", message, tone=Tone.SUCCESS)
 
 
 # --- Boutons -------------------------------------------------------------------
@@ -235,11 +231,10 @@ class MeetingButton(discord.ui.DynamicItem[discord.ui.Button], template=BUTTON_T
     """Bouton persistant du panneau. ``revision`` : état de la réunion quand le panneau a été dessiné."""
 
     def __init__(self, meeting_id: int, action: str, revision: int, *, disabled: bool = False, row: int | None = None) -> None:
-        label, emoji, style = BUTTONS[action]
+        label, style = BUTTONS[action]
         super().__init__(
             discord.ui.Button(
                 label=label,
-                emoji=emoji,
                 style=style,
                 disabled=disabled,
                 custom_id=f"samae:mtg:{meeting_id}:{action}:{revision}",
@@ -304,13 +299,13 @@ class PagesView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return interaction.user.id == self._author_id
 
-    @discord.ui.button(label="Précédente", emoji="◀️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Précédente", style=discord.ButtonStyle.secondary)
     async def previous(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.index = max(self.index - 1, 0)
         self._sync()
         await interaction.response.edit_message(embed=self.pages[self.index], view=self)
 
-    @discord.ui.button(label="Suivante", emoji="▶️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Suivante", style=discord.ButtonStyle.secondary)
     async def following(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.index = min(self.index + 1, len(self.pages) - 1)
         self._sync()

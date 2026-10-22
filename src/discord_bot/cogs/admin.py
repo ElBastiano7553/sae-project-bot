@@ -101,13 +101,13 @@ class AdminCog(commands.Cog):
             results = await self.bot.build_message_service().sync(report.bindings)
             self.bot.mark_setup_confirmed()
         except ConfigError as exc:
-            await interaction.edit_original_response(content=f"⚠️ Problème de configuration :\n{exc}", embeds=[])
+            await interaction.edit_original_response(content=f"Problème de configuration :\n{exc}", embeds=[])
             return
         log.info("/setup confirmé par %s", interaction.user)
         self.bot.record_admin_action(interaction, "setup", "", f"{len(report.bindings)} salons associés")
         await interaction.edit_original_response(
-            content="✅ Configuration appliquée.",
-            embeds=[structure_embed(report, "🔎 Salons enregistrés"), sync_embed(results, "📝 Messages permanents")],
+            content="Configuration appliquée.",
+            embeds=[structure_embed(report, "Salons enregistrés"), sync_embed(results, "Messages permanents")],
         )
 
     @app_commands.command(name="refresh", description="Mettre à jour les messages permanents sur place (recrée ceux qui ont été supprimés)")
@@ -204,7 +204,7 @@ class AdminCog(commands.Cog):
             results = await self.bot.build_message_service().sync(report.bindings, keys=[ANNOUNCEMENT_MESSAGE_KEY])
             self.bot.record_admin_action(confirm_interaction, "announce", announcement.title[:100], results[0].action)
             await confirm_interaction.edit_original_response(
-                content="✅ Annonce enregistrée.", embeds=[sync_embed(results, "📣 Annonce en cours")]
+                content="Annonce enregistrée.", embeds=[sync_embed(results, "📣 Annonce en cours")]
             )
 
         view = ConfirmView(interaction.user.id, confirm, command="/announce")
@@ -248,19 +248,19 @@ class AdminCog(commands.Cog):
         report = self.bot.resolve_structure(self._guild(interaction))
         preview = await self.bot.build_message_service().rebuild(message, report.bindings, apply=False)
         if preview.action is not SyncAction.REBUILD:
-            await interaction.response.send_message(embed=sync_embed([preview], "🧱 Reconstruction impossible"), ephemeral=True)
+            await interaction.response.send_message(embed=sync_embed([preview], "Reconstruction impossible"), ephemeral=True)
             return
 
         async def confirm(confirm_interaction: discord.Interaction) -> None:
             fresh = self.bot.resolve_structure(self._guild(confirm_interaction))
             result = await self.bot.build_message_service().rebuild(message, fresh.bindings)
             self.bot.record_admin_action(confirm_interaction, "rebuild", message, result.action)
-            await confirm_interaction.edit_original_response(content=None, embeds=[sync_embed([result], "🧱 Reconstruction")])
+            await confirm_interaction.edit_original_response(content=None, embeds=[sync_embed([result], "Reconstruction")])
 
         view = ConfirmView(interaction.user.id, confirm, command="/admin rebuild")
         view.original = interaction
         warning = make_embed(
-            f"🧱 Reconstruire « {message} » ?",
+            f"Reconstruire « {message} » ?",
             "Un **nouveau** message sera publié, puis l'ancien message du bot sera **supprimé** : "
             "son lien Discord et ses réactions seront perdus.\n\n"
             "Pour une simple mise à jour du texte, utilisez plutôt `/refresh`, qui modifie le message sur place.",

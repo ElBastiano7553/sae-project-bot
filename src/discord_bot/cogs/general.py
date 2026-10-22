@@ -12,16 +12,18 @@ from discord.ext import commands
 from src import __version__
 from src.config import ConfigError, load_link_catalog
 from src.discord_bot.bot import SaeBot
-from src.discord_bot.embeds import health_embed, help_embed, project_embed
+from src.discord_bot.embeds import health_embed, project_embed
+from src.discord_bot.help_ui import HelpView, collect_commands, render_pages
 from src.discord_bot.permissions import is_bot_admin
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
 from src.services.backup import list_backups
 from src.services.health import AISummary, AlertsSummary, BackupSummary, HistorySummary, MessagesSummary, build_health_checks
-from src.services.help import entries_by_category
+from src.services.help import GUIDE_PAGES
 
 log = logging.getLogger(__name__)
 
 RECENT_EVENTS = 5
+HELP_SECTIONS = [app_commands.Choice(name=page.title, value=page.key) for page in GUIDE_PAGES]
 
 
 def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.Embed:
@@ -105,12 +107,19 @@ class GeneralCog(commands.Cog):
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="help", description="Aide : commandes disponibles, par catégorie, avec exemples")
-    async def help(self, interaction: discord.Interaction) -> None:
+    @app_commands.command(name="help", description="Centre d'aide : présentation, réunions, commandes, organisation, dépannage")
+    @app_commands.describe(section="Ouvrir directement une section (Accueil par défaut)")
+    @app_commands.choices(section=HELP_SECTIONS)
+    async def help(self, interaction: discord.Interaction, section: app_commands.Choice[str] | None = None) -> None:
         member = interaction.user
+        # Les pages d'administration détaillées ne sont montrées qu'aux administrateurs du bot.
         admin = isinstance(member, discord.Member) and is_bot_admin(member, self.bot.settings.admin_role_name)
-        embed = help_embed(entries_by_category(include_admin=admin), show_admin_note=admin)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        pages = render_pages(GUIDE_PAGES, commands=collect_commands(self.bot.tree), admin=admin, heading="Aide de Samae")
+        view = HelpView(pages, interaction.user.id)
+        if section is not None:
+            view.go_to_section(section.value)
+        view.original = interaction
+        await interaction.response.send_message(embed=view.embed, view=view, ephemeral=True)
 
     @app_commands.command(name="status", description="État du bot et de ses intégrations (Discord, base, GitLab, IA)")
     @app_commands.guild_only()

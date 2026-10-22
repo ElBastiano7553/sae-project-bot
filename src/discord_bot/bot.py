@@ -51,12 +51,15 @@ log = logging.getLogger(__name__)
 
 SETUP_CONFIRMED_KEY = "setup_confirmed_at"
 ANNOUNCEMENT_KEY = "announcement"
+# Identifiants des catégories retrouvées ou créées par /refonte (JSON « clé → identifiant »).
+CATEGORY_BINDINGS_KEY = "category_bindings"
 EXTENSIONS = (
     "src.discord_bot.cogs.general",
     "src.discord_bot.cogs.activity",
     "src.discord_bot.cogs.ai",
     "src.discord_bot.cogs.meetings",
     "src.discord_bot.cogs.admin",
+    "src.discord_bot.cogs.redesign",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
@@ -125,6 +128,8 @@ class SaeBot(commands.Bot):
         self._background: list[asyncio.Task] = []
         # Un seul verrou pour toutes les opérations sur les messages permanents (voir permanent_messages).
         self.messages_lock = asyncio.Lock()
+        # Une seule refonte du serveur à la fois (/refonte).
+        self.redesign_lock = asyncio.Lock()
         self._recreate_tasks: dict[str, asyncio.Task] = {}
         self._gitlab_task: asyncio.Task | None = None
         self.started_at = dt.datetime.now(dt.UTC)
@@ -475,7 +480,22 @@ class SaeBot(commands.Bot):
     def resolve_structure(self, guild: discord.Guild) -> StructureReport:
         """Relit config/server.toml et compare avec le serveur (aucune modification)."""
         layout = load_server_layout()
-        return resolve_structure(layout, snapshot_guild(guild), self.bindings_repo.get_all())
+        return resolve_structure(layout, snapshot_guild(guild), self.bindings_repo.get_all(), self.category_bindings)
+
+    @property
+    def category_bindings(self) -> dict[str, int]:
+        raw = self.state_repo.get(CATEGORY_BINDINGS_KEY)
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+            return {str(k): int(v) for k, v in data.items()}
+        except (TypeError, ValueError, AttributeError):
+            log.error("Associations de catégories illisibles : elles sont ignorées")
+            return {}
+
+    def save_category_bindings(self, bindings: dict[str, int]) -> None:
+        self.state_repo.set(CATEGORY_BINDINGS_KEY, json.dumps(dict(sorted(bindings.items()))))
 
     def build_message_service(self) -> PermanentMessageService:
         """Relit les fichiers de contenu à chaque appel : /refresh prend en compte les modifications."""
@@ -484,11 +504,14 @@ class SaeBot(commands.Bot):
         planning = load_planning()
         announcement = self.announcement
         dashboard = self.dashboard_fields()
+        channels = self.channel_mentions()
         return PermanentMessageService(
             self.messages_repo,
             self.gateway,
             templates,
-            lambda template: render_message(template, catalog, planning, announcement=announcement, dashboard=dashboard),
+            lambda template: render_message(
+                template, catalog, planning, announcement=announcement, dashboard=dashboard, channels=channels
+            ),
             pin_messages=self.settings.pin_permanent_messages,
             lock=self.messages_lock,
         )
@@ -504,7 +527,16 @@ class SaeBot(commands.Bot):
             load_planning(),
             announcement=announcement or self.announcement,
             dashboard=self.dashboard_fields() if template.dynamic == "dashboard" else None,
+            channels=self.channel_mentions(),
         )
+
+    def channel_mentions(self) -> dict[str, str]:
+        """{{#cle}} des messages permanents : mention du salon associé (nom réel, même après un renommage)."""
+        bindings = self.bindings_repo.get_all()
+        return {
+            key: f"<#{bindings[key]}>" if key in bindings else f"#{spec.name}"
+            for key, spec in load_server_layout().channels.items()
+        }
 
     # --- Annonce en cours (/announce) ------------------------------------------
 

@@ -3,6 +3,7 @@ import pytest
 from src.gitlab.events import ZERO_SHA, InvalidPayload, format_event, format_merge_request, format_pipeline, format_push, project_id_of
 from src.gitlab.rules import GitLabRules
 from src.gitlab.samples import merge_request_payload, pipeline_payload, push_payload
+from src.services.design import Color
 
 RULES = GitLabRules(routes={"push": "a", "merge_request": "a", "pipeline": "b"})
 
@@ -267,7 +268,7 @@ def test_merge_request_approval_names_the_approver():
 def test_merged_request_has_no_redundant_status():
     n = format_merge_request(merge_request_payload(action="merge", state="merged"), RULES)
     assert "Statut" not in {f.name for f in n.fields}
-    assert n.color == 0x9B59B6
+    assert n.color == Color.MERGED
 
 
 def test_merge_request_people_cannot_ping():

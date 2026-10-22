@@ -302,6 +302,8 @@ def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[st
 class CategorySpec:
     key: str
     name: str
+    aliases: tuple[str, ...] = ()  # anciens noms : la catégorie est renommée au lieu d'être recréée
+    private: bool = False  # créée par /refonte visible seulement du bot et des administrateurs
 
 
 @dataclass(frozen=True)
@@ -310,6 +312,17 @@ class ChannelSpec:
     name: str
     category_key: str
     type: str = "text"  # "text" ou "voice"
+    aliases: tuple[str, ...] = ()  # anciens noms reconnus (renommage plutôt que création)
+    optional: bool = False  # créé par /refonte seulement si on le demande ; jamais signalé comme manquant
+
+
+@dataclass(frozen=True)
+class RoleSpec:
+    """Rôle de projet proposé par /refonte (créé seulement sur demande, sans aucune permission)."""
+
+    key: str
+    name: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -318,6 +331,7 @@ class ServerLayout:
 
     categories: dict[str, CategorySpec]
     channels: dict[str, ChannelSpec]
+    roles: dict[str, RoleSpec] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -352,10 +366,15 @@ def load_toml(path: Path) -> dict:
 
 def load_server_layout(path: Path = CONFIG_DIR / "server.toml") -> ServerLayout:
     data = load_toml(path)
-    categories = {
-        key: CategorySpec(key=key, name=_require_str(value, "name", f"categories.{key}"))
-        for key, value in data.get("categories", {}).items()
-    }
+    categories: dict[str, CategorySpec] = {}
+    for key, value in data.get("categories", {}).items():
+        where = f"categories.{key}"
+        categories[key] = CategorySpec(
+            key=key,
+            name=_require_str(value, "name", where),
+            aliases=_str_list(value, "aliases", where, path.name),
+            private=_bool_value(value, "private", where, path.name),
+        )
     channels: dict[str, ChannelSpec] = {}
     for key, value in data.get("channels", {}).items():
         where = f"channels.{key}"
@@ -365,15 +384,46 @@ def load_server_layout(path: Path = CONFIG_DIR / "server.toml") -> ServerLayout:
         channel_type = value.get("type", "text")
         if channel_type not in {"text", "voice"}:
             raise ConfigError(f"{path.name} : [{where}] type doit valoir \"text\" ou \"voice\".")
+        name = _require_str(value, "name", where)
+        if channel_type == "text" and (name != name.lower() or any(ch.isspace() for ch in name) or len(name) > 100):
+            # Discord transforme lui-même ces noms : le salon ne correspondrait jamais au nom attendu.
+            raise ConfigError(
+                f"{path.name} : [{where}] le nom d'un salon textuel s'écrit en minuscules, sans espace "
+                f"(100 caractères au plus), par exemple « comptes-rendus » (valeur : {name!r})."
+            )
         channels[key] = ChannelSpec(
             key=key,
-            name=_require_str(value, "name", where),
+            name=name,
             category_key=category_key,
             type=channel_type,
+            aliases=_str_list(value, "aliases", where, path.name),
+            optional=_bool_value(value, "optional", where, path.name),
         )
     if not channels:
         raise ConfigError(f"{path.name} ne déclare aucun salon.")
-    return ServerLayout(categories=categories, channels=channels)
+    roles = {
+        key: RoleSpec(
+            key=key,
+            name=_require_str(value, "name", f"roles.{key}"),
+            description=str(value.get("description", "")).strip(),
+        )
+        for key, value in data.get("roles", {}).items()
+    }
+    return ServerLayout(categories=categories, channels=channels, roles=roles)
+
+
+def _str_list(table: Mapping, key: str, where: str, filename: str) -> tuple[str, ...]:
+    raw = table.get(key, [])
+    if not isinstance(raw, list) or not all(isinstance(v, str) and v.strip() for v in raw):
+        raise ConfigError(f"{filename} : [{where}] « {key} » doit être une liste de textes, par exemple [\"ancien-nom\"].")
+    return tuple(v.strip() for v in raw)
+
+
+def _bool_value(table: Mapping, key: str, where: str, filename: str) -> bool:
+    raw = table.get(key, False)
+    if not isinstance(raw, bool):
+        raise ConfigError(f"{filename} : [{where}] « {key} » doit valoir true ou false, sans guillemets.")
+    return raw
 
 
 @dataclass(frozen=True)

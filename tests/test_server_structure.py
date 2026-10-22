@@ -41,7 +41,7 @@ def test_normalize_name():
 def test_complete_server_is_recognised():
     report = resolve_structure(LAYOUT, full_snapshot())
     assert report.is_complete
-    assert len(report.bindings) == 19
+    assert len(report.bindings) == len(LAYOUT.channels)
 
 
 def test_emojis_and_accents_are_ignored():
@@ -60,9 +60,9 @@ def test_missing_channel_is_reported_not_created():
 
 def test_channel_in_wrong_category_is_usable_with_warning():
     snap = full_snapshot()
-    gitlab_cat = next(c for c in snap.categories if "GITLAB" in c.name)
+    other_cat = next(c for c in snap.categories if "DÉVELOPPEMENT" in c.name)
     channels = tuple(
-        GuildChannel(ch.id, ch.name, ch.type, gitlab_cat.id) if ch.name == "annonces" else ch for ch in snap.channels
+        GuildChannel(ch.id, ch.name, ch.type, other_cat.id) if ch.name == "annonces" else ch for ch in snap.channels
     )
     report = resolve_structure(LAYOUT, GuildSnapshot(snap.categories, channels))
     res = by_key(report, "annonces")
@@ -118,4 +118,6 @@ def test_missing_category_is_reported_but_channels_still_found():
     categories = tuple(c for c in snap.categories if "VOCAL" not in c.name)
     report = resolve_structure(LAYOUT, GuildSnapshot(categories, snap.channels))
     assert [c.spec.key for c in report.missing_categories] == ["vocal"]
-    assert by_key(report, "reunion").status is ChannelStatus.OK
+    res = by_key(report, "reunion")
+    assert res.status is ChannelStatus.WRONG_CATEGORY and res.usable
+    assert "VOCAL" in res.note

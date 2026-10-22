@@ -23,7 +23,6 @@ from src.services.backup import BackupInfo
 from src.services.design import ICONS, Tone
 from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
-from src.services.help import CATEGORIES, HelpEntry
 from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
@@ -74,9 +73,9 @@ def make_embed(
     url: str | None = None,
     timestamp: dt.datetime | None = None,
 ) -> discord.Embed:
-    """Embed aux couleurs du bot. ``footer=None`` met le pied de page standard « SAE Project Bot »."""
+    """Embed aux couleurs du bot. ``footer=None`` met le pied de page standard « Samae »."""
     embed = discord.Embed(
-        title=limits.truncate(title, limits.EMBED_TITLE),
+        title=limits.truncate(title.strip(), limits.EMBED_TITLE),
         description=limits.truncate(description, limits.EMBED_DESCRIPTION) if description else None,
         color=design.tone_color(tone),
         url=url,
@@ -90,7 +89,7 @@ def add_field(embed: discord.Embed, name: str, value: str, *, inline: bool = Fal
     if len(embed.fields) >= limits.EMBED_FIELDS:
         return
     embed.add_field(
-        name=limits.truncate(name, limits.FIELD_NAME) or design.MISSING_VALUE,
+        name=limits.truncate(name.strip(), limits.FIELD_NAME) or design.MISSING_VALUE,
         value=limits.truncate(value, limits.FIELD_VALUE) or design.MISSING_VALUE,
         inline=inline,
     )
@@ -107,8 +106,13 @@ def fit_embed(embed: discord.Embed) -> discord.Embed:
 
 
 def error_embed(message: str, *, title: str = "Action impossible", tone: str = Tone.FAILURE) -> discord.Embed:
-    """Message d'erreur lisible, sans trace d'appel ni détail interne."""
-    return make_embed(f"{design.TONE_ICONS[tone]} {title}", message, tone=tone)
+    """Message d'erreur lisible, sans trace d'appel ni détail interne (la couleur indique la gravité)."""
+    return make_embed(title, message, tone=tone)
+
+
+def success_embed(message: str, title: str = "C'est noté") -> discord.Embed:
+    """Confirmation d'une action réussie : ce qui a été fait, et où le voir."""
+    return make_embed(title, message, tone=Tone.SUCCESS)
 
 
 def _add_lines(embed: discord.Embed, lines: list[str]) -> None:
@@ -171,7 +175,7 @@ def notification_to_embed(notification: Notification) -> discord.Embed:
 # --- Rapports d'administration ------------------------------------------------
 
 
-def structure_embed(report: StructureReport, title: str = "🔎 Structure du serveur") -> discord.Embed:
+def structure_embed(report: StructureReport, title: str = "Structure du serveur") -> discord.Embed:
     embed = make_embed(title, tone=Tone.SUCCESS if report.is_complete else Tone.WARNING)
     lines = []
     for res in report.categories:
@@ -289,7 +293,7 @@ def messages_status_embed(statuses: list[MessageStatus], guild_id: int, catalog:
 
 def diagnostic_embed(results: list[ChannelDiagnostic]) -> discord.Embed:
     problems = [r for r in results if not r.ok]
-    embed = make_embed("🩺 Diagnostic", tone=Tone.WARNING if problems else Tone.SUCCESS)
+    embed = make_embed("Diagnostic", tone=Tone.WARNING if problems else Tone.SUCCESS)
     lines = []
     for r in results:
         uses = " + ".join({"messages": "messages permanents", "notifications": "notifications GitLab"}[u] for u in r.uses)
@@ -314,24 +318,6 @@ def history_embed(actions: list[AdminAction]) -> discord.Embed:
         lines.append(f"{design.relative_time(a.at)} · **{design.escape_markdown(a.user_name)}** : {a.action}{target}{outcome}")
     _add_lines(embed, lines or ["Aucune action enregistrée."])
     embed.set_footer(text=design.footer(f"{len(actions)} dernière(s) action(s)"))
-    return fit_embed(embed)
-
-
-def help_embed(groups: dict[str, list[HelpEntry]], *, show_admin_note: bool) -> discord.Embed:
-    embed = make_embed(
-        f"{ICONS['help']} Aide du SAE Project Bot",
-        "Toutes les réponses aux commandes ne sont visibles que par vous.",
-    )
-    for category, entries in groups.items():
-        lines = [f"`/{e.command}` — {e.description}" + (f"\n  ex. `{e.example}`" if e.example and e.example != f"/{e.command}" else "") for e in entries]
-        for index, chunk in enumerate(limits.chunk_lines(lines, limits.FIELD_VALUE)):
-            add_field(embed, CATEGORIES[category] + (" (suite)" if index else ""), chunk)
-    note = (
-        "🔒 Réservé aux membres ayant « Gérer le serveur » ou le rôle d'administration du bot (vérifié par le bot)."
-        if show_admin_note
-        else "Les commandes d'administration n'apparaissent que pour les administrateurs du bot."
-    )
-    embed.set_footer(text=design.footer(note))
     return fit_embed(embed)
 
 
@@ -525,7 +511,7 @@ def leaderboard_embed(board: Leaderboard, *, period: str, details: bool) -> disc
     if board.unattributed_merges:
         add_field(
             embed,
-            "⚠️ Non attribuées",
+            "Non attribuées",
             f"{design.plural(board.unattributed_merges, 'MR fusionnée')} sans auteur indiqué par GitLab.",
         )
     add_field(
@@ -568,7 +554,7 @@ def ai_answer_embed(answer: AssistantAnswer, *, title: str, subject: str = "", u
 
 
 def backup_embed(info: BackupInfo, backups: list[BackupInfo], keep: int) -> discord.Embed:
-    embed = make_embed("💾 Sauvegarde créée", f"`{info.path.name}` · {info.size / 1024:.0f} Ko · vérifiée ✅", tone=Tone.SUCCESS)
+    embed = make_embed("Sauvegarde créée", f"`{info.path.name}` · {info.size / 1024:.0f} Ko · vérifiée ✅", tone=Tone.SUCCESS)
     lines = [f"• `{b.path.name}` · {design.discord_timestamp(b.created_at, 'R')}" for b in backups[:10]]
     add_field(embed, f"Sauvegardes conservées ({len(backups)}, {keep} au plus)", "\n".join(lines) or "—")
     add_field(

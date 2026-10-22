@@ -1,15 +1,14 @@
 # Message permanent du salon #documentation-et-preuves.
 
 channel = "documentation"
-title = "📚 Documentation et preuves SAE"
-color = "#EB459E"
+title = "Documentation et preuves SAE"
 description = """
 Retrouvez ici les documents de référence du projet et les preuves demandées par l'EPITA.
 Pensez à les tenir à jour avant chaque revue.
 """
 
 [[fields]]
-name = "📄 Documents du projet"
+name = "Documents du projet"
 value = """
 README : {{readme}}
 Architecture : {{architecture}}
@@ -17,14 +16,14 @@ Tests : {{tests}}
 """
 
 [[fields]]
-name = "🤖 Journal d'utilisation de l'IA"
+name = "Journal d'utilisation de l'IA"
 value = """
 Journal IA : {{journal_ia}}
 Chaque interaction significative avec une IA générative y est consignée, avec les vérifications faites et les décisions de l'équipe.
 """
 
 [[fields]]
-name = "✅ Preuves demandées par l'EPITA"
+name = "Preuves demandées par l'EPITA"
 value = """
 Preuves : {{preuves_epita}}
 """

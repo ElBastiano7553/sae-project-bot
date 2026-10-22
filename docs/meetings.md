@@ -21,8 +21,9 @@ historique et son compte rendu.
    - `/reunion action description:… responsable:@Bob echeance:05/11` (participants) ;
    - `/reunion point texte:…` ajoute un point à la fin de l'ordre du jour.
 5. **Terminer** (après confirmation) : l'étape en cours est marquée traitée, le
-   compte rendu est **figé** puis publié dans `#decisions-et-comptes-rendus`
-   (ou, si ce salon n'est pas associé par `/setup`, dans le salon du panneau).
+   compte rendu est **figé** puis publié dans `#comptes-rendus` (créé par `/refonte`),
+   à défaut dans le salon des décisions (`#decisions-et-comptes-rendus` avant la refonte),
+   et si aucun des deux n'est associé, dans le salon du panneau.
 
 Une décision, une réserve ou une action est rattachée automatiquement à l'étape en
 cours au moment où elle est enregistrée.
@@ -78,7 +79,7 @@ leur motif et leur auteur, réserves et désaccords, actions avec responsable et
 échéance. Les résultats de classements seront ajoutés au lot 2 (les classements
 n'existent pas encore).
 
-- `/reunion compte-rendu` : lecture privée, paginée (boutons ◀️ ▶️) ; **aperçu
+- `/reunion compte-rendu` : lecture privée, paginée (boutons **Précédent** / **Suivant**) ; **aperçu
   provisoire** tant que la réunion n'est pas terminée.
 - À la clôture, le compte rendu est figé dans la base (colonne `meetings.report`,
   dans la même transaction que la clôture) : il ne change plus ensuite.
@@ -127,3 +128,14 @@ vérifiée de la base est faite avant la migration.
   d'une réunion : pas encore prévu (à demander si utile).
 - Rappels automatiques avant une réunion : non prévu (aucune tâche planifiée n'est
   ajoutée).
+
+## Aide intégrée et apparence (1.2.0)
+
+- `/reunion help [sujet]` ouvre une aide en 6 pages (créer, participer, animer,
+  décisions et réserves, terminer, qui peut faire quoi), visible seulement par vous.
+- Une **décision officielle** est réservée au responsable de la réunion et aux admins.
+  Proposer une décision pour la faire valider par l'équipe n'existe **pas encore**.
+- Couleurs du panneau : gris-bleu (prévue), bleu clair (en cours), vert (terminée),
+  gris (annulée). Les boutons portent un libellé explicite, sans emoji
+  (« Annuler la réunion » plutôt qu'une croix). Les identifiants des boutons n'ont pas
+  changé : les panneaux déjà publiés continuent de fonctionner.
