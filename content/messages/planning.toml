@@ -1,0 +1,15 @@
+# Message permanent du salon #planning-et-deadlines.
+# Les échéances ne sont PAS écrites ici : elles viennent de config/planning.toml.
+
+channel = "planning"
+title = "📅 Planning et échéances"
+color = "#FEE75C"
+dynamic = "planning"
+description = """
+Ce message affiche uniquement les échéances renseignées par l'équipe dans `config/planning.toml`.
+Aucune date n'est déduite ou inventée par le bot.
+"""
+
+[[buttons]]
+label = "Tableau GitLab"
+link = "gitlab_board"

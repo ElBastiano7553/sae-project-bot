@@ -1,0 +1,19 @@
+# =====================================================================
+#  Planning affiché dans #planning-et-deadlines.
+#
+#  Le bot n'invente AUCUNE date : il affiche uniquement ce qui est écrit ici.
+#  Après modification, lancez /refresh sur Discord pour mettre à jour le message.
+#
+#  Format d'une échéance :
+#    [[deadlines]]
+#    date = 2026-11-15            # date au format AAAA-MM-JJ (sans guillemets)
+#    title = "Revue intermédiaire"
+#    details = "Démo jouable + documentation"   # facultatif
+#
+#  Format d'une prochaine étape :
+#    [[next_steps]]
+#    title = "Finaliser le moteur de collisions"
+#    owner = "Prénom"            # facultatif, responsable de la tâche
+# =====================================================================
+
+# Aucune échéance ni étape renseignée pour l'instant : ajoutez-les ci-dessous.

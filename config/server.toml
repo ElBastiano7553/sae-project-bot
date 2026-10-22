@@ -1,0 +1,113 @@
+# =====================================================================
+#  Structure attendue du serveur Discord « SAE · GAME DEV ».
+#
+#  Le bot NE CRÉE PAS ces salons : il les retrouve par leur nom et
+#  associe leur identifiant Discord à une fonction (la clé entre crochets).
+#  Les emojis, accents, majuscules et séparateurs sont ignorés lors de la
+#  comparaison : "📢・annonces" et "annonces" désignent le même salon.
+#
+#  Pour renommer un salon sur Discord, modifiez aussi "name" ici
+#  (ou relancez /setup : un salon déjà associé est retrouvé par son identifiant).
+# =====================================================================
+
+[categories.accueil]
+name = "01 · ACCUEIL & ORGANISATION"
+
+[categories.conception]
+name = "02 · CONCEPTION DU JEU"
+
+[categories.developpement]
+name = "03 · DÉVELOPPEMENT"
+
+[categories.gitlab]
+name = "04 · GITLAB AUTOMATISÉ"
+
+[categories.livrables]
+name = "05 · LIVRABLES SAE"
+
+[categories.vocal]
+name = "06 · VOCAL"
+
+# --- 01 · ACCUEIL & ORGANISATION -------------------------------------
+[channels.bienvenue]
+name = "bienvenue"
+category = "accueil"
+
+[channels.annonces]
+name = "annonces"
+category = "accueil"
+
+[channels.planning]
+name = "planning-et-deadlines"
+category = "accueil"
+
+[channels.discussion]
+name = "discussion-generale"
+category = "accueil"
+
+[channels.decisions]
+name = "decisions-et-comptes-rendus"
+category = "accueil"
+
+# --- 02 · CONCEPTION DU JEU ------------------------------------------
+[channels.idees]
+name = "idees-et-game-design"
+category = "conception"
+
+[channels.gameplay]
+name = "gameplay-et-ia"
+category = "conception"
+
+[channels.assets]
+name = "assets-et-audio"
+category = "conception"
+
+# --- 03 · DÉVELOPPEMENT ----------------------------------------------
+[channels.dev_python]
+name = "developpement-python"
+category = "developpement"
+
+[channels.reseau]
+name = "reseau-multijoueur"
+category = "developpement"
+
+[channels.bugs]
+name = "bugs-et-tests"
+category = "developpement"
+
+[channels.code_review]
+name = "code-review"
+category = "developpement"
+
+# --- 04 · GITLAB AUTOMATISÉ ------------------------------------------
+[channels.gitlab_activite]
+name = "gitlab-activite"
+category = "gitlab"
+
+[channels.builds]
+name = "builds-et-tests"
+category = "gitlab"
+
+[channels.bilan_ia]
+name = "bilan-ia"
+category = "gitlab"
+
+# --- 05 · LIVRABLES SAE ----------------------------------------------
+[channels.documentation]
+name = "documentation-et-preuves"
+category = "livrables"
+
+[channels.revues]
+name = "preparation-revues"
+category = "livrables"
+
+# --- 06 · VOCAL ------------------------------------------------------
+[channels.reunion]
+name = "reunion-equipe"
+category = "vocal"
+type = "voice"
+
+[channels.travail_commun]
+name = "travail-en-commun"
+category = "vocal"
+type = "voice"

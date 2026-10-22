@@ -1,0 +1,40 @@
+# Message permanent du salon #annonces : règles de fonctionnement de l'équipe.
+
+channel = "annonces"
+title = "📜 Règles de fonctionnement de l'équipe"
+color = "#ED4245"
+description = """
+Ces règles s'appliquent à tous les membres. Elles nous évitent les oublis, les conflits de code et les mauvaises surprises lors des revues.
+"""
+
+[[fields]]
+name = "1. Une tâche importante a un responsable"
+value = "Chaque tâche importante est attribuée à une personne clairement identifiée."
+
+[[fields]]
+name = "2. Les tâches officielles sont suivies dans GitLab"
+value = "Une tâche qui n'existe pas dans les Issues GitLab n'est pas officiellement planifiée."
+
+[[fields]]
+name = "3. Le code passe par des Merge Requests"
+value = "Aucun envoi direct sur la branche principale : toute modification est relue via une Merge Request."
+
+[[fields]]
+name = "4. Les décisions techniques sont documentées"
+value = "Les décisions importantes sont résumées dans #decisions-et-comptes-rendus."
+
+[[fields]]
+name = "5. Les propositions de l'IA sont vérifiées"
+value = "Toute proposition d'une IA est relue, testée et, si besoin, corrigée ou rejetée par un membre de l'équipe."
+
+[[fields]]
+name = "6. Aucun secret n'est publié"
+value = "Ne publiez jamais de mot de passe, de token ou de clé d'API dans Discord ou GitLab. En cas de fuite, prévenez l'équipe et régénérez le secret immédiatement."
+
+[[buttons]]
+label = "Issues GitLab"
+link = "gitlab_issues"
+
+[[buttons]]
+label = "Merge Requests"
+link = "gitlab_merge_requests"

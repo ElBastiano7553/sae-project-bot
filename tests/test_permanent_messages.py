@@ -1,0 +1,194 @@
+"""Idempotence des messages permanents, avec une fausse passerelle Discord."""
+
+from __future__ import annotations
+
+import pytest
+
+from src.database import ManagedMessageRepository
+from src.services.content import MessagePayload, MessageTemplate, footer_for
+from src.services.permanent_messages import GatewayError, PermanentMessageService, SyncAction
+
+CHANNEL = 111
+OTHER_CHANNEL = 222
+
+
+class FakeGateway:
+    """Simule Discord en mémoire et compte les appels."""
+
+    def __init__(self) -> None:
+        self.messages: dict[int, tuple[int, MessagePayload]] = {}  # message_id -> (salon, contenu)
+        self.next_id = 1
+        self.sent = 0
+        self.edited = 0
+        self.pinned: list[int] = []
+        self.fail_pin = False
+        self.fail_send = False
+
+    async def message_exists(self, channel_id, message_id):
+        return message_id in self.messages and self.messages[message_id][0] == channel_id
+
+    async def find_managed_message(self, channel_id, key):
+        for message_id, (chan, payload) in self.messages.items():
+            if chan == channel_id and payload.footer == footer_for(key):
+                return message_id
+        return None
+
+    async def send(self, channel_id, payload):
+        if self.fail_send:
+            raise GatewayError("accès refusé")
+        message_id = self.next_id
+        self.next_id += 1
+        self.messages[message_id] = (channel_id, payload)
+        self.sent += 1
+        return message_id
+
+    async def edit(self, channel_id, message_id, payload):
+        self.messages[message_id] = (channel_id, payload)
+        self.edited += 1
+
+    async def pin(self, channel_id, message_id):
+        if self.fail_pin:
+            raise GatewayError("permission manquante")
+        self.pinned.append(message_id)
+
+
+class MutableRenderer:
+    def __init__(self) -> None:
+        self.text = "Version 1"
+
+    def __call__(self, template: MessageTemplate) -> MessagePayload:
+        return MessagePayload(template.title, self.text, 0, footer_for(template.key))
+
+
+TEMPLATES = [
+    MessageTemplate(key="bienvenue", channel_key="bienvenue", title="Bienvenue", description="-"),
+    MessageTemplate(key="annonces", channel_key="annonces", title="Règles", description="-"),
+]
+BINDINGS = {"bienvenue": CHANNEL, "annonces": CHANNEL + 1}
+
+
+@pytest.fixture
+def gateway():
+    return FakeGateway()
+
+
+@pytest.fixture
+def renderer():
+    return MutableRenderer()
+
+
+@pytest.fixture
+def repo(db):
+    return ManagedMessageRepository(db)
+
+
+@pytest.fixture
+def service(repo, gateway, renderer):
+    return PermanentMessageService(repo, gateway, TEMPLATES, renderer)
+
+
+def actions(results):
+    return {r.key: r.action for r in results}
+
+
+async def test_first_sync_creates_and_pins(service, gateway, repo):
+    results = await service.sync(BINDINGS)
+    assert actions(results) == {"bienvenue": SyncAction.CREATE, "annonces": SyncAction.CREATE}
+    assert gateway.sent == 2
+    assert len(gateway.pinned) == 2
+    assert repo.get("bienvenue").channel_id == CHANNEL
+
+
+async def test_second_sync_creates_no_duplicates(service, gateway):
+    await service.sync(BINDINGS)
+    results = await service.sync(BINDINGS)
+    assert set(actions(results).values()) == {SyncAction.UNCHANGED}
+    assert gateway.sent == 2
+    assert gateway.edited == 0
+
+
+async def test_changed_content_edits_existing_message(service, gateway, renderer, repo):
+    await service.sync(BINDINGS)
+    first_id = repo.get("bienvenue").message_id
+    renderer.text = "Version 2"
+    results = await service.sync(BINDINGS)
+    assert set(actions(results).values()) == {SyncAction.UPDATE}
+    assert gateway.sent == 2
+    assert repo.get("bienvenue").message_id == first_id
+    assert gateway.messages[first_id][1].description == "Version 2"
+
+
+async def test_deleted_message_is_recreated(service, gateway, repo):
+    await service.sync(BINDINGS)
+    deleted_id = repo.get("bienvenue").message_id
+    del gateway.messages[deleted_id]
+    results = await service.sync(BINDINGS)
+    assert actions(results)["bienvenue"] is SyncAction.RECREATE
+    assert repo.get("bienvenue").message_id != deleted_id
+    assert gateway.sent == 3
+
+
+async def test_lost_database_adopts_existing_message(service, gateway, repo):
+    await service.sync(BINDINGS)
+    repo.delete("bienvenue")
+    results = await service.sync(BINDINGS)
+    assert actions(results)["bienvenue"] is SyncAction.ADOPT
+    assert gateway.sent == 2  # aucun doublon
+    assert repo.get("bienvenue") is not None
+
+
+async def test_channel_change_publishes_in_new_channel_without_deleting(service, gateway, repo):
+    await service.sync(BINDINGS)
+    old_id = repo.get("bienvenue").message_id
+    results = await service.sync({**BINDINGS, "bienvenue": OTHER_CHANNEL})
+    assert actions(results)["bienvenue"] is SyncAction.MOVE
+    assert old_id in gateway.messages  # l'ancien message n'est jamais supprimé
+    assert repo.get("bienvenue").channel_id == OTHER_CHANNEL
+
+
+async def test_missing_channel_is_skipped(service, gateway):
+    results = await service.sync({"annonces": CHANNEL + 1})
+    assert actions(results)["bienvenue"] is SyncAction.SKIP
+    assert gateway.sent == 1
+
+
+async def test_plan_does_not_modify_anything(service, gateway, repo):
+    results = await service.plan(BINDINGS)
+    assert set(actions(results).values()) == {SyncAction.CREATE}
+    assert gateway.sent == 0
+    assert repo.list_all() == []
+
+
+async def test_plan_after_sync_shows_unchanged(service, gateway):
+    await service.sync(BINDINGS)
+    results = await service.plan(BINDINGS)
+    assert set(actions(results).values()) == {SyncAction.UNCHANGED}
+
+
+async def test_discord_error_is_reported_and_does_not_stop_other_messages(service, gateway):
+    gateway.fail_send = True
+    results = await service.sync(BINDINGS)
+    assert set(actions(results).values()) == {SyncAction.ERROR}
+    assert "accès refusé" in results[0].detail
+
+
+async def test_pin_failure_is_not_fatal_and_no_duplicate_later(service, gateway):
+    gateway.fail_pin = True
+    results = await service.sync(BINDINGS)
+    assert actions(results)["bienvenue"] is SyncAction.CREATE
+    assert "épinglage impossible" in results[0].detail
+    await service.sync(BINDINGS)
+    assert gateway.sent == 2
+
+
+async def test_pinning_can_be_disabled(repo, gateway, renderer):
+    service = PermanentMessageService(repo, gateway, TEMPLATES, renderer, pin_messages=False)
+    await service.sync(BINDINGS)
+    assert gateway.pinned == []
+
+
+async def test_find_deleted_managed_message(service, repo):
+    await service.sync(BINDINGS)
+    message_id = repo.get("annonces").message_id
+    assert service.find_by_message_id(message_id).key == "annonces"
+    assert service.find_by_message_id(999_999) is None

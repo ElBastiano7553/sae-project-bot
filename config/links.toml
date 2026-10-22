@@ -1,0 +1,20 @@
+# =====================================================================
+#  Liens utiles affichés dans les messages permanents.
+#  Laissez une valeur vide ("") si le lien n'existe pas encore :
+#  le bouton correspondant sera simplement masqué et le texte
+#  indiquera « lien à configurer ».
+#  Seules les adresses https:// sont acceptées.
+# =====================================================================
+
+[links]
+gitlab_project = ""
+gitlab_issues = ""
+gitlab_merge_requests = ""
+gitlab_board = ""
+readme = ""
+architecture = ""
+journal_ia = ""
+tests = ""
+comptes_rendus = ""
+preuves_epita = ""
+sujet_sae = ""

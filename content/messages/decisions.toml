@@ -1,0 +1,40 @@
+# Message permanent du salon #decisions-et-comptes-rendus.
+
+channel = "decisions"
+title = "🧾 Décisions et comptes rendus"
+color = "#57F287"
+description = """
+Ce salon garde la trace des décisions de l'équipe et des comptes rendus de réunion.
+"""
+
+[[fields]]
+name = "📝 Rédiger un compte rendu"
+value = """
+Après chaque réunion, une personne publie un message avec :
+• la **date** et les **participants** ;
+• les **décisions prises** et leur justification ;
+• les **actions à faire**, avec un responsable et une échéance ;
+• les **points en suspens**.
+"""
+
+[[fields]]
+name = "⚖️ Documenter une décision technique"
+value = """
+Indiquez le **contexte**, les **options envisagées**, la **décision retenue** et ses **conséquences**.
+Ajoutez un lien vers l'Issue ou la Merge Request GitLab concernée.
+"""
+
+[[fields]]
+name = "📚 Documents de référence"
+value = """
+Comptes rendus : {{comptes_rendus}}
+Architecture : {{architecture}}
+"""
+
+[[buttons]]
+label = "Comptes rendus"
+link = "comptes_rendus"
+
+[[buttons]]
+label = "Architecture"
+link = "architecture"

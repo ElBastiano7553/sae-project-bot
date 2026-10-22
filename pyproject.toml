@@ -1,0 +1,12 @@
+[project]
+name = "sae-project-bot"
+version = "0.1.0"
+description = "Bot Discord de l'équipe SAE EPITA : messages permanents, notifications GitLab et bilans assistés par IA."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore:.audioop. is deprecated:DeprecationWarning"]

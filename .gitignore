@@ -1,0 +1,25 @@
+# Secrets : ne jamais versionner le vrai fichier .env
+.env
+.env.*
+!.env.example
+
+# Environnement virtuel Python
+.venv/
+venv/
+
+# Fichiers générés
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Données locales du bot (base SQLite, journaux)
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Éditeurs
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
