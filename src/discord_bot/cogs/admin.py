@@ -150,6 +150,7 @@ class AdminCog(commands.Cog):
             f"Épinglage des messages : {'oui' if settings.pin_permanent_messages else 'non'}",
             f"Recréation auto. des messages supprimés : {'oui' if settings.auto_recreate_deleted else 'non'}",
             self._gitlab_config_line(),
+            self._github_config_line(),
             f"Historique conservé : {settings.history_retention_days} jours",
             f"Alertes d'erreurs : salon `{settings.alerts_channel}`" if settings.alerts_channel else "Alertes d'erreurs : désactivées",
             self._ai_config_line(),
@@ -330,6 +331,17 @@ class AdminCog(commands.Cog):
         return (
             f"Webhooks GitLab : secret défini ✅ (jamais affiché), écoute sur "
             f"`{settings.webhook_host}:{settings.webhook_port}`, {project}"
+        )
+
+    def _github_config_line(self) -> str:
+        settings = self.bot.settings
+        if settings.github_config_error:
+            return "Webhooks GitHub : configuration invalide, désactivés (détails dans /status)"
+        if not settings.github_webhooks_enabled:
+            return "Webhooks GitHub : désactivés (GITHUB_WEBHOOK_SECRET vide)"
+        return (
+            f"Webhooks GitHub : secret défini ✅ (jamais affiché), écoute sur "
+            f"`{settings.github_webhook_host}:{settings.github_webhook_port}`, dépôt `{settings.github_repository}`"
         )
 
     def _ai_config_line(self) -> str:

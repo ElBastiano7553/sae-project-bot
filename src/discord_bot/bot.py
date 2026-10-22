@@ -34,6 +34,9 @@ from src.discord_bot.embeds import error_embed
 from src.discord_bot.gateway import DiscordMessageGateway
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
+from src.database.github import GitHubDeliveryRepository
+from src.github.dispatcher import GitHubDispatcher
+from src.github.webhook import GitHubWebhookServer, create_github_app
 from src.gitlab.api import GitLabAPI
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY, NotificationDispatcher
 from src.gitlab.rules import load_gitlab_rules
@@ -122,6 +125,11 @@ class SaeBot(commands.Bot):
         )
         self.gitlab_server: GitLabWebhookServer | None = None
         self.gitlab_error: str | None = None
+        # Webhooks GitHub (dépôt du jeu) : indépendants de GitLab.
+        self.github_deliveries_repo = GitHubDeliveryRepository(database)
+        self.github_server: GitHubWebhookServer | None = None
+        self.github_error: str | None = None
+        self._github_task: asyncio.Task | None = None
         self.errors = errors or RecentErrors()
         self.errors.add_listener(self._on_error)
         self.interaction_stats = InteractionStats()
@@ -154,6 +162,7 @@ class SaeBot(commands.Bot):
             await self.load_extension(extension)
         await self.sync_commands()
         await self.start_gitlab_webhooks()
+        await self.start_github_webhooks()
 
     def commands_fingerprint(self, guild: discord.abc.Snowflake) -> str:
         """Empreinte de ce qui serait envoyé à Discord : change dès qu'une commande, une option ou un texte change."""
@@ -238,6 +247,48 @@ class SaeBot(commands.Bot):
             self.gitlab_error = "la tâche d'envoi des notifications s'est arrêtée, voir logs/bot.log"
             log.error("Tâche des notifications GitLab arrêtée", exc_info=task.exception())
 
+    async def start_github_webhooks(self) -> None:
+        """Démarre les webhooks GitHub s'ils sont configurés. Une erreur ici n'arrête jamais le reste du bot."""
+        if self.settings.github_config_error:
+            self.github_error = f"configuration invalide : {self.settings.github_config_error}"
+            log.error("Webhooks GitHub désactivés, %s", self.github_error)
+            return
+        if not self.settings.github_webhooks_enabled:
+            log.info("Webhooks GitHub désactivés : GITHUB_WEBHOOK_SECRET n'est pas défini.")
+            return
+        try:
+            await self._start_github_webhooks()
+        except Exception as exc:
+            self.github_error = f"erreur inattendue au démarrage ({type(exc).__name__}), voir logs/bot.log"
+            log.exception("Webhooks GitHub désactivés : erreur inattendue au démarrage")
+        if self.github_error and self.github_server is not None:
+            await self.github_server.stop()
+
+    async def _start_github_webhooks(self) -> None:
+        dispatcher = GitHubDispatcher(
+            self.github_deliveries_repo,
+            DiscordNotificationSender(self),
+            self.bindings_repo.get_all,
+            wait_until_ready=self.wait_until_ready,
+        )
+        app = create_github_app(
+            secret=self.settings.github_webhook_secret,
+            repository=self.settings.github_repository,
+            dispatcher=dispatcher,
+        )
+        self.github_server = GitHubWebhookServer(app, self.settings.github_webhook_host, self.settings.github_webhook_port)
+        if not await self.github_server.start():
+            self.github_error = self.github_server.error
+            return
+        dispatcher.restore_pending()
+        self._github_task = asyncio.create_task(dispatcher.run(), name="github-notifications")
+        self._github_task.add_done_callback(self._on_github_task_done)
+
+    def _on_github_task_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            self.github_error = "la tâche d'envoi des notifications GitHub s'est arrêtée, voir logs/bot.log"
+            log.error("Tâche des notifications GitHub arrêtée", exc_info=task.exception())
+
     async def close(self) -> None:
         tasks = [*self._recreate_tasks.values(), *self._alert_tasks, *self._background, self._dashboard_task, self._maintenance_task]
         for task in tasks:
@@ -252,6 +303,11 @@ class SaeBot(commands.Bot):
             self._gitlab_task = None
         if self.gitlab_server is not None:
             await self.gitlab_server.stop()
+        if self._github_task is not None:
+            self._github_task.cancel()
+            self._github_task = None
+        if self.github_server is not None:
+            await self.github_server.stop()
         for client in (self.ai_provider, self.gitlab_api):
             if client is not None:
                 try:
@@ -406,6 +462,7 @@ class SaeBot(commands.Bot):
         purged: dict[str, int] = {}
         for label, repository in (
             ("événement(s) GitLab", self.gitlab_events_repo),
+            ("livraison(s) GitHub", self.github_deliveries_repo),
             ("action(s) d'administration", self.admin_log),
             ("erreur(s)", self.bot_errors_repo),
             ("demande(s) à l'IA", self.ai_requests_repo),

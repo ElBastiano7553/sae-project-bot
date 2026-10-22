@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -39,7 +40,11 @@ DEFAULT_BACKUP_INTERVAL_HOURS = 24
 DEFAULT_AI_DAILY_LIMIT = 50
 DEFAULT_AI_COOLDOWN_SECONDS = 20
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
-SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL")
+SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET")
+# Webhooks GitHub : seul ce dépôt est accepté par défaut (dépôt privé du jeu).
+DEFAULT_GITHUB_REPOSITORY = "ElBastiano7553/game-project"
+DEFAULT_GITHUB_WEBHOOK_PORT = 8081
+_GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 
 
 class ConfigError(Exception):
@@ -85,6 +90,13 @@ class Settings:
     backup_keep: int = DEFAULT_BACKUP_KEEP
     backup_interval_hours: int = DEFAULT_BACKUP_INTERVAL_HOURS  # 0 = pas de sauvegarde automatique
     heartbeat_path: Path | None = None  # fichier de vie lu par le contrôle de santé Docker
+    # Webhooks GitHub (dépôt du jeu) : indépendants de GitLab, désactivés sans GITHUB_WEBHOOK_SECRET.
+    github_webhook_secret: str = field(default="", repr=False)
+    github_repository: str = DEFAULT_GITHUB_REPOSITORY
+    github_webhook_host: str = "127.0.0.1"
+    github_webhook_port: int = DEFAULT_GITHUB_WEBHOOK_PORT
+    # Erreur dans les variables GITHUB_* : GitHub reste désactivé, le reste du bot démarre.
+    github_config_error: str | None = None
 
     @property
     def ai_enabled(self) -> bool:
@@ -99,6 +111,16 @@ class Settings:
     def gitlab_webhooks_enabled(self) -> bool:
         """La V2 (webhooks GitLab) n'est active que si un secret valide est défini."""
         return bool(self.gitlab_webhook_secret)
+
+    @property
+    def github_webhooks_enabled(self) -> bool:
+        """Les webhooks GitHub ne sont actifs que si un secret valide est défini."""
+        return bool(self.github_webhook_secret)
+
+    @property
+    def github_requested(self) -> bool:
+        """Vrai si GitHub est configuré, même de façon invalide (affiché en erreur dans /status)."""
+        return self.github_webhooks_enabled or self.github_config_error is not None
 
     @property
     def gitlab_requested(self) -> bool:
@@ -184,6 +206,7 @@ class Settings:
         backup_interval = _parse_int(env, "BACKUP_INTERVAL_HOURS", DEFAULT_BACKUP_INTERVAL_HOURS, 0, errors)
 
         ai = _parse_ai(env)
+        github = _parse_github(env, gitlab_port=webhook_port if webhook_secret and not gitlab_errors else None)
         gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
         gitlab_api_error = None
         if not gitlab_base_url.startswith("https://") or "@" in gitlab_base_url:
@@ -220,6 +243,7 @@ class Settings:
             backup_keep=backup_keep,
             backup_interval_hours=backup_interval,
             heartbeat_path=db_path.parent / "heartbeat",
+            **github,
         )
 
 
@@ -234,6 +258,45 @@ def resolve_path(raw: str | PurePath, project_root: PurePath = PROJECT_ROOT) -> 
     """
     path = type(project_root)(raw)
     return path if path.anchor else project_root / path
+
+
+def _parse_github(env: Mapping[str, str], *, gitlab_port: int | None) -> dict:
+    """Réglages des webhooks GitHub. Une erreur désactive GitHub (``github_config_error``) sans bloquer le bot.
+
+    ``gitlab_port`` : port déjà utilisé par les webhooks GitLab s'ils sont actifs (les deux serveurs
+    ne peuvent pas écouter sur le même port).
+    """
+    secret = env.get("GITHUB_WEBHOOK_SECRET", "").strip()
+    repository = env.get("GITHUB_WEBHOOK_REPOSITORY", "").strip() or DEFAULT_GITHUB_REPOSITORY
+    host = env.get("GITHUB_WEBHOOK_HOST", "").strip() or "127.0.0.1"
+    port_raw = env.get("GITHUB_WEBHOOK_PORT", "").strip() or str(DEFAULT_GITHUB_WEBHOOK_PORT)
+    port = DEFAULT_GITHUB_WEBHOOK_PORT
+    errors: list[str] = []
+    if secret and len(secret) < MIN_WEBHOOK_SECRET_LENGTH:
+        errors.append(
+            f"GITHUB_WEBHOOK_SECRET est trop court (minimum {MIN_WEBHOOK_SECRET_LENGTH} caractères) : "
+            "générez-en un avec la commande indiquée dans .env.example."
+        )
+    if not _GITHUB_REPOSITORY.match(repository):
+        errors.append(f"GITHUB_WEBHOOK_REPOSITORY doit être de la forme propriétaire/dépôt (valeur actuelle : {repository!r}).")
+    if port_raw.isdigit() and 1 <= int(port_raw) <= 65535:
+        port = int(port_raw)
+    else:
+        errors.append(f"GITHUB_WEBHOOK_PORT doit être un nombre entre 1 et 65535 (valeur actuelle : {port_raw!r}).")
+    if gitlab_port is not None and port == gitlab_port:
+        errors.append(
+            f"GITHUB_WEBHOOK_PORT ({port}) est déjà utilisé par les webhooks GitLab (WEBHOOK_PORT) : "
+            f"choisissez un autre port, par exemple {DEFAULT_GITHUB_WEBHOOK_PORT}."
+        )
+    if not secret:
+        errors = []  # GitHub non demandé : les autres variables GitHub ne comptent pas
+    return {
+        "github_webhook_secret": "" if errors else secret,
+        "github_repository": repository,
+        "github_webhook_host": host,
+        "github_webhook_port": port,
+        "github_config_error": " ; ".join(errors) if errors else None,
+    }
 
 
 def _parse_ai(env: Mapping[str, str]) -> dict:
