@@ -4,8 +4,7 @@
 # secondes après chaque nouvel événement, et vérifié toutes les 30 minutes.
 
 channel = "gitlab_activite"
-title = "📊 Tableau de bord du projet"
-color = "#3498DB"
+title = "Tableau de bord du projet"
 dynamic = "dashboard"
 description = """
 État du dépôt d'après les événements GitLab reçus par le bot. Détails : `/stats`, `/events`, `/leaderboard`.

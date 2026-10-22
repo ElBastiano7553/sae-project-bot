@@ -1,34 +1,58 @@
 # =====================================================================
-#  Structure attendue du serveur Discord « SAE · GAME DEV ».
+#  Structure cible du serveur Discord de l'équipe (lue par /setup et /refonte).
 #
-#  Le bot NE CRÉE PAS ces salons : il les retrouve par leur nom et
-#  associe leur identifiant Discord à une fonction (la clé entre crochets).
+#  Chaque salon a une clé (entre crochets) : c'est sa *fonction* pour Samae
+#  (messages permanents, notifications GitLab, comptes rendus…). Samae retrouve
+#  un salon dans cet ordre :
+#    1. l'identifiant Discord déjà enregistré (un salon renommé reste reconnu) ;
+#    2. le nom « name », puis les anciens noms « aliases ».
 #  Les emojis, accents, majuscules et séparateurs sont ignorés lors de la
 #  comparaison : "📢・annonces" et "annonces" désignent le même salon.
 #
-#  Pour renommer un salon sur Discord, modifiez aussi "name" ici
-#  (ou relancez /setup : un salon déjà associé est retrouvé par son identifiant).
+#  /setup ne crée, ne renomme et ne supprime rien.
+#  /refonte peut, après aperçu et confirmation : créer les catégories et salons
+#  manquants, renommer ceux qui portent un ancien nom (« aliases ») et les
+#  déplacer dans leur catégorie. Elle ne supprime jamais rien.
+#
+#  optional = true : salon facultatif, créé seulement avec /refonte facultatifs:True
+#  (un salon facultatif qui existe déjà est réutilisé, renommé ou déplacé normalement).
+#  private = true (catégorie) : créée visible seulement par le bot et les administrateurs.
+#
+#  Les catégories et salons absents de ce fichier ne sont jamais modifiés.
+#  L'ordre des catégories ci-dessous est l'ordre d'affichage souhaité.
 # =====================================================================
 
 [categories.accueil]
-name = "01 · ACCUEIL & ORGANISATION"
+name = "ACCUEIL"
+aliases = ["01 · ACCUEIL & ORGANISATION"]
+
+[categories.commun]
+name = "ESPACE COMMUN"
 
 [categories.conception]
-name = "02 · CONCEPTION DU JEU"
+name = "CONCEPTION DU JEU"
+aliases = ["02 · CONCEPTION DU JEU"]
+
+[categories.organisation]
+name = "ORGANISATION"
 
 [categories.developpement]
-name = "03 · DÉVELOPPEMENT"
-
-[categories.gitlab]
-name = "04 · GITLAB AUTOMATISÉ"
+name = "DÉVELOPPEMENT"
+aliases = ["03 · DÉVELOPPEMENT"]
 
 [categories.livrables]
-name = "05 · LIVRABLES SAE"
+name = "LIVRABLES SAE"
+aliases = ["05 · LIVRABLES SAE"]
 
 [categories.vocal]
-name = "06 · VOCAL"
+name = "VOCAL"
+aliases = ["06 · VOCAL"]
 
-# --- 01 · ACCUEIL & ORGANISATION -------------------------------------
+[categories.administration]
+name = "ADMINISTRATION"
+private = true
+
+# --- ACCUEIL ---------------------------------------------------------
 [channels.bienvenue]
 name = "bienvenue"
 category = "accueil"
@@ -37,77 +61,176 @@ category = "accueil"
 name = "annonces"
 category = "accueil"
 
-[channels.planning]
-name = "planning-et-deadlines"
+# Les règles sont déjà publiées dans #annonces : salon séparé facultatif.
+[channels.regles]
+name = "règles-et-fonctionnement"
 category = "accueil"
+aliases = ["regles", "reglement"]
+optional = true
 
+# --- ESPACE COMMUN ---------------------------------------------------
 [channels.discussion]
-name = "discussion-generale"
-category = "accueil"
+name = "général"
+category = "commun"
+aliases = ["discussion-generale"]
 
-[channels.decisions]
-name = "decisions-et-comptes-rendus"
-category = "accueil"
+[channels.presence]
+name = "présence-et-disponibilités"
+category = "commun"
+aliases = ["disponibilites"]
+optional = true
 
-# --- 02 · CONCEPTION DU JEU ------------------------------------------
+[channels.ressources]
+name = "ressources-et-liens"
+category = "commun"
+aliases = ["ressources"]
+optional = true
+
+# --- CONCEPTION DU JEU -----------------------------------------------
 [channels.idees]
-name = "idees-et-game-design"
+name = "idées"
 category = "conception"
+aliases = ["idees-et-game-design"]
 
 [channels.gameplay]
-name = "gameplay-et-ia"
+name = "game-design"
 category = "conception"
+aliases = ["gameplay-et-ia"]
+
+# Décisions officielles de l'équipe (message permanent « decisions »).
+[channels.decisions]
+name = "décisions"
+category = "conception"
+aliases = ["decisions-et-comptes-rendus"]
 
 [channels.assets]
 name = "assets-et-audio"
 category = "conception"
 
-# --- 03 · DÉVELOPPEMENT ----------------------------------------------
+# Les votes et tier lists de Samae ne sont pas encore développés.
+[channels.votes]
+name = "votes-et-tier-lists"
+category = "conception"
+optional = true
+
+[channels.references]
+name = "références-visuelles"
+category = "conception"
+optional = true
+
+# --- ORGANISATION ----------------------------------------------------
+# Salon conseillé pour créer les réunions (/reunion creer publie le panneau là où elle est lancée).
+[channels.reunions]
+name = "réunions"
+category = "organisation"
+
+# Comptes rendus finaux publiés par Samae à la clôture d'une réunion.
+[channels.comptes_rendus]
+name = "comptes-rendus"
+category = "organisation"
+
+[channels.planning]
+name = "planning"
+category = "organisation"
+aliases = ["planning-et-deadlines"]
+
+[channels.suivi_actions]
+name = "suivi-des-actions"
+category = "organisation"
+optional = true
+
+# --- DÉVELOPPEMENT ---------------------------------------------------
 [channels.dev_python]
-name = "developpement-python"
+name = "développement"
 category = "developpement"
+aliases = ["developpement-python"]
 
 [channels.reseau]
-name = "reseau-multijoueur"
+name = "réseau-multijoueur"
 category = "developpement"
 
 [channels.bugs]
-name = "bugs-et-tests"
+name = "bugs-et-problèmes"
 category = "developpement"
+aliases = ["bugs-et-tests"]
 
 [channels.code_review]
 name = "code-review"
 category = "developpement"
 
-# --- 04 · GITLAB AUTOMATISÉ ------------------------------------------
-[channels.gitlab_activite]
-name = "gitlab-activite"
-category = "gitlab"
-
+# Pipelines GitLab (config/gitlab.toml : pipeline, deployment).
 [channels.builds]
-name = "builds-et-tests"
-category = "gitlab"
+name = "tests-et-builds"
+category = "developpement"
+aliases = ["builds-et-tests"]
+
+# Pushs et merge requests GitLab, tableau de bord (le dépôt est sur GitLab, pas GitHub).
+[channels.gitlab_activite]
+name = "gitlab-et-commits"
+category = "developpement"
+aliases = ["gitlab-activite"]
 
 [channels.bilan_ia]
 name = "bilan-ia"
-category = "gitlab"
+category = "developpement"
 
-# --- 05 · LIVRABLES SAE ----------------------------------------------
+# --- LIVRABLES SAE ---------------------------------------------------
 [channels.documentation]
 name = "documentation-et-preuves"
 category = "livrables"
 
 [channels.revues]
-name = "preparation-revues"
+name = "préparation-revues"
 category = "livrables"
 
-# --- 06 · VOCAL ------------------------------------------------------
+# --- VOCAL -----------------------------------------------------------
 [channels.reunion]
-name = "reunion-equipe"
+name = "Réunion d'équipe"
 category = "vocal"
 type = "voice"
+aliases = ["reunion-equipe"]
 
 [channels.travail_commun]
-name = "travail-en-commun"
+name = "Travail en commun"
 category = "vocal"
 type = "voice"
+aliases = ["travail-en-commun"]
+
+# --- ADMINISTRATION (privée) -----------------------------------------
+# Alertes d'erreurs du bot : ALERTS_CHANNEL=logs dans .env.
+[channels.logs]
+name = "bot-logs"
+category = "administration"
+
+[channels.configuration]
+name = "configuration"
+category = "administration"
+optional = true
+
+# =====================================================================
+#  Rôles de projet (cumulables). /refonte ne les crée que si l'option
+#  roles:True est choisie, SANS AUCUNE PERMISSION : ils servent à identifier
+#  qui fait quoi, pas à donner des droits. Un rôle qui existe déjà (même nom)
+#  n'est jamais modifié. Les droits d'administration de Samae restent ceux de
+#  « Gérer le serveur » ou du rôle ADMIN_ROLE_NAME (.env).
+# =====================================================================
+
+[roles.responsable]
+name = "Responsable projet"
+description = "Coordonne l'équipe et anime les réunions (aucun droit Discord supplémentaire)."
+
+[roles.game_design]
+name = "Game Design"
+description = "Conception du gameplay, des règles et des niveaux."
+
+[roles.developpement]
+name = "Développement"
+description = "Code du jeu, outils et intégration."
+
+[roles.art]
+name = "Art & Design"
+description = "Graphismes, interface, sons et références visuelles."
+
+[roles.testeur]
+name = "Testeur"
+description = "Tests des builds et signalement des bugs."

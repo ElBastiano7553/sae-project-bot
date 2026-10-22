@@ -38,14 +38,14 @@ class ConfirmView(discord.ui.View):
             return False
         return not self.done
 
-    @discord.ui.button(label="Confirmer", style=discord.ButtonStyle.success, emoji="✅")
+    @discord.ui.button(label="Confirmer", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.done = True
         self.stop()
-        await interaction.response.edit_message(content="⏳ Application en cours…", view=None)
+        await interaction.response.edit_message(content="Application en cours…", view=None)
         await self._on_confirm(interaction)
 
-    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary, emoji="✖️")
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.done = True
         self.stop()
@@ -56,7 +56,7 @@ class ConfirmView(discord.ui.View):
             return
         try:
             await self.original.edit_original_response(
-                content=f"⌛ Délai de confirmation expiré : rien n'a été modifié. Relancez {self._command}.", view=None
+                content=f"Délai de confirmation expiré : rien n'a été modifié. Relancez {self._command}.", view=None
             )
         except discord.HTTPException:
             log.debug("Impossible de signaler l'expiration de la confirmation", exc_info=True)

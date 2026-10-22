@@ -5,11 +5,24 @@ module : les embeds des commandes, des messages permanents et des notifications
 GitLab restent ainsi cohérents. ``discord_bot.embeds`` s'en sert pour construire
 les embeds, ``gitlab.events`` pour choisir la couleur d'une notification.
 
+Identité de Samae : sobre, inspirée des outils de travail collaboratif. Discord ne
+laisse choisir que la couleur de la barre latérale d'un embed (le fond et le texte
+suivent le thème de chaque lecteur) : la palette de référence sert donc d'accent
+et de base aux couleurs d'état, désaturées pour rester lisibles en thème sombre
+comme en thème clair.
+
+Palette de référence : fond ``#20242B``, surface ``#2B313B``, accent ``#8294A8``,
+texte ``#E6EAF0``.
+
 Règle des couleurs :
 
-* vert : réussite ; rouge : échec ; orange : avertissement ; bleu : information ;
-* violet : fusion d'une merge request ; gris : événement neutre (fermeture, annulation) ;
-* Samae 2.0 (réunions) : violet = prévue, carmin = en cours, violet sombre = terminée, gris = annulée.
+* accent (gris-bleu) : information, aide, réunion prévue ;
+* vert : réussite, réunion terminée ; rouge : échec ; ambre : avertissement ;
+* bleu vif : réunion en cours ; violet : fusion d'une merge request ;
+* gris : événement neutre (fermeture, annulation).
+
+Emojis : réservés aux indicateurs d'état utiles dans une liste (réussi, échec,
+attention) et aux types d'événements GitLab ; les titres et les boutons s'en passent.
 """
 
 from __future__ import annotations
@@ -19,20 +32,26 @@ from enum import IntEnum
 
 from src.services import text_limits as limits
 
-BOT_NAME = "SAE Project Bot"
+BOT_NAME = "Samae"
+
+
+class Palette(IntEnum):
+    """Palette de référence de Samae (seul l'accent est visible dans Discord : barre des embeds)."""
+
+    BACKGROUND = 0x20242B
+    SURFACE = 0x2B313B
+    ACCENT = 0x8294A8
+    TEXT = 0xE6EAF0
 
 
 class Color(IntEnum):
-    SUCCESS = 0x2ECC71  # vert
-    FAILURE = 0xE74C3C  # rouge
-    WARNING = 0xE67E22  # orange
-    INFO = 0x3498DB  # bleu
-    MERGED = 0x9B59B6  # violet
-    NEUTRAL = 0x95A5A6  # gris
-    # Accents de Samae (Samae 2.0) : rouge carmin et violet, sur le thème sombre de Discord.
-    SAMAE_CRIMSON = 0xD7263D  # réunion en cours
-    SAMAE_VIOLET = 0x7B2FBE  # réunion prévue
-    SAMAE_NIGHT = 0x4A2C6D  # réunion terminée (violet sombre)
+    SUCCESS = 0x5FA37A  # vert désaturé
+    FAILURE = 0xC9565A  # rouge désaturé
+    WARNING = 0xD19A4B  # ambre
+    INFO = 0x8294A8  # accent de Samae
+    MERGED = 0x8C7FC0  # violet désaturé
+    NEUTRAL = 0x5E6672  # gris, entre la surface et l'accent
+    LIVE = 0x6FA8DC  # bleu vif : réunion en cours
 
 
 class Tone:
@@ -71,14 +90,14 @@ ICONS = {
     "link": "🔗",
     "missing": "🛠️",
     "status": "📊",
-    "help": "📖",
-    "admin": "🔒",
+    "help": "",
+    "admin": "",
     "project": "🎮",
     "history": "🕘",
     "announce": "📣",
     "message": "📌",
-    "meeting": "🗓️",
-    "report": "📝",
+    "meeting": "",
+    "report": "",
 }
 
 SEPARATOR = " · "
@@ -90,7 +109,7 @@ def tone_color(tone: str) -> int:
 
 
 def footer(*parts: str) -> str:
-    """Pied de page standard : « SAE Project Bot · partie · partie »."""
+    """Pied de page standard : « Samae · partie · partie »."""
     text = SEPARATOR.join([BOT_NAME, *[p for p in parts if p]])
     return limits.truncate(text, limits.EMBED_FOOTER)
 

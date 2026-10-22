@@ -59,11 +59,17 @@ def test_ai_key_absent_does_not_block_startup():
 
 def test_real_server_layout_matches_discord_structure():
     layout = load_server_layout()
-    assert len(layout.categories) == 6
-    assert len(layout.channels) == 19
-    assert layout.channels["planning"].name == "planning-et-deadlines"
+    assert len(layout.categories) == 8
+    assert len(layout.channels) == 29
+    assert layout.channels["planning"].name == "planning"
+    assert "planning-et-deadlines" in layout.channels["planning"].aliases  # ancien nom : renommé, pas recréé
     assert layout.channels["reunion"].type == "voice"
-    assert layout.categories["developpement"].name == "03 · DÉVELOPPEMENT"
+    assert layout.categories["developpement"].name == "DÉVELOPPEMENT"
+    assert layout.categories["administration"].private
+    assert {key for key, spec in layout.channels.items() if spec.optional} == {
+        "regles", "presence", "ressources", "votes", "references", "suivi_actions", "configuration",
+    }
+    assert {role.name for role in layout.roles.values()} == {"Responsable projet", "Game Design", "Développement", "Art & Design", "Testeur"}
 
 
 def test_layout_with_unknown_category(tmp_path: Path):

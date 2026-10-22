@@ -11,6 +11,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from src.services.design import Color, discord_timestamp, parse_timestamp
 FOOTER_PREFIX = "Message géré par SAE Project Bot · réf."
 DEFAULT_COLOR = int(Color.INFO)
 _PLACEHOLDER = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
+# {{#cle}} : lien vers le salon associé à cette fonction (config/server.toml), toujours à jour du nom réel.
+_CHANNEL_PLACEHOLDER = re.compile(r"\{\{\s*#([a-z0-9_]+)\s*\}\}")
 _MISSING_LINK = "*lien à configurer*"
 MISSING_FIELD_NAME = "🛠️ À compléter"
 # Contenus calculés par le bot (clé « dynamic » d'un fichier de content/messages/).
@@ -173,6 +176,7 @@ def render_message(
     *,
     announcement: Announcement | None = None,
     dashboard: list[EmbedField] | tuple[EmbedField, ...] | None = None,
+    channels: Mapping[str, str] | None = None,
 ) -> MessagePayload:
     """Construit le contenu final d'un message en respectant les limites de Discord.
 
@@ -183,11 +187,15 @@ def render_message(
     catalog = links if isinstance(links, LinkCatalog) else LinkCatalog(urls=dict(links))
     used: list[str] = []
     title = template.title
-    description = _fill_links(template.description, catalog.urls, template.key, used)
+
+    def fill(text: str) -> str:
+        return _fill_links(_fill_channels(text, channels, template.key), catalog.urls, template.key, used)
+
+    description = fill(template.description)
     fields = [
         EmbedField(
-            limits.truncate(_fill_links(f.name, catalog.urls, template.key, used), limits.FIELD_NAME),
-            limits.truncate(_fill_links(f.value, catalog.urls, template.key, used), limits.FIELD_VALUE),
+            limits.truncate(fill(f.name), limits.FIELD_NAME),
+            limits.truncate(fill(f.value), limits.FIELD_VALUE),
             f.inline,
         )
         for f in template.fields
@@ -221,6 +229,20 @@ def render_message(
         missing_links=missing,
     )
     return _fit_total(payload)
+
+
+def _fill_channels(text: str, channels: Mapping[str, str] | None, key: str) -> str:
+    """Remplace {{#cle}} par la mention du salon (``<#id>``), ou ``#cle`` si la correspondance est inconnue."""
+
+    def replace(match: re.Match[str]) -> str:
+        channel_key = match.group(1)
+        if channels is None:
+            return f"#{channel_key}"
+        if channel_key not in channels:
+            raise ConfigError(f"{key}.toml : le salon « {channel_key} » n'existe pas dans config/server.toml.")
+        return channels[channel_key]
+
+    return _CHANNEL_PLACEHOLDER.sub(replace, text)
 
 
 def _fill_links(text: str, links: dict[str, str], key: str, used: list[str]) -> str:

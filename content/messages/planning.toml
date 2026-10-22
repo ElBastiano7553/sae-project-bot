@@ -2,8 +2,7 @@
 # Les échéances ne sont PAS écrites ici : elles viennent de config/planning.toml.
 
 channel = "planning"
-title = "📅 Planning et échéances"
-color = "#FEE75C"
+title = "Planning et échéances"
 dynamic = "planning"
 description = """
 Ce message affiche uniquement les échéances renseignées par l'équipe dans `config/planning.toml`.

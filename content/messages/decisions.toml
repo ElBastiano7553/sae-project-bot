@@ -1,16 +1,15 @@
-# Message permanent du salon #decisions-et-comptes-rendus.
+# Message permanent du salon des décisions (clé « decisions » de config/server.toml).
 
 channel = "decisions"
-title = "🧾 Décisions et comptes rendus"
-color = "#57F287"
+title = "Décisions de l'équipe"
 description = """
-Ce salon garde la trace des décisions de l'équipe et des comptes rendus de réunion.
+Ce salon garde la trace des décisions officielles de l'équipe. Les comptes rendus des réunions gérées par Samae (`/reunion`) sont publiés automatiquement dans {{#comptes_rendus}}.
 """
 
 [[fields]]
-name = "📝 Rédiger un compte rendu"
+name = "Réunion sans Samae : rédiger un compte rendu"
 value = """
-Après chaque réunion, une personne publie un message avec :
+Si la réunion n'a pas été gérée avec `/reunion`, une personne publie un message avec :
 • la **date** et les **participants** ;
 • les **décisions prises** et leur justification ;
 • les **actions à faire**, avec un responsable et une échéance ;
@@ -18,14 +17,14 @@ Après chaque réunion, une personne publie un message avec :
 """
 
 [[fields]]
-name = "⚖️ Documenter une décision technique"
+name = "Documenter une décision technique"
 value = """
 Indiquez le **contexte**, les **options envisagées**, la **décision retenue** et ses **conséquences**.
 Ajoutez un lien vers l'Issue ou la Merge Request GitLab concernée.
 """
 
 [[fields]]
-name = "📚 Documents de référence"
+name = "Documents de référence"
 value = """
 Comptes rendus : {{comptes_rendus}}
 Architecture : {{architecture}}

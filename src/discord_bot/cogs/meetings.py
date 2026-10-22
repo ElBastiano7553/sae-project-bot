@@ -20,6 +20,7 @@ from discord.ext import commands
 from src.database.meetings import MeetingDetail
 from src.discord_bot.bot import SaeBot, send_error
 from src.discord_bot.embeds import error_embed
+from src.discord_bot.help_ui import HelpView, collect_commands, render_pages
 from src.discord_bot.meeting_ui import (
     MeetingButton,
     PagesView,
@@ -34,6 +35,7 @@ from src.discord_bot.meeting_ui import (
 from src.discord_bot.permissions import is_bot_admin
 from src.discord_bot.views import ConfirmView
 from src.services import text_limits as limits
+from src.services.help import MEETING_PAGES
 from src.services.meetings import (
     CANCELLED,
     DECISION,
@@ -52,8 +54,9 @@ from src.services.meetings import (
 
 log = logging.getLogger(__name__)
 
-# Salon du compte rendu final (clé de config/server.toml) ; à défaut, le salon du panneau.
-REPORT_CHANNEL_KEY = "decisions"
+# Salon du compte rendu final (clés de config/server.toml, dans l'ordre de préférence) ;
+# à défaut, le salon du panneau. « decisions » reste accepté pour les serveurs d'avant /refonte.
+REPORT_CHANNEL_KEYS = ("comptes_rendus", "decisions")
 # Pages publiées au plus pour un compte rendu (le reste reste lisible avec /reunion compte-rendu).
 MAX_REPORT_MESSAGES = 10
 NO_MENTIONS = discord.AllowedMentions.none()
@@ -65,6 +68,7 @@ LIST_CHOICES = [
     app_commands.Choice(name="Toutes", value="toutes"),
 ]
 LIST_STATUSES = {"ouvertes": OPEN_STATUSES, "terminees": (FINISHED,), "annulees": (CANCELLED,), "toutes": ()}
+HELP_TOPICS = [app_commands.Choice(name=page.title, value=page.key) for page in MEETING_PAGES]
 NOTE_CHOICES = [
     app_commands.Choice(name="Réserve", value=RESERVE),
     app_commands.Choice(name="Désaccord", value=DISAGREEMENT),
@@ -208,10 +212,11 @@ class MeetingsCog(commands.Cog):
                     pass  # supprimé : on le republie
                 except discord.HTTPException:
                     return None, "le salon du compte rendu est inaccessible"
-        channel_id = self.bot.bindings_repo.get_all().get(REPORT_CHANNEL_KEY) or m.channel_id
+        bindings = self.bot.bindings_repo.get_all()
+        channel_id = next((bindings[key] for key in REPORT_CHANNEL_KEYS if key in bindings), None) or m.channel_id
         channel = await self._channel(channel_id) if channel_id else None
         if channel is None:
-            return None, "aucun salon disponible (associez #decisions-et-comptes-rendus avec /setup)"
+            return None, "aucun salon disponible (associez #comptes-rendus avec /setup ou /refonte)"
         pages = report_embeds(self.service.report(m.id))
         ids: list[int] = []
         try:
@@ -270,7 +275,7 @@ class MeetingsCog(commands.Cog):
             if url:
                 lines.append(f"[Compte rendu publié]({url}).")
             if problem:
-                lines.append(f"⚠️ Compte rendu : {problem}. Il reste consultable avec `/reunion compte-rendu`.")
+                lines.append(f"Attention, compte rendu : {problem}. Il reste consultable avec `/reunion compte-rendu`.")
         await self.refresh_panel(detail)
         await interaction.edit_original_response(content=None, embed=success_embed("\n".join(lines), "Réunion clôturée"), view=None)
 
@@ -559,6 +564,19 @@ class MeetingsCog(commands.Cog):
         except MeetingError as exc:
             await self._fail(interaction, exc)
 
+    @reunion.command(name="help", description="Guide des réunions : créer, participer, animer, décisions, compte rendu")
+    @app_commands.describe(sujet="Ouvrir directement un sujet (Créer une réunion par défaut)")
+    @app_commands.choices(sujet=HELP_TOPICS)
+    async def aide(self, interaction: discord.Interaction, sujet: app_commands.Choice[str] | None = None) -> None:
+        user = interaction.user
+        admin = isinstance(user, discord.Member) and is_bot_admin(user, self.bot.settings.admin_role_name)
+        pages = render_pages(MEETING_PAGES, commands=collect_commands(self.bot.tree), admin=admin, heading="Aide des réunions")
+        view = HelpView(pages, user.id, home_label="Début")
+        if sujet is not None:
+            view.go_to_section(sujet.value)
+        view.original = interaction
+        await interaction.response.send_message(embed=view.embed, view=view, ephemeral=True)
+
     @reunion.command(name="compte-rendu", description="Lire le compte rendu (aperçu si la réunion n'est pas terminée)")
     @app_commands.describe(reunion="Réunion", publier="Republier le compte rendu final s'il a été supprimé (responsable ou admin)")
     @app_commands.autocomplete(reunion=meeting_autocomplete)
@@ -579,7 +597,7 @@ class MeetingsCog(commands.Cog):
             await interaction.followup.send(embed=error_embed(f"Compte rendu non publié : {problem}.", tone="warning"), ephemeral=True)
             return
         await self.refresh_panel(detail)
-        text = f"[Compte rendu]({url})" + (f"\n⚠️ {problem}" if problem else "")
+        text = f"[Compte rendu]({url})" + (f"\nAttention : {problem}" if problem else "")
         await interaction.followup.send(embed=success_embed(text, "Compte rendu publié"), ephemeral=True)
 
 
