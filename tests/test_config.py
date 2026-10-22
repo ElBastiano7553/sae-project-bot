@@ -1,9 +1,9 @@
 import datetime as dt
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
-from src.config import ConfigError, Settings, load_links, load_planning, load_server_layout
+from src.config import ConfigError, Settings, load_links, load_planning, load_server_layout, resolve_path
 
 VALID_ENV = {"DISCORD_BOT_TOKEN": "faux-token-de-test", "DISCORD_GUILD_ID": "123456789012345678"}
 
@@ -229,3 +229,73 @@ def test_backup_settings(tmp_path: Path):
     assert custom.backup_dir == Path("/srv/sauvegardes") and custom.backup_interval_hours == 0
     with pytest.raises(ConfigError, match="BACKUP_KEEP"):
         Settings.from_env({**VALID_ENV, "BACKUP_KEEP": "0"})
+
+
+LINUX_ROOT = PurePosixPath("/home/equipe/samae")
+WINDOWS_ROOT = PureWindowsPath("D:/projets/samae")
+
+
+@pytest.mark.parametrize(
+    "root, raw, expected",
+    [
+        # Linux / Docker : absolu gardé, relatif rattaché au projet.
+        (LINUX_ROOT, "/srv/sauvegardes", "/srv/sauvegardes"),
+        (LINUX_ROOT, "backups", "/home/equipe/samae/backups"),
+        (LINUX_ROOT, "data/../backups", "/home/equipe/samae/data/../backups"),
+        # Windows : chemin « Linux » (racine sans lecteur) gardé, sans le lecteur du projet.
+        (WINDOWS_ROOT, "/srv/sauvegardes", "/srv/sauvegardes"),
+        (WINDOWS_ROOT, "\\srv\\sauvegardes", "/srv/sauvegardes"),
+        # Windows : absolus complets, sur le même lecteur, un autre lecteur ou un partage réseau.
+        (WINDOWS_ROOT, "D:\\sauvegardes", "D:/sauvegardes"),
+        (WINDOWS_ROOT, "E:/sauvegardes/samae", "E:/sauvegardes/samae"),
+        (WINDOWS_ROOT, "\\\\nas\\partage\\samae", "//nas/partage/samae"),
+        # Windows : relatifs rattachés au projet, quel que soit le séparateur.
+        (WINDOWS_ROOT, "data\\backups", "D:/projets/samae/data/backups"),
+        (WINDOWS_ROOT, "data/backups", "D:/projets/samae/data/backups"),
+        (WINDOWS_ROOT, "..\\sauvegardes", "D:/projets/samae/../sauvegardes"),
+    ],
+)
+def test_resolve_path(root, raw, expected):
+    assert resolve_path(raw, root) == type(root)(expected)
+
+
+def test_windows_semantics_behind_the_bug():
+    # La cause de l'échec sous Windows : un chemin à racine sans lecteur n'est pas
+    # « absolu », et la jointure lui colle le lecteur du projet.
+    linux_path = PureWindowsPath("/srv/sauvegardes")
+    assert not linux_path.is_absolute()
+    assert WINDOWS_ROOT / linux_path == PureWindowsPath("D:/srv/sauvegardes")
+    assert resolve_path(linux_path, WINDOWS_ROOT) == linux_path
+
+
+@pytest.mark.parametrize(
+    "env, database_path, backup_dir",
+    [
+        ({}, "D:/projets/samae/data/sae_bot.sqlite3", "D:/projets/samae/data/backups"),
+        ({"BACKUP_DIR": "/srv/sauvegardes"}, "D:/projets/samae/data/sae_bot.sqlite3", "/srv/sauvegardes"),
+        ({"BACKUP_DIR": "E:\\sauvegardes"}, "D:/projets/samae/data/sae_bot.sqlite3", "E:/sauvegardes"),
+        ({"BACKUP_DIR": "sauvegardes"}, "D:/projets/samae/data/sae_bot.sqlite3", "D:/projets/samae/sauvegardes"),
+        ({"DATABASE_PATH": "/srv/samae/bot.sqlite3"}, "/srv/samae/bot.sqlite3", "/srv/samae/backups"),
+        ({"DATABASE_PATH": "C:\\samae\\bot.sqlite3"}, "C:/samae/bot.sqlite3", "C:/samae/backups"),
+    ],
+)
+def test_settings_paths_with_windows_semantics(env, database_path, backup_dir):
+    settings = Settings.from_env({**VALID_ENV, **env}, project_root=WINDOWS_ROOT)
+    assert settings.database_path == PureWindowsPath(database_path)
+    assert settings.backup_dir == PureWindowsPath(backup_dir)
+    assert settings.heartbeat_path == PureWindowsPath(database_path).parent / "heartbeat"
+
+
+@pytest.mark.parametrize(
+    "env, database_path, backup_dir",
+    [
+        ({}, "/home/equipe/samae/data/sae_bot.sqlite3", "/home/equipe/samae/data/backups"),
+        ({"BACKUP_DIR": "/srv/sauvegardes"}, "/home/equipe/samae/data/sae_bot.sqlite3", "/srv/sauvegardes"),
+        ({"BACKUP_DIR": "sauvegardes"}, "/home/equipe/samae/data/sae_bot.sqlite3", "/home/equipe/samae/sauvegardes"),
+        ({"DATABASE_PATH": "/app/data/bot.sqlite3"}, "/app/data/bot.sqlite3", "/app/data/backups"),
+    ],
+)
+def test_settings_paths_with_linux_semantics(env, database_path, backup_dir):
+    settings = Settings.from_env({**VALID_ENV, **env}, project_root=LINUX_ROOT)
+    assert settings.database_path == PurePosixPath(database_path)
+    assert settings.backup_dir == PurePosixPath(backup_dir)

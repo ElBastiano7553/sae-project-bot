@@ -13,16 +13,14 @@ import os
 import sys
 from pathlib import Path
 
-from src.config import PROJECT_ROOT
+from src.config import resolve_path
 
 MAX_AGE = dt.timedelta(minutes=3)
 
 
 def heartbeat_path(env: dict | None = None) -> Path:
     env = os.environ if env is None else env
-    db_path = Path(env.get("DATABASE_PATH", "").strip() or "data/sae_bot.sqlite3")
-    if not db_path.is_absolute():
-        db_path = PROJECT_ROOT / db_path
+    db_path = resolve_path(env.get("DATABASE_PATH", "").strip() or "data/sae_bot.sqlite3")
     return db_path.parent / "heartbeat"
 
 
