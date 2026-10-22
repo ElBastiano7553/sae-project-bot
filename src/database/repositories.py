@@ -319,6 +319,11 @@ class GitLabEventRepository:
         ).fetchall()
         return [EventRecord(**dict(row)) for row in rows]
 
+    def count(self, kinds: tuple[str, ...] = ()) -> int:
+        """Nombre d'événements (de ces types), sans les charger en mémoire."""
+        where = f"WHERE event_type IN ({', '.join('?' * len(kinds))})" if kinds else ""
+        return int(self._conn.execute(f"SELECT COUNT(*) FROM gitlab_events {where}", kinds).fetchone()[0])
+
     def coverage(self) -> tuple[str | None, int]:
         """Date du plus ancien événement conservé et nombre total d'événements."""
         row = self._conn.execute("SELECT MIN(event_at) AS first, COUNT(*) AS total FROM gitlab_events").fetchone()
@@ -460,6 +465,10 @@ class BotErrorRepository:
     def alerts_since(self, since: str) -> int:
         row = self._conn.execute("SELECT COUNT(*) AS n FROM bot_errors WHERE alerted_at >= ?", (since,)).fetchone()
         return int(row["n"])
+
+    def count_since(self, since: str) -> int:
+        """Erreurs distinctes vues depuis ``since`` (date UTC « AAAA-MM-JJ HH:MM:SS »)."""
+        return int(self._conn.execute("SELECT COUNT(*) FROM bot_errors WHERE last_at >= ?", (since,)).fetchone()[0])
 
     def recent(self, since: str | None = None, limit: int = 10) -> list[BotError]:
         where, params = ("WHERE last_at >= ?", [since]) if since else ("", [])

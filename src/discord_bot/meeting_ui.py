@@ -257,7 +257,19 @@ class MeetingButton(discord.ui.DynamicItem[discord.ui.Button], template=BUTTON_T
         if cog is None:
             await interaction.response.send_message("Les réunions sont momentanément indisponibles.", ephemeral=True)
             return
-        await cog.handle_button(interaction, self.meeting_id, self.action, self.revision)
+        try:
+            await cog.handle_button(interaction, self.meeting_id, self.action, self.revision)
+        except Exception as exc:
+            # Un clic doit toujours avoir une réponse : pas de « Échec de l'interaction » muet.
+            log.error("Erreur sur le bouton %s de la réunion %s : %s", self.action, self.meeting_id, type(exc).__name__, exc_info=exc)
+            text = "Cette action n'a pas abouti à cause d'une erreur inattendue. Réessayez ; si cela persiste, prévenez un administrateur."
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(text, ephemeral=True)
+                else:
+                    await interaction.response.send_message(text, ephemeral=True)
+            except discord.HTTPException:
+                log.warning("Impossible de signaler l'erreur du bouton de réunion", exc_info=True)
 
 
 def panel_view(detail: MeetingDetail) -> discord.ui.View:

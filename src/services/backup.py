@@ -60,6 +60,9 @@ def create_backup(
         dest = sqlite3.connect(partial)
         try:
             conn.backup(dest)
+            # La copie hérite du mode WAL de la base : on la repasse en fichier unique, sinon chaque
+            # ouverture en lecture seule (vérification, restore-test) laisse des fichiers -wal/-shm orphelins.
+            dest.execute("PRAGMA journal_mode = DELETE")
         finally:
             dest.close()
         verify_backup(partial)
@@ -67,6 +70,8 @@ def create_backup(
     except (sqlite3.Error, OSError, BackupError) as exc:
         partial.unlink(missing_ok=True)
         raise BackupError(f"sauvegarde impossible : {exc}") from exc
+    finally:
+        remove_sidecars(partial)
     prune_backups(directory, keep)
     return BackupInfo(target, now, target.stat().st_size)
 
@@ -99,5 +104,12 @@ def prune_backups(directory: Path, keep: int) -> list[Path]:
     removed = []
     for old in list_backups(directory)[keep:]:
         old.path.unlink(missing_ok=True)
+        remove_sidecars(old.path)
         removed.append(old.path)
     return removed
+
+
+def remove_sidecars(path: Path) -> None:
+    """Fichiers -wal/-shm laissés à côté d'une copie (sauvegardes créées avant la version 1.2.1)."""
+    for suffix in ("-wal", "-shm", "-journal"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)

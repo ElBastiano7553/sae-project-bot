@@ -2,6 +2,8 @@
 
 ``RecentErrors`` garde en mémoire les dernières erreurs journalisées (niveau ERROR),
 réduites à une ligne et sans trace d'appel : ``/status`` affiche la plus récente.
+``InteractionStats`` compte les commandes slash, leurs erreurs et leurs réponses
+lentes depuis le démarrage (affiché par ``/status``).
 ``redact`` remplace les secrets connus (token Discord, secret des webhooks, clés
 d'API) par ``***`` : il est appliqué à tous les journaux, console et fichier.
 """
@@ -10,7 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -109,3 +111,53 @@ class ErrorTrackingHandler(logging.Handler):
             self._errors.record(record.name, message, dt.datetime.fromtimestamp(record.created, dt.UTC))
         except Exception:  # un journal ne doit jamais faire planter le bot
             self.handleError(record)
+
+
+# Discord exige une première réponse en moins de 3 secondes : au-delà, l'utilisateur voit
+# « L'application ne répond plus ». Une commande plus lente doit différer sa réponse.
+SLOW_INTERACTION_MS = 2500
+
+
+@dataclass(frozen=True)
+class InteractionSummary:
+    total: int
+    errors: int
+    slow: int
+    median_ms: int | None
+    slowest: str | None  # « /commande (1234 ms) »
+    failing: str | None  # commande la plus souvent en erreur
+
+
+class InteractionStats:
+    """Mesures des commandes slash, en mémoire (remises à zéro à chaque démarrage).
+
+    La durée est mesurée depuis la création de l'interaction par Discord jusqu'à la fin
+    du traitement : elle comprend le trajet réseau, c'est ce que ressent l'utilisateur.
+    """
+
+    def __init__(self, keep: int = 200) -> None:
+        self._durations: deque[int] = deque(maxlen=keep)
+        self.total = 0
+        self.errors: Counter[str] = Counter()
+        self.slow = 0
+        self._slowest: tuple[int, str] | None = None
+
+    def record(self, command: str, duration_ms: float, *, ok: bool = True) -> bool:
+        """Enregistre une commande terminée. Retourne ``True`` si elle a été lente."""
+        duration = max(int(duration_ms), 0)
+        self.total += 1
+        self._durations.append(duration)
+        if not ok:
+            self.errors[command] += 1
+        if self._slowest is None or duration > self._slowest[0]:
+            self._slowest = (duration, command)
+        slow = duration > SLOW_INTERACTION_MS
+        self.slow += slow
+        return slow
+
+    def summary(self) -> InteractionSummary:
+        durations = sorted(self._durations)
+        median = durations[len(durations) // 2] if durations else None
+        failing = self.errors.most_common(1)[0][0] if self.errors else None
+        slowest = f"/{self._slowest[1]} ({self._slowest[0]} ms)" if self._slowest else None
+        return InteractionSummary(self.total, sum(self.errors.values()), self.slow, median, slowest, failing)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -43,9 +44,10 @@ from src.services.backup import BackupError, BackupInfo, create_backup, list_bac
 from src.services.content import Announcement, EmbedField, MessagePayload, load_message_templates, render_message
 from src.services.meetings import MeetingService
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
-from src.services.monitoring import ErrorRecord, RecentErrors
+from src.services.monitoring import ErrorRecord, InteractionStats, RecentErrors
 from src.services.permanent_messages import PermanentMessageService, SyncAction
 from src.services.server_structure import StructureReport, resolve_structure
+from src.systemd_notify import notify as systemd_notify
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +55,8 @@ SETUP_CONFIRMED_KEY = "setup_confirmed_at"
 ANNOUNCEMENT_KEY = "announcement"
 # Identifiants des catégories retrouvées ou créées par /refonte (JSON « clé → identifiant »).
 CATEGORY_BINDINGS_KEY = "category_bindings"
+# Empreinte des commandes slash déjà envoyées à Discord (évite une synchronisation à chaque redémarrage).
+COMMANDS_SYNC_KEY = "commands_sync_hash"
 EXTENSIONS = (
     "src.discord_bot.cogs.general",
     "src.discord_bot.cogs.activity",
@@ -120,6 +124,7 @@ class SaeBot(commands.Bot):
         self.gitlab_error: str | None = None
         self.errors = errors or RecentErrors()
         self.errors.add_listener(self._on_error)
+        self.interaction_stats = InteractionStats()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: int | None = None
         self._dashboard_task: asyncio.Task | None = None
@@ -147,12 +152,42 @@ class SaeBot(commands.Bot):
             self._background.append(asyncio.create_task(self._backup_loop(), name="backups"))
         for extension in EXTENSIONS:
             await self.load_extension(extension)
+        await self.sync_commands()
+        await self.start_gitlab_webhooks()
+
+    def commands_fingerprint(self, guild: discord.abc.Snowflake) -> str:
+        """Empreinte de ce qui serait envoyé à Discord : change dès qu'une commande, une option ou un texte change."""
+        payload = [command.to_dict(self.tree) for command in self.tree.get_commands(guild=guild)]
+        raw = json.dumps({"app": self.application_id, "guild": guild.id, "commands": payload}, sort_keys=True, default=str)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    async def sync_commands(self, *, force: bool = False) -> int | None:
+        """Synchronise les commandes slash sur le serveur, seulement si elles ont changé.
+
+        Discord limite le nombre de synchronisations : avec un redémarrage automatique,
+        resynchroniser à chaque démarrage ralentirait le bot et pourrait le faire limiter.
+        Retourne le nombre de commandes envoyées, 0 si rien n'a changé, ``None`` en cas d'échec
+        (les commandes déjà enregistrées restent alors utilisables).
+        """
         guild = discord.Object(id=self.settings.guild_id)
         # Synchronisation sur le serveur uniquement : les commandes apparaissent immédiatement.
         self.tree.copy_global_to(guild=guild)
-        synced = await self.tree.sync(guild=guild)
+        fingerprint = self.commands_fingerprint(guild)
+        if not force and self.state_repo.get(COMMANDS_SYNC_KEY) == fingerprint:
+            log.info("Commandes slash inchangées depuis la dernière synchronisation : rien à envoyer à Discord")
+            return 0
+        try:
+            synced = await self.tree.sync(guild=guild)
+        except discord.HTTPException as exc:
+            log.error(
+                "Synchronisation des commandes slash impossible (HTTP %s) : les commandes déjà connues de Discord "
+                "restent utilisables, nouvel essai au prochain démarrage.",
+                getattr(exc, "status", "?"),
+            )
+            return None
+        self.state_repo.set(COMMANDS_SYNC_KEY, fingerprint)
         log.info("%d commandes slash synchronisées sur le serveur %s", len(synced), self.settings.guild_id)
-        await self.start_gitlab_webhooks()
+        return len(synced)
 
     async def start_gitlab_webhooks(self) -> None:
         """Démarre la V2 si elle est configurée. Une erreur ici n'empêche jamais la V1 de fonctionner."""
@@ -413,6 +448,8 @@ class SaeBot(commands.Bot):
     async def _heartbeat_loop(self) -> None:
         while True:
             self.write_heartbeat()
+            # Chien de garde systemd : prouve que la boucle du bot n'est pas bloquée (sans effet hors systemd).
+            systemd_notify("WATCHDOG=1")
             await asyncio.sleep(HEARTBEAT_SECONDS)
 
     def run_backup(self, reason: str = "") -> BackupInfo:
@@ -440,6 +477,22 @@ class SaeBot(commands.Bot):
                 except Exception:
                     log.exception("Sauvegarde automatique échouée")
             await asyncio.sleep(min(interval.total_seconds(), 3600))
+
+    # --- Réactivité des commandes ------------------------------------------------------
+
+    async def on_app_command_completion(self, interaction: discord.Interaction, command) -> None:
+        self.record_interaction(interaction, ok=True)
+
+    def record_interaction(self, interaction: discord.Interaction, *, ok: bool) -> None:
+        """Mesure une commande slash terminée ; une réponse lente est signalée dans les journaux (sans contenu)."""
+        command = interaction.command
+        name = command.qualified_name if command is not None else "?"
+        created = getattr(interaction, "created_at", None)
+        if created is None:
+            return
+        duration_ms = (discord.utils.utcnow() - created).total_seconds() * 1000
+        if self.interaction_stats.record(name, duration_ms, ok=ok):
+            log.warning("Commande /%s lente : %d ms (Discord attend une première réponse en moins de 3 s)", name, duration_ms)
 
     # --- Erreurs et alertes --------------------------------------------------------
 
@@ -580,6 +633,9 @@ def install_error_handler(tree: app_commands.CommandTree) -> None:
     async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         original = getattr(error, "original", error)
         name = interaction.command.qualified_name if interaction.command else "?"
+        client = interaction.client
+        if isinstance(client, SaeBot):
+            client.record_interaction(interaction, ok=isinstance(error, app_commands.CheckFailure))
         if isinstance(error, app_commands.NoPrivateMessage):
             await send_error(interaction, "Cette commande s'utilise sur le serveur de l'équipe, pas en message privé.")
         elif isinstance(error, app_commands.CheckFailure):

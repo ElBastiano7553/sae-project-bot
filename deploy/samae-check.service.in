@@ -1,0 +1,29 @@
+# Contrôle périodique de Samae (lancé par samae-check.timer). Installé par deploy/install-service.sh.
+# Vérifie le fichier de vie, la mémoire, le disque et les sauvegardes ; prévient sur Discord
+# (ALERT_WEBHOOK_URL) seulement quand l'état change. Guide : docs/deployment-vps.md
+[Unit]
+Description=Contrôle de santé de Samae
+
+[Service]
+Type=oneshot
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP_DIR@
+ExecStart=@APP_DIR@/.venv/bin/python -m src.ops check --alert
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# Code 1 = problème constaté : déjà signalé (journal, alerte), le contrôle lui-même n'a pas échoué.
+SuccessExitStatus=1
+TimeoutStartSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@RW_PATHS@
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0077

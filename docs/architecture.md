@@ -37,6 +37,7 @@ Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste 
 | 4 | Fiabilité (arrêt propre, heartbeat), sauvegardes SQLite (`services/backup.py`), sécurité, Docker (`Dockerfile`, `docker-compose.yml`, `src/healthcheck.py`) et guide de déploiement Linux | ✅ livré (version 1.0.0) ; déploiement La Banquise à faire |
 | Samae 2.0 · 1 | Réunions : `database/meetings.py`, `services/meetings.py`, `cogs/meetings.py`, `meeting_ui.py` (boutons persistants), migration v7 | ✅ livré (version 1.1.0) |
 | 1.2.0 | Refonte du serveur (`services/server_redesign.py` pur, `discord_bot/redesign.py` exécuteur, `redesign_ui.py`, `cogs/redesign.py`), centre d'aide (`services/help.py`, `discord_bot/help_ui.py`), nouvelle palette ; pas de migration | ✅ livré, non déployé ([détails](refonte-et-aide.md)) |
+| 1.2.1 | Exploitation : `src/instance_lock.py` (instance unique), `src/systemd_notify.py` (chien de garde), `src/ops.py` (sauvegarde, test de restauration, restauration, surveillance), `deploy/` (service systemd, mise à jour, retour arrière) ; synchronisation des commandes seulement si elles changent, mesures de réactivité (`InteractionStats`) ; pas de migration | ✅ livré, non déployé ([guide](deployment-vps.md)) |
 | Samae 2.0 · 2 à 4 | Idées et tier lists, débat et communauté, finitions : voir [samae-2-plan.md](samae-2-plan.md) | ⏳ à faire |
 
 Principes ajoutés au lot 1 :

@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.2.0 (refonte du serveur, centre d'aide, identité visuelle)
+## État actuel : version 1.2.1 (hébergement VPS systemd, fiabilité des interactions)
 
 | Fonction | État |
 |---|---|
@@ -22,10 +22,13 @@ et bilans assistés par IA.
 | IA (désactivée par défaut) : `/ask` (questions sur les documents de l'équipe, sources citées), `/summary` (bilan GitLab), `/review` (relecture d'une MR, API GitLab en lecture seule), quotas, secrets masqués | ✅ lot 3 |
 | Sauvegardes SQLite vérifiées (automatiques, avant migration, `/admin backup`), arrêt propre, contrôle de santé, image Docker non root et guide de déploiement Linux | ✅ lot 4 (déploiement réel à faire) |
 | Réunions (`/reunion`) : ordre du jour, participants, étapes, décisions, réserves, actions, panneau mis à jour sur place avec boutons persistants, compte rendu figé et paginé | ✅ Samae 2.0 lot 1 |
+| Hébergement VPS en service systemd : démarrage au boot, redémarrage après crash ou blocage, instance unique, sauvegarde et test de restauration avant chaque mise à jour, retour arrière, surveillance avec alerte Discord | ✅ 1.2.1 (installation sur le VPS à faire, [guide](docs/deployment-vps.md)) |
+| Réactivité : commandes resynchronisées seulement si elles changent, mesure des commandes lentes dans `/status`, confirmations et boutons qui signalent toujours un échec | ✅ 1.2.1 |
 | Idées et tier lists · débats, sondages, auto-rôles, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
-`/help` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Déploiement sur un serveur Linux :
-[docs/deployment-linux.md](docs/deployment-linux.md) ; sécurité : [docs/security.md](docs/security.md).
+`/help` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :
+[docs/deployment-vps.md](docs/deployment-vps.md) ; avec Docker : [docs/deployment-linux.md](docs/deployment-linux.md) ;
+sécurité : [docs/security.md](docs/security.md) ; plan de test manuel : [docs/test-manuel.md](docs/test-manuel.md).
 
 ## Démarrage rapide (Windows, PowerShell)
 
@@ -121,6 +124,8 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Samae 2.0 : audit et plan des lots](docs/samae-2-plan.md)
 - [Réunions : déroulement, permissions, compte rendu (Samae 2.0, lot 1)](docs/meetings.md)
 - [Refonte du serveur, centre d'aide et identité visuelle (1.2.0)](docs/refonte-et-aide.md)
+- [Héberger Samae sur le VPS (systemd) : installation, mises à jour, retour arrière, sauvegardes, surveillance](docs/deployment-vps.md)
+- [Plan de test manuel sur un serveur Discord de test (dont `/refonte`)](docs/test-manuel.md)
 
 ## Tests
 

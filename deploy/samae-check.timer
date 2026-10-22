@@ -1,0 +1,11 @@
+# Lance samae-check.service 3 minutes après le démarrage du serveur, puis toutes les 5 minutes.
+[Unit]
+Description=Contrôle de santé de Samae toutes les 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

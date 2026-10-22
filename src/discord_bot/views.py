@@ -7,6 +7,8 @@ from collections.abc import Awaitable, Callable
 
 import discord
 
+from src.config import ConfigError
+
 log = logging.getLogger(__name__)
 
 ConfirmCallback = Callable[[discord.Interaction], Awaitable[None]]
@@ -36,14 +38,39 @@ class ConfirmView(discord.ui.View):
                 "Seule la personne qui a lancé la commande peut confirmer.", ephemeral=True
             )
             return False
-        return not self.done
+        if self.done:
+            # Deuxième clic (ou interaction renvoyée par Discord) : l'action est déjà lancée, une seule fois.
+            try:
+                await interaction.response.defer()
+            except discord.HTTPException:
+                pass
+            return False
+        return True
 
     @discord.ui.button(label="Confirmer", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         self.done = True
         self.stop()
         await interaction.response.edit_message(content="Application en cours…", view=None)
-        await self._on_confirm(interaction)
+        try:
+            await self._on_confirm(interaction)
+        except ConfigError as exc:
+            await self._show_failure(interaction, f"**Problème de configuration** : {exc}")
+        except Exception as exc:
+            # Jamais de « Application en cours… » sans fin : l'échec est dit clairement.
+            log.error("Erreur pendant la confirmation de %s : %s", self._command, type(exc).__name__, exc_info=exc)
+            await self._show_failure(
+                interaction,
+                f"**Échec** : {self._command} s'est arrêté sur une erreur inattendue. "
+                "Une partie des changements a pu être appliquée : vérifiez l'état avec `/status` "
+                "(et `/admin messages` pour les messages permanents). Le détail est dans les journaux du bot.",
+            )
+
+    async def _show_failure(self, interaction: discord.Interaction, text: str) -> None:
+        try:
+            await interaction.edit_original_response(content=text, embeds=[], view=None)
+        except discord.HTTPException:
+            log.warning("Impossible d'afficher l'échec de la confirmation", exc_info=True)
 
     @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

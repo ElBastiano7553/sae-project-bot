@@ -285,6 +285,8 @@ class AdminCog(commands.Cog):
     @admin.command(name="backup", description="Sauvegarder la base de données maintenant (copie vérifiée)")
     @admin_only()
     async def admin_backup(self, interaction: discord.Interaction) -> None:
+        # La copie et sa vérification grandissent avec la base : réponse différée pour rester sous les 3 s de Discord.
+        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             info = self.bot.run_backup(reason="manuelle")
         except BackupError as exc:
@@ -293,7 +295,7 @@ class AdminCog(commands.Cog):
             return
         self.bot.record_admin_action(interaction, "admin backup", info.path.name, "ok")
         backups = list_backups(self.bot.settings.backup_dir)
-        await interaction.response.send_message(embed=backup_embed(info, backups, self.bot.settings.backup_keep), ephemeral=True)
+        await interaction.followup.send(embed=backup_embed(info, backups, self.bot.settings.backup_keep), ephemeral=True)
 
     def _diagnose_channels(self, guild: discord.Guild, bindings: dict[str, int]) -> list[ChannelDiagnostic]:
         message_channels = [t.channel_key for t in load_message_templates()]
