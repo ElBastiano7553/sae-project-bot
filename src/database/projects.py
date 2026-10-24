@@ -76,6 +76,14 @@ class ProjectRepository:
         row = self._conn.execute("SELECT * FROM projects WHERE id = ? AND guild_id = ?", (project_id, guild_id)).fetchone()
         return _record(row) if row else None
 
+    def find(self, guild_id: int, provider: str, external_id: str, instance_url: str = "") -> ProjectRecord | None:
+        """Projet déjà suivi par ce serveur (identifiants déjà normalisés), ou None."""
+        row = self._conn.execute(
+            "SELECT * FROM projects WHERE guild_id = ? AND provider = ? AND instance_url = ? AND external_id = ?",
+            (guild_id, provider, instance_url, external_id),
+        ).fetchone()
+        return _record(row) if row else None
+
     def list_for_guild(self, guild_id: int) -> list[ProjectRecord]:
         rows = self._conn.execute("SELECT * FROM projects WHERE guild_id = ? ORDER BY name COLLATE NOCASE, id", (guild_id,))
         return [_record(row) for row in rows]

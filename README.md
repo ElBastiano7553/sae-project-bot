@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.6.0 (multi-projets : `/projet liste`, `details` et `modifier`)
+## État actuel : version 1.7.0 (multi-projets : `/projet liste`, `details`, `ajouter` et `modifier`)
 
 | Fonction | État |
 |---|---|
@@ -29,6 +29,7 @@ et bilans assistés par IA.
 | Règlement publié dans `#règlement` (et non plus dans `#annonces`), panneaux « Choix des rôles » et « Organiser une réunion », pied de page « Samae » | ✅ 1.4.0 |
 | Multi-projets, étape B1 : projets enregistrés par serveur Discord (GitHub et GitLab), projets du `.env` affichés comme « historiques », `/projet liste` et `/projet details` (un membre ne voit que les salons auxquels il a accès) | ✅ 1.5.0 ([guide](docs/projets.md)) |
 | Multi-projets, étape B2 : salon et filtres (branches, actions, statuts) par catégorie de notifications, `/projet modifier` réservé aux administrateurs | ✅ 1.6.0 ([guide](docs/projets.md)) |
+| Multi-projets : `/projet ajouter` (admins) enregistre un projet à partir de l'adresse de son dépôt GitHub ou GitLab, après récapitulatif et confirmation ; pas encore de notifications (connexion en B4/B5) | ✅ 1.7.0 ([guide](docs/projets.md)) |
 | Multi-projets, étapes B3 à B7 : salons et filtres par projet, connexion GitHub App et GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
@@ -87,7 +88,7 @@ Les commandes sont regroupées par système : tapez `/` puis le nom du groupe, D
 | `/roles` | tout le monde | choisir ses domaines de travail et ses notifications (menu privé, plusieurs choix, modifiable) |
 | `/activite resume` · `evenements` · `stats` · `contributions` | tout le monde (type « erreurs » : admins) | liens et activité récente, historique GitLab, statistiques, contributions |
 | `/projet liste` · `details` | tout le monde (détails complets : admins) | projets GitHub et GitLab suivis sur ce serveur, état et salons des notifications |
-| `/projet modifier` | admins | salon et filtres d'une catégorie de notifications d'un projet enregistré |
+| `/projet ajouter` · `modifier` | admins | enregistrer un projet (adresse du dépôt, confirmation), puis choisir le salon et les filtres de chaque catégorie |
 | `/ia question` · `bilan` · `relecture` | tout le monde, si l'IA est activée | réponses de l'IA, éphémères, avec leurs sources |
 | `/reunion aide` · `creer` · `voir` · `liste` · `rejoindre` · `quitter` · `progression` · `compte-rendu` | tout le monde | réunions, panneau public mis à jour sur place ([guide](docs/meetings.md)) |
 | `/reunion ajouter point` · `reserve` · `action` | participants | ce qu'on note pendant la réunion |

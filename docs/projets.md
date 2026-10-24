@@ -17,7 +17,36 @@ ce qui existe aujourd'hui (étape **B1**, version 1.5.0) et ce qui suit.
   salons, y compris ceux qui ne sont pas associés, qui a ajouté le projet et où se trouve sa configuration.
 * Toutes les réponses sont éphémères. Aucune commande n'affiche de secret, de token ni de valeur du `.env`.
 
-L'ajout et la suppression de projets depuis Discord arrivent aux étapes B4 à B6.
+Les projets s'enregistrent avec `/projet ajouter` (ci-dessous) ; leur connexion à GitHub ou GitLab
+arrive aux étapes B4 et B5, leur suppression à l'étape B6.
+
+## 1 ter. Ajouter un projet (`/projet ajouter`, version 1.7.0)
+
+Réservée aux **administrateurs** (vérifié par le bot à chaque appel). Options : `url` (adresse du
+dépôt) et `nom` (facultatif, par défaut le nom du dépôt).
+
+| Adresse acceptée | Fournisseur détecté |
+|---|---|
+| `https://github.com/equipe/jeu` (aussi `.git`, `/tree/main…`, `git@github.com:equipe/jeu.git`) | GitHub |
+| `https://gitlab.com/groupe/sous-groupe/projet` (aussi `/-/…`, `.git`, SSH) | GitLab |
+| une instance GitLab dont l'adresse contient « gitlab », ou celle de `GITLAB_BASE_URL` | GitLab |
+
+1. Samae lit l'adresse **sans aucune requête réseau** (l'existence du dépôt n'est pas vérifiée à ce
+   stade) et refuse avec un message clair : adresse en `http://`, incomplète, fournisseur non reconnu,
+   ou contenant un identifiant ou un mot de passe (`https://jean:…@…`) — l'adresse fautive n'est pas répétée.
+2. Doublons : un projet déjà suivi **par ce serveur** est refusé (comparaison sans tenir compte des
+   majuscules) ; le même dépôt suivi par un autre serveur ne compte pas. Le dépôt du projet historique
+   `env-github` est refusé aussi (ses notifications seraient doublées). Pour GitLab, le projet du `.env`
+   est identifié par son numéro : le récapitulatif affiche un avertissement à vérifier.
+3. Récapitulatif privé : fournisseur, nom du projet, serveur concerné, dépôt, et ce que l'ajout permet
+   **à ce stade**. Boutons Confirmer / Annuler, réservés à l'auteur, expiration 2 minutes ; rien n'est
+   enregistré avant la confirmation (le doublon est revérifié à ce moment-là).
+4. Après confirmation, le projet apparaît dans `/projet liste` avec l'état « enregistré, pas encore
+   connecté : aucune notification ». L'ajout est noté dans `/admin historique`.
+
+L'ajout, puis les salons et filtres (`/projet modifier`), restent deux opérations distinctes.
+**Aucune surveillance n'a lieu** tant que la connexion (GitHub App en B4, OAuth GitLab en B5) n'existe
+pas, et aucun token ni mot de passe n'est jamais demandé dans Discord.
 
 ## 1 bis. Salons et filtres par projet (étape B2, version 1.6.0)
 
@@ -74,7 +103,7 @@ Ils n'apparaissent que sur le serveur `DISCORD_GUILD_ID`.
 
 | Table | Contenu |
 |---|---|
-| `projects` | un projet = serveur Discord (`guild_id`) + fournisseur (`github` ou `gitlab`) + identifiant chez le fournisseur (`owner/depot`, ou numéro de projet GitLab + adresse de l'instance) + nom + état (`active`, `suspended`) + auteur et date |
+| `projects` | un projet = serveur Discord (`guild_id`) + fournisseur (`github` ou `gitlab`) + identifiant chez le fournisseur, en minuscules (`owner/depot`, ou chemin `groupe/projet` ou numéro d'un projet GitLab + adresse de l'instance) + nom + état (`active`, `suspended`) + auteur et date |
 | `project_routes` | pour chaque projet et chaque catégorie commune (`code`, `revues`, `tickets`, `ci`, `versions`, `deploiements`) : le salon et les filtres (JSON) |
 
 * **Aucun token ni secret** n'est stocké dans ces tables.

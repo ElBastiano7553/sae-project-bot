@@ -16,7 +16,7 @@ les réunions, `/admin` tout ce qui concerne l'administration, etc.
 | `/etat` | tous | (commande simple) |
 | `/roles` | tous | (commande simple) |
 | `/activite` | tous | `resume`, `evenements`, `stats`, `contributions` |
-| `/projet` *(1.5.0)* | tous ; `modifier` : admins | `liste`, `details`, `modifier` (1.6.0) ; voir [projets.md](projets.md) |
+| `/projet` *(1.5.0)* | tous ; `modifier` : admins | `liste`, `details`, `modifier` (1.6.0), `ajouter` (1.7.0) ; voir [projets.md](projets.md) |
 | `/ia` | tous | `question`, `bilan`, `relecture` |
 | `/reunion` | tous | `aide`, `creer`, `voir`, `liste`, `rejoindre`, `quitter`, `inviter`, `animer`, `progression`, `ajouter point·decision·reserve·action`, `terminer`, `annuler`, `compte-rendu` |
 | `/admin` | admins | `installer`, `actualiser`, `reconstruire`, `messages`, `annonce`, `config`, `diagnostic`, `historique`, `sauvegarde` |
