@@ -40,7 +40,8 @@ def test_all_real_templates_render_and_target_known_channels():
     links = load_links()
     templates = load_message_templates()
     assert {t.key for t in templates} == {
-        "annonce-en-cours", "annonces", "bienvenue", "decisions", "documentation", "liens", "planning", "tableau-de-bord"
+        "annonce-en-cours", "bienvenue", "decisions", "documentation", "guide-reunions", "liens", "planning",
+        "reglement", "roles", "tableau-de-bord",
     }
     for t in templates:
         assert t.channel_key in layout.channels
@@ -49,9 +50,12 @@ def test_all_real_templates_render_and_target_known_channels():
         assert payload_length(payload) <= limits.EMBED_TOTAL
 
 
-def test_team_rules_are_present_in_annonces():
-    annonces = next(t for t in load_message_templates() if t.key == "annonces")
-    text = " ".join(f.name + f.value for f in annonces.fields)
+def test_team_rules_target_the_rules_channel_not_the_announcements():
+    """Le règlement vise #règlement (repli : #annonces) et reprend le message publié sous l'ancienne clé."""
+    reglement = next(t for t in load_message_templates() if t.key == "reglement")
+    assert reglement.channel_key == "regles" and reglement.previous_keys == ("annonces",)
+    assert load_server_layout().channels["regles"].fallback == "annonces"
+    text = " ".join(f.name + f.value for f in reglement.fields)
     for keyword in ["responsable", "GitLab", "Merge Request", "documentées", "IA", "secret"]:
         assert keyword.lower() in text.lower()
 
@@ -159,7 +163,7 @@ def test_completing_links_removes_the_section_and_changes_the_hash():
     after = render_message(t, filled, EMPTY_PLANNING, TODAY)
     assert not after.provisional
     assert MISSING_FIELD_NAME not in {f.name for f in after.fields}
-    assert after.content_hash() != before.content_hash()  # /refresh modifiera donc le même message
+    assert after.content_hash() != before.content_hash()  # /admin actualiser modifiera donc le même message
 
 
 def test_only_optional_links_missing_is_not_called_provisional_text():
@@ -218,3 +222,32 @@ def test_invalid_link_catalog(tmp_path, content, error):
     path.write_text(content, encoding="utf-8")
     with pytest.raises(ConfigError, match=error):
         load_link_catalog(path)
+
+
+def test_roles_panel_lists_offered_roles_and_hides_button_without_roles():
+    from src.services.self_roles import ROLE_PICKER_ID, SelfRole, SelfRoleCatalog
+
+    panel = next(t for t in load_message_templates() if t.key == "roles")
+    catalog = SelfRoleCatalog((SelfRole("developpement", 5, "Développement", "Code du jeu.", "fonction"),))
+    payload = render_message(panel, load_links(), EMPTY_PLANNING, TODAY, self_roles=catalog)
+    assert payload.fields[0].name == "Domaines de travail" and "**Développement** — Code du jeu." in payload.fields[0].value
+    assert [a.custom_id for a in payload.actions] == [ROLE_PICKER_ID]
+    empty = render_message(panel, load_links(), EMPTY_PLANNING, TODAY, self_roles=SelfRoleCatalog())
+    assert empty.actions == () and "Aucun rôle" in empty.fields[0].value
+
+
+def test_unknown_action_is_a_config_error(tmp_path):
+    (tmp_path / "x.toml").write_text('channel = "bienvenue"\ntitle = "T"\ndescription = "D"\n[[actions]]\nlabel = "L"\naction = "pirater"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="action inconnue"):
+        load_message_templates(tmp_path)
+
+
+def test_welcome_template_mentions_the_member_and_the_rules():
+    from src.services.welcome import load_welcome_template, personalize
+
+    template = personalize(load_welcome_template(), "<@55>")
+    layout = load_server_layout()
+    assert template.channel_key in layout.channels
+    payload = render_message(template, load_links(), EMPTY_PLANNING, TODAY, channels={k: f"#{k}" for k in layout.channels})
+    assert "<@55>" in payload.description and "#regles" in payload.fields[0].value
+    assert [a.label for a in payload.actions] == ["Choisir mes rôles"]

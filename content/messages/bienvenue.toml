@@ -1,14 +1,15 @@
 # Message permanent du salon #bienvenue.
 # Les textes {{nom_du_lien}} sont remplacés par les liens de config/links.toml,
 # et {{#cle}} par un lien vers le salon associé à cette fonction (config/server.toml).
-# Après modification : /refresh sur Discord.
+# Après modification : /admin actualiser sur Discord.
+# Le bouton « Choisir mes rôles » ([[actions]]) ouvre le choix des rôles de chaque membre.
 
 channel = "bienvenue"
 title = "Bienvenue sur le serveur de la SAE"
 description = """
 Ce serveur centralise le travail de notre équipe de **cinq étudiants de l'EPITA** sur le développement d'un **jeu vidéo en Python**.
 
-Il sert à nous organiser, à suivre l'activité du dépôt GitLab et à garder une trace des décisions importantes.
+Il sert à nous organiser, à suivre l'activité de nos dépôts (GitLab et GitHub) et à garder une trace des décisions importantes.
 """
 
 [[fields]]
@@ -22,19 +23,19 @@ value = """
 [[fields]]
 name = "Pour bien démarrer"
 value = """
-1. Lisez les règles d'équipe dans {{#annonces}}.
-2. Consultez les échéances dans {{#planning}}.
-3. Vérifiez que vous avez accès au dépôt GitLab.
-4. Présentez-vous dans {{#discussion}}.
-5. Tapez `/help` pour découvrir Samae.
+1. Lisez le règlement de l'équipe : {{#regles}}.
+2. Choisissez vos domaines de travail avec le bouton « Choisir mes rôles » (ou `/roles`).
+3. Consultez les échéances dans {{#planning}} et les annonces dans {{#annonces}}.
+4. Vérifiez que vous avez accès au dépôt GitLab.
+5. Présentez-vous dans {{#discussion}}, puis tapez `/aide` pour découvrir Samae.
 """
 
 [[fields]]
 name = "Organisation du serveur"
 value = """
-**Accueil** : informations et annonces · **Espace commun** : discussions
+**Accueil** : bienvenue, règlement, annonces, rôles · **Espace commun** : discussions
 **Conception du jeu** : idées, game design, décisions · **Organisation** : réunions, comptes rendus, planning
-**Développement** : code, bugs, builds et activité GitLab · **Livrables** : documentation pour l'EPITA · **Vocal**
+**Développement** : code, bugs, builds et activité Git · **Livrables** : documentation pour l'EPITA · **Vocal**
 """
 
 [[fields]]
@@ -43,6 +44,10 @@ value = """
 Dépôt GitLab : {{gitlab_project}}
 Sujet de la SAE : {{sujet_sae}}
 """
+
+[[actions]]
+label = "Choisir mes rôles"
+action = "roles"
 
 [[buttons]]
 label = "Dépôt GitLab"

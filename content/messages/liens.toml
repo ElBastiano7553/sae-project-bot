@@ -1,7 +1,7 @@
 # Message permanent « Liens utiles » du salon #bienvenue.
 # La liste est construite automatiquement à partir de config/links.toml :
 # les liens renseignés sont cliquables, les autres apparaissent dans « À compléter ».
-# Ajouter un lien puis lancer /refresh modifie CE message (aucune nouvelle publication).
+# Ajouter un lien puis lancer /admin actualiser modifie CE message (aucune nouvelle publication).
 
 channel = "bienvenue"
 title = "Liens utiles du projet"

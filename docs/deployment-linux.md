@@ -15,7 +15,7 @@ chaque étape se fait à la main, sur le serveur.
 | Un serveur Linux 64 bits (x86_64) avec un accès SSH | exécuter le bot en continu | — |
 | Docker Engine et le plugin `docker compose` (ou le droit de les installer) | lancer l'image | installation sans Docker, §8 |
 | Sortie HTTPS vers `discord.com`, `gateway.discord.gg`, `gitlab.com` (ou votre GitLab), `api.anthropic.com` (si l'IA est activée) | Discord, API GitLab, IA | le bot ne peut pas fonctionner |
-| **Pour les webhooks GitLab seulement** : un nom de domaine qui pointe vers le serveur avec les ports 80/443 ouverts, **ou** un compte Cloudflare avec un domaine (tunnel nommé) | GitLab doit joindre le bot en HTTPS | sans webhooks, tout le reste fonctionne (V1, commandes, IA sauf `/summary` qui n'aurait pas de données) |
+| **Pour les webhooks GitLab seulement** : un nom de domaine qui pointe vers le serveur avec les ports 80/443 ouverts, **ou** un compte Cloudflare avec un domaine (tunnel nommé) | GitLab doit joindre le bot en HTTPS | sans webhooks, tout le reste fonctionne (V1, commandes, IA sauf `/ia bilan` qui n'aurait pas de données) |
 | Environ 1 Go d'espace disque et 512 Mo de mémoire | image (~290 Mo), base, sauvegardes, journaux | — |
 
 En production, n'utilisez **pas** ngrok ni un *Quick Tunnel* Cloudflare : leur adresse
@@ -59,8 +59,8 @@ docker compose ps        # « healthy » après une à deux minutes
 docker compose logs -f   # Ctrl+C pour quitter l'affichage, le bot continue
 ```
 
-Sur Discord, `/status` doit afficher la connexion, la base (schéma v7), les salons
-reconnus et les sauvegardes. Si c'est la première installation, lancez `/setup`.
+Sur Discord, `/etat` doit afficher la connexion, la base (schéma v7), les salons
+reconnus et les sauvegardes. Si c'est la première installation, lancez `/admin installer`.
 
 ### Ce que fait `docker-compose.yml`
 
@@ -71,7 +71,7 @@ reconnus et les sauvegardes. Si c'est la première installation, lancez `/setup`
   bot est connecté à Discord.
 - **Système de fichiers en lecture seule**. Seuls `data/` et `logs/` sont accessibles en
   écriture. `config/`, `content/` et `knowledge/` sont montés en lecture seule : on les
-  modifie sur le serveur, puis `/refresh` (ou un redémarrage pour `config/gitlab.toml`).
+  modifie sur le serveur, puis `/admin actualiser` (ou un redémarrage pour `config/gitlab.toml`).
 - **Aucun privilège** : `cap_drop: ALL`, `no-new-privileges`, utilisateur non root.
 - **Limites de ressources** : 512 Mo de mémoire au plus, 128 processus au plus.
 - **Port des webhooks** : ouvert uniquement sur `127.0.0.1:8080`, donc invisible depuis
@@ -109,7 +109,7 @@ Suivez l'option C de [gitlab-webhooks.md](gitlab-webhooks.md), puis installez
 `cloudflared` comme service : `sudo cloudflared service install`. L'adresse reste fixe.
 
 Dans les deux cas, terminez par le test « Test > Push events » de GitLab (voir
-gitlab-webhooks.md §6). `/status` doit indiquer « webhooks actifs ».
+gitlab-webhooks.md §6). `/etat` doit indiquer « webhooks actifs ».
 
 ## 5. Sauvegardes
 
@@ -118,7 +118,7 @@ gitlab-webhooks.md §6). `/status` doit indiquer « webhooks actifs ».
   défaut).
 - **Avant chaque migration** du schéma, une copie `…-avantvN.sqlite3` est créée. Si elle
   échoue (disque plein…), le bot refuse de démarrer **sans toucher à la base**.
-- **À la demande** : `/admin backup` sur Discord.
+- **À la demande** : `/admin sauvegarde` sur Discord.
 - **Hors du serveur (recommandé)** : les sauvegardes sont sur le même disque que la base.
   Copiez-les régulièrement ailleurs, par exemple depuis votre ordinateur :
   `scp -r utilisateur@serveur:/opt/sae-project-bot/data/backups ./sauvegardes-sae`
@@ -139,7 +139,7 @@ sudo chown 10001:10001 data/sae_bot.sqlite3
 docker compose start
 ```
 
-Vérifiez ensuite `/status` et `/admin messages`. Les événements GitLab reçus après la
+Vérifiez ensuite `/etat` et `/admin messages`. Les événements GitLab reçus après la
 date de la sauvegarde ne sont plus dans l'historique.
 
 ## 6. Mettre à jour
@@ -163,8 +163,8 @@ créée juste avant la migration (§5).
 | `docker compose ps` | état et santé (`healthy` / `unhealthy`) |
 | `docker compose logs --tail 100` | derniers journaux |
 | `docker compose exec bot python -m src.healthcheck` | contrôle de santé à la main |
-| `/status` sur Discord | état complet, dernière erreur, sauvegardes, IA |
-| `/events type:Erreurs du bot` (admins) | erreurs regroupées |
+| `/etat` sur Discord | état complet, dernière erreur, sauvegardes, IA |
+| `/activite evenements type:Erreurs du bot` (admins) | erreurs regroupées |
 
 `ALERTS_CHANNEL` permet d'être prévenu sur Discord en cas d'erreurs répétées (voir
 history-and-stats.md §5). Si le bot est complètement arrêté, il ne peut pas prévenir :

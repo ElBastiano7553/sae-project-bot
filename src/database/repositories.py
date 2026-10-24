@@ -82,6 +82,18 @@ class ManagedMessageRepository:
         with self._conn:
             self._conn.execute("DELETE FROM managed_messages WHERE key = ?", (key,))
 
+    def rename(self, old_key: str, new_key: str) -> bool:
+        """Donne une nouvelle clé à un message déjà publié (fichier de contenu renommé), sans le republier.
+
+        Ne fait rien si la nouvelle clé existe déjà : on ne remplace jamais un message enregistré.
+        """
+        with self._conn:
+            cursor = self._conn.execute(
+                "UPDATE managed_messages SET key = ? WHERE key = ? AND NOT EXISTS (SELECT 1 FROM managed_messages WHERE key = ?)",
+                (new_key, old_key, new_key),
+            )
+        return cursor.rowcount == 1
+
 
 class ChannelBindingRepository:
     """Association « fonction du bot » → identifiant du salon Discord."""
@@ -132,7 +144,7 @@ class EventSummary:
     url: str | None = None
     author: str = ""
     occurred_at: str | None = None  # ISO 8601 ; converti en UTC « AAAA-MM-JJ HH:MM:SS » dans event_at
-    # Lot 2 : données utilisées par /stats, /leaderboard et le tableau de bord.
+    # Lot 2 : données utilisées par /activite stats, /activite contributions et le tableau de bord.
     user_id: int | None = None  # auteur de l'action (pousseur, auteur de l'action sur la MR…)
     user_username: str = ""
     subject_id: int | None = None  # numéro de MR (iid), identifiant de pipeline ou de déploiement
@@ -226,7 +238,7 @@ class GitLabEventRepository:
             )
             inserted = cursor.rowcount == 1
             if inserted and summary.user_id is not None and summary.author:
-                # Nom affiché des membres GitLab, pour /leaderboard (le dernier nom reçu l'emporte).
+                # Nom affiché des membres GitLab, pour /activite contributions (le dernier nom reçu l'emporte).
                 self._conn.execute(
                     """
                     INSERT INTO gitlab_users (id, name, username, updated_at) VALUES (?, ?, ?, datetime('now'))

@@ -188,7 +188,7 @@ class NotificationDispatcher:
         channel_id = self._bindings().get(route)
         if channel_id is None:
             log.warning(
-                "Notification GitLab « %s » non publiée : le salon « %s » n'est pas associé (lancez /setup).",
+                "Notification GitLab « %s » non publiée : le salon « %s » n'est pas associé (lancez /admin installer).",
                 notification.kind,
                 route,
             )

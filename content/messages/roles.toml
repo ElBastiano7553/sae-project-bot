@@ -1,0 +1,17 @@
+# Message permanent « Choix des rôles » : publié dans #rôles (clé « roles_info »), ou dans
+# #bienvenue tant que ce salon facultatif n'existe pas (salon de repli de config/server.toml).
+# La liste est construite automatiquement : seuls les rôles « self_assignable » de
+# config/server.toml qui existent sur le serveur sont affichés, avec leur description.
+
+channel = "roles_info"
+title = "🎭 Choisir mes rôles"
+dynamic = "roles"
+description = """
+Indiquez dans quels domaines vous travaillez : cela aide l'équipe à savoir qui solliciter, sans donner aucun droit particulier.
+Cliquez sur **Choisir mes rôles**, cochez un ou plusieurs domaines, puis fermez le menu. Vous pouvez changer à tout moment, ici ou avec `/roles`.
+Les rôles de responsabilité (Responsable projet, Modérateur…) sont attribués par un administrateur.
+"""
+
+[[actions]]
+label = "Choisir mes rôles"
+action = "roles"

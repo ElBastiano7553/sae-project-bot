@@ -27,14 +27,19 @@ Garanties :
 
 * une deuxième exécution ne crée jamais de doublon ;
 * toutes les opérations passent par un même verrou : deux actualisations
-  simultanées (``/refresh`` pendant l'actualisation du démarrage, par exemple)
+  simultanées (``/admin actualiser`` pendant l'actualisation du démarrage, par exemple)
   s'exécutent l'une après l'autre au lieu de publier deux fois ;
 * la base n'est modifiée qu'après un succès côté Discord : en cas d'erreur, elle
   désigne toujours le dernier message publié avec succès ;
 * lors d'un déplacement ou d'une reconstruction, le nouveau message est publié
   et enregistré **avant** la suppression de l'ancien : un échec ne fait jamais
   disparaître le message ;
-* le bot ne supprime que ses propres messages permanents, jamais ceux des membres.
+* le bot ne supprime que ses propres messages permanents, jamais ceux des membres ;
+* un message dont le fichier de contenu a été renommé (``previous_keys``) est
+  repris sous sa nouvelle clé, puis déplacé si son salon a changé : jamais de doublon ;
+* un salon facultatif absent peut avoir un salon de repli (``fallback`` dans
+  ``config/server.toml``) : le message y est publié, puis déplacé automatiquement
+  dans le bon salon dès que celui-ci est associé.
 
 Le service ne connaît pas discord.py : il passe par l'interface
 ``MessageGateway``, ce qui permet de le tester avec une fausse implémentation.
@@ -44,7 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -69,7 +74,9 @@ class MessageGateway(Protocol):
 
     async def message_exists(self, channel_id: int, message_id: int) -> bool: ...
 
-    async def find_managed_message(self, channel_id: int, key: str) -> int | None: ...
+    async def find_managed_message(self, channel_id: int, keys: tuple[str, ...]) -> int | None:
+        """Message du bot dont le pied de page désigne l'une de ces clés (la clé actuelle, puis les anciennes)."""
+        ...
 
     async def send(self, channel_id: int, payload: MessagePayload) -> int: ...
 
@@ -146,6 +153,7 @@ class PermanentMessageService:
         *,
         pin_messages: bool = True,
         lock: asyncio.Lock | None = None,
+        fallbacks: Mapping[str, str] | None = None,
     ) -> None:
         self._repo = repository
         self._gateway = gateway
@@ -155,6 +163,8 @@ class PermanentMessageService:
         # Le bot passe le même verrou à chaque service qu'il construit : c'est lui qui empêche
         # deux actualisations simultanées de publier chacune leur exemplaire.
         self._lock = lock or asyncio.Lock()
+        # Salon de repli d'un salon facultatif absent (« regles » → « annonces »).
+        self._fallbacks = dict(fallbacks or {})
 
     @property
     def templates(self) -> list[MessageTemplate]:
@@ -162,6 +172,28 @@ class PermanentMessageService:
 
     def template(self, key: str) -> MessageTemplate | None:
         return next((t for t in self._templates if t.key == key), None)
+
+    def channel_for(self, template: MessageTemplate, bindings: dict[str, int]) -> int | None:
+        """Salon où publier : celui de la fonction, sinon son salon de repli."""
+        channel_id = bindings.get(template.channel_key)
+        if channel_id is None and template.channel_key in self._fallbacks:
+            channel_id = bindings.get(self._fallbacks[template.channel_key])
+        return channel_id
+
+    def _record(self, template: MessageTemplate, *, apply: bool) -> ManagedMessage | None:
+        """Message enregistré pour ce modèle, y compris sous une ancienne clé (renommée si ``apply``)."""
+        record = self._repo.get(template.key)
+        if record is not None:
+            return record
+        for old_key in template.previous_keys:
+            old = self._repo.get(old_key)
+            if old is None:
+                continue
+            if apply and self._repo.rename(old_key, template.key):
+                log.info("Message permanent « %s » repris sous sa nouvelle clé « %s »", old_key, template.key)
+                return self._repo.get(template.key)
+            return old
+        return None
 
     async def plan(self, bindings: dict[str, int], keys: Iterable[str] | None = None) -> list[SyncResult]:
         """Prévisualisation : calcule les actions sans rien modifier (ni Discord, ni la base)."""
@@ -182,11 +214,11 @@ class PermanentMessageService:
         template = self.template(key)
         if template is None:
             raise ConfigError(f"Message permanent inconnu : « {key} ».")
-        channel_id = bindings.get(template.channel_key)
+        channel_id = self.channel_for(template, bindings)
         if channel_id is None:
-            return self._result(template, SyncAction.SKIP, detail="salon introuvable : lancez /setup")
+            return self._result(template, SyncAction.SKIP, detail="salon introuvable : lancez /admin installer")
         async with self._lock:
-            record = self._repo.get(template.key)
+            record = self._record(template, apply=apply)
             try:
                 payload = self._render(template)
                 if not apply:
@@ -196,10 +228,10 @@ class PermanentMessageService:
                 return self._error(template, channel_id, exc)
 
     def status(self, bindings: dict[str, int]) -> list[MessageStatus]:
-        """Vue d'ensemble pour /admin messages et /status : publication, liens manquants, dernière erreur."""
+        """Vue d'ensemble pour /admin messages et /etat : publication, liens manquants, dernière erreur."""
         statuses = []
         for template in self._templates:
-            record = self._repo.get(template.key)
+            record = self._record(template, apply=False)
             error = record.last_error if record else None
             missing: tuple[str, ...] = ()
             try:
@@ -207,7 +239,7 @@ class PermanentMessageService:
             except ConfigError as exc:
                 error = str(exc)
             statuses.append(
-                MessageStatus(template.key, template.channel_key, bindings.get(template.channel_key), record, missing, error)
+                MessageStatus(template.key, template.channel_key, self.channel_for(template, bindings), record, missing, error)
             )
         return statuses
 
@@ -225,9 +257,9 @@ class PermanentMessageService:
         return [t for t in self._templates if t.key in wanted]
 
     async def _process(self, template: MessageTemplate, bindings: dict[str, int], *, apply: bool) -> SyncResult:
-        channel_id = bindings.get(template.channel_key)
+        channel_id = self.channel_for(template, bindings)
         if channel_id is None:
-            return self._result(template, SyncAction.SKIP, detail="salon introuvable : lancez /setup pour vérifier la structure")
+            return self._result(template, SyncAction.SKIP, detail="salon introuvable : lancez /admin installer pour vérifier la structure")
         try:
             payload = self._render(template)
             return await self._reconcile(template, channel_id, payload, apply=apply)
@@ -246,7 +278,7 @@ class PermanentMessageService:
         self, template: MessageTemplate, channel_id: int, payload: MessagePayload, *, apply: bool
     ) -> SyncResult:
         new_hash = payload.content_hash()
-        record = self._repo.get(template.key)
+        record = self._record(template, apply=apply)
 
         if record is not None and record.channel_id == channel_id:
             if await self._gateway.message_exists(channel_id, record.message_id):
@@ -274,7 +306,7 @@ class PermanentMessageService:
                 )
             return await self._publish(template, channel_id, payload, SyncAction.MOVE, replaces=record)
 
-        existing_id = await self._gateway.find_managed_message(channel_id, template.key)
+        existing_id = await self._gateway.find_managed_message(channel_id, (template.key, *template.previous_keys))
         if existing_id is not None:
             if apply:
                 await self._gateway.edit(channel_id, existing_id, payload)

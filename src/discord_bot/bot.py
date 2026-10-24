@@ -49,6 +49,7 @@ from src.services.meetings import MeetingService
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
 from src.services.monitoring import ErrorRecord, InteractionStats, RecentErrors
 from src.services.permanent_messages import PermanentMessageService, SyncAction
+from src.services.self_roles import SelfRoleCatalog, build_catalog
 from src.services.server_structure import StructureReport, resolve_structure
 from src.systemd_notify import notify as systemd_notify
 
@@ -70,6 +71,7 @@ EXTENSIONS = (
     "src.discord_bot.cogs.meetings",
     "src.discord_bot.cogs.admin",
     "src.discord_bot.cogs.redesign",
+    "src.discord_bot.cogs.welcome",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
@@ -85,8 +87,10 @@ HEARTBEAT_SECONDS = 60
 
 class SaeBot(commands.Bot):
     def __init__(self, settings: Settings, database: Database, *, errors: RecentErrors | None = None) -> None:
-        # Intents par défaut : aucun intent privilégié (ni contenu des messages, ni membres) n'est nécessaire.
+        # Intents par défaut : ni contenu des messages, ni présences. Le seul intent privilégié possible est
+        # « membres », demandé uniquement si l'accueil des nouveaux membres est activé (WELCOME_ON_JOIN).
         intents = discord.Intents.default()
+        intents.members = settings.welcome_on_join
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
@@ -120,7 +124,7 @@ class SaeBot(commands.Bot):
             if self.ai_provider is not None
             else None
         )
-        # API GitLab en lecture seule (/review) : None sans GITLAB_ACCESS_TOKEN et GITLAB_PROJECT_ID.
+        # API GitLab en lecture seule (/ia relecture) : None sans GITLAB_ACCESS_TOKEN et GITLAB_PROJECT_ID.
         self.gitlab_api = (
             GitLabAPI(settings.gitlab_base_url, settings.gitlab_access_token, settings.gitlab_project_id)
             if settings.gitlab_api_enabled
@@ -345,7 +349,7 @@ class SaeBot(commands.Bot):
             await self._refresh_on_startup(report)
         if self.settings.alerts_channel and self.settings.alerts_channel not in report.bindings:
             log.warning(
-                "Alertes désactivées : le salon ALERTS_CHANNEL=%s n'est pas associé (clé de config/server.toml, puis /setup).",
+                "Alertes désactivées : le salon ALERTS_CHANNEL=%s n'est pas associé (clé de config/server.toml, puis /admin installer).",
                 self.settings.alerts_channel,
             )
         self._maintenance_task = asyncio.create_task(self._maintenance_loop(), name="maintenance")
@@ -378,7 +382,7 @@ class SaeBot(commands.Bot):
                 continue
             keys.append(managed.key)
             if not (self.settings.auto_recreate_deleted and self.setup_confirmed_at):
-                log.warning("Le message permanent « %s » a été supprimé. Utilisez /refresh pour le recréer.", managed.key)
+                log.warning("Le message permanent « %s » a été supprimé. Utilisez /admin actualiser pour le recréer.", managed.key)
                 continue
             if managed.key in self._recreate_tasks and not self._recreate_tasks[managed.key].done():
                 continue
@@ -571,7 +575,7 @@ class SaeBot(commands.Bot):
             return None
         channel_id = self.bindings_repo.get_all().get(self.settings.alerts_channel or "")
         if channel_id is None:
-            return alert  # alertes désactivées : l'erreur reste visible avec /events type:erreurs
+            return alert  # alertes désactivées : l'erreur reste visible avec /activite evenements type:erreurs
         task = asyncio.get_running_loop().create_task(send_alert(self, channel_id, alert), name="alert")
         self._alert_tasks.add(task)
         task.add_done_callback(self._alert_tasks.discard)
@@ -621,23 +625,45 @@ class SaeBot(commands.Bot):
             return {}
 
     def build_message_service(self) -> PermanentMessageService:
-        """Relit les fichiers de contenu à chaque appel : /refresh prend en compte les modifications."""
+        """Relit les fichiers de contenu à chaque appel : /admin actualiser prend en compte les modifications."""
         templates = load_message_templates()
         catalog = load_link_catalog()
         planning = load_planning()
         announcement = self.announcement
         dashboard = self.dashboard_fields()
         channels = self.channel_mentions()
+        roles = self.self_role_catalog()
         return PermanentMessageService(
             self.messages_repo,
             self.gateway,
             templates,
             lambda template: render_message(
-                template, catalog, planning, announcement=announcement, dashboard=dashboard, channels=channels
+                template, catalog, planning, announcement=announcement, dashboard=dashboard, channels=channels,
+                self_roles=roles,
             ),
             pin_messages=self.settings.pin_permanent_messages,
             lock=self.messages_lock,
+            fallbacks=self.channel_fallbacks(),
         )
+
+    def channel_fallbacks(self) -> dict[str, str]:
+        """Salons de repli (« fallback » de config/server.toml) : « regles » → « annonces »…"""
+        return {key: spec.fallback for key, spec in load_server_layout().channels.items() if spec.fallback}
+
+    def channel_id_for(self, key: str, bindings: dict[str, int] | None = None) -> int | None:
+        """Salon associé à une fonction, ou à défaut son salon de repli."""
+        bindings = self.bindings_repo.get_all() if bindings is None else bindings
+        if key in bindings:
+            return bindings[key]
+        fallback = self.channel_fallbacks().get(key)
+        return bindings.get(fallback) if fallback else None
+
+    def self_role_catalog(self) -> SelfRoleCatalog | None:
+        """Rôles que les membres peuvent choisir eux-mêmes ; ``None`` si le serveur n'est pas accessible."""
+        guild = self.target_guild
+        if guild is None:
+            return None
+        return build_catalog(load_server_layout(), snapshot_guild(guild), self.role_bindings)
 
     def render_permanent(self, key: str, *, announcement: Announcement | None = None) -> MessagePayload:
         """Contenu d'un message permanent, pour une prévisualisation (rien n'est publié)."""
@@ -651,17 +677,21 @@ class SaeBot(commands.Bot):
             announcement=announcement or self.announcement,
             dashboard=self.dashboard_fields() if template.dynamic == "dashboard" else None,
             channels=self.channel_mentions(),
+            self_roles=self.self_role_catalog(),
         )
 
     def channel_mentions(self) -> dict[str, str]:
-        """{{#cle}} des messages permanents : mention du salon associé (nom réel, même après un renommage)."""
+        """{{#cle}} des messages permanents : mention du salon associé (nom réel, même après un renommage),
+        ou de son salon de repli : « {{#regles}} » désigne le salon des annonces tant que #règlement n'existe pas."""
         bindings = self.bindings_repo.get_all()
-        return {
-            key: f"<#{bindings[key]}>" if key in bindings else f"#{spec.name}"
-            for key, spec in load_server_layout().channels.items()
-        }
+        channels = load_server_layout().channels
+        mentions = {}
+        for key, spec in channels.items():
+            channel_id = bindings.get(key) or (bindings.get(spec.fallback) if spec.fallback else None)
+            mentions[key] = f"<#{channel_id}>" if channel_id else f"#{spec.name}"
+        return mentions
 
-    # --- Annonce en cours (/announce) ------------------------------------------
+    # --- Annonce en cours (/admin annonce) ------------------------------------------
 
     @property
     def announcement(self) -> Announcement | None:

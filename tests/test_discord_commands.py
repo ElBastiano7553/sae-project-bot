@@ -7,8 +7,8 @@ from src.config import Settings
 from src.discord_bot.bot import EXTENSIONS, SaeBot
 from src.services.help import HELP_ENTRIES
 
-ADMIN_COMMANDS = {"setup", "refresh", "config", "announce", "admin", "refonte"}
-PUBLIC_COMMANDS = {"help", "status", "health", "project", "events", "stats", "leaderboard", "ask", "summary", "review", "reunion"}
+ADMIN_COMMANDS = {"admin", "refonte"}
+PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "ia", "reunion"}
 
 
 @pytest.fixture
@@ -22,14 +22,18 @@ async def bot(db):
 
 
 def all_commands(bot):
-    """Commandes finales (« admin diagnostic » pour une sous-commande)."""
+    """Commandes finales (« admin diagnostic », « reunion ajouter point » pour un sous-groupe)."""
     result = {}
-    for command in bot.tree.get_commands():
+
+    def visit(command):
         if isinstance(command, app_commands.Group):
             for sub in command.commands:
-                result[sub.qualified_name] = sub
+                visit(sub)
         else:
-            result[command.name] = command
+            result[command.qualified_name] = command
+
+    for command in bot.tree.get_commands():
+        visit(command)
     return result
 
 
@@ -61,9 +65,35 @@ async def test_bot_uses_no_privileged_intents(bot):
     assert not bot.intents.presences
 
 
+async def test_members_intent_only_when_welcome_is_enabled(db):
+    settings = Settings.from_env({"DISCORD_GUILD_ID": "42", "WELCOME_ON_JOIN": "true"}, require_token=False)
+    instance = SaeBot(settings, db)
+    try:
+        assert instance.intents.members  # nécessaire pour être prévenu des arrivées
+        assert not instance.intents.message_content and not instance.intents.presences
+    finally:
+        await instance.close()
+
+
+async def test_command_tree_is_compact_and_fits_discord_limits(bot):
+    """8 commandes au premier niveau ; au plus 25 sous-commandes par groupe, descriptions ≤ 100 caractères."""
+    top = bot.tree.get_commands()
+    assert len(top) <= 8
+
+    def check(command):
+        assert 1 <= len(command.description) <= 100, command.qualified_name
+        if isinstance(command, app_commands.Group):
+            assert len(command.commands) <= 25, command.qualified_name
+            for sub in command.commands:
+                check(sub)
+
+    for command in top:
+        check(command)
+
+
 async def test_message_service_reads_real_content_files(bot):
     service = bot.build_message_service()
-    assert len(service.templates) == 8
+    assert len(service.templates) == 10
 
 
 async def test_v2_is_disabled_without_webhook_secret(bot):
@@ -109,7 +139,7 @@ async def test_v2_failure_does_not_break_v1(db, unused_tcp_port, monkeypatch):
         await instance.start_gitlab_webhooks()
         assert instance.gitlab_server is None
         assert "erreur de test" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 8  # la V1 fonctionne toujours
+        assert len(instance.build_message_service().templates) == 10  # la V1 fonctionne toujours
     finally:
         await instance.close()
 
@@ -125,7 +155,7 @@ async def test_invalid_gitlab_env_keeps_v1_and_reports_error(db):
         await instance.start_gitlab_webhooks()
         assert instance.gitlab_server is None
         assert "trop court" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 8
+        assert len(instance.build_message_service().templates) == 10
     finally:
         await instance.close()
 
@@ -167,7 +197,7 @@ async def test_port_in_use_keeps_v1(db, unused_tcp_port):
         await instance.start_gitlab_webhooks()
         assert not instance.gitlab_server.listening
         assert "impossible d'écouter" in instance.gitlab_error
-        assert len(instance.build_message_service().templates) == 8
+        assert len(instance.build_message_service().templates) == 10
     finally:
         await instance.close()
         blocker.close()

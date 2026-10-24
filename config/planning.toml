@@ -2,7 +2,7 @@
 #  Planning affiché dans #planning-et-deadlines.
 #
 #  Le bot n'invente AUCUNE date : il affiche uniquement ce qui est écrit ici.
-#  Après modification, lancez /refresh sur Discord pour mettre à jour le message.
+#  Après modification, lancez /admin actualiser sur Discord pour mettre à jour le message.
 #
 #  Format d'une échéance :
 #    [[deadlines]]

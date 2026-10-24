@@ -388,7 +388,7 @@ class RedesignView(discord.ui.View):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
         log.error("Erreur dans l'interface de /refonte", exc_info=error)
-        message = "Une erreur inattendue est survenue. Rien d'autre ne sera fait ; consultez /admin history et les journaux du bot."
+        message = "Une erreur inattendue est survenue. Rien d'autre ne sera fait ; consultez /admin historique et les journaux du bot."
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(message, ephemeral=True)

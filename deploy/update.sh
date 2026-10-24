@@ -60,7 +60,7 @@ info "Dépendances"
 info "Redémarrage"
 sudo systemctl start "$SERVICE"
 if wait_healthy; then
-    ok "mise à jour terminée. Vérifiez sur Discord : /status puis /help."
+    ok "mise à jour terminée. Vérifiez sur Discord : /etat puis /aide."
     echo "En cas de problème plus tard : bash deploy/rollback.sh"
     exit 0
 fi

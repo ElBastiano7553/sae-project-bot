@@ -1,5 +1,5 @@
 # =====================================================================
-#  Structure cible du serveur Discord (lue par /setup et /refonte).
+#  Structure cible du serveur Discord (lue par /admin installer et /refonte).
 #
 #  Ce fichier décrit le serveur COMPLET tel qu'il doit être : catégories,
 #  salons, rôles, couleurs, permissions, ordre d'affichage. /refonte compare
@@ -13,7 +13,7 @@
 #  anciens noms (« aliases »). Les emojis, accents, majuscules et séparateurs
 #  sont ignorés lors de la comparaison : « 📢・annonces » = « annonces ».
 #
-#  /setup ne crée, ne renomme et ne supprime rien.
+#  /admin installer ne crée, ne renomme et ne supprime rien.
 #  /refonte ne supprime jamais rien sans le mode suppressions:True ET une
 #  confirmation séparée ; un élément absent de ce fichier est conservé.
 #
@@ -178,6 +178,8 @@ emoji = "👋"
 topic = "Présentation du serveur et premiers pas. Message tenu à jour par Samae."
 access = "lecture"
 
+# Règles de l'équipe (message permanent « reglement »). Tant que ce salon facultatif
+# n'existe pas, Samae publie les règles dans le salon des annonces (« fallback »).
 [channels.regles]
 name = "règlement"
 category = "accueil"
@@ -186,7 +188,9 @@ topic = "Règles du serveur et fonctionnement de l'équipe."
 access = "lecture"
 aliases = ["règles-et-fonctionnement", "regles", "reglement"]
 optional = true
+fallback = "annonces"
 
+# Annonces officielles (message permanent « annonce-en-cours », modifié avec /admin annonce).
 [channels.annonces]
 name = "annonces"
 category = "accueil"
@@ -195,13 +199,16 @@ emoji = "📢"
 topic = "Annonces officielles de l'équipe. Publié par le staff et Samae."
 access = "lecture"
 
+# Choix des rôles (message permanent « roles », bouton « Choisir mes rôles »). Sans ce salon
+# facultatif, le panneau est publié dans #bienvenue.
 [channels.roles_info]
 name = "rôles"
 category = "accueil"
 emoji = "🎭"
-topic = "Les rôles du serveur et à quoi ils servent."
+topic = "Les rôles du serveur : choisissez vos domaines avec le bouton de Samae ou /roles."
 access = "lecture"
 optional = true
+fallback = "bienvenue"
 
 [channels.actualites]
 name = "actualités"
@@ -312,7 +319,7 @@ optional = true
 name = "réunions"
 category = "organisation"
 emoji = "🗓️"
-topic = "Réunions de l'équipe : /reunion creer, puis suivez le panneau."
+topic = "Réunions de l'équipe : /reunion creer, puis suivez le panneau. Guide : /reunion aide."
 
 # Comptes rendus finaux publiés par Samae à la clôture d'une réunion.
 [channels.comptes_rendus]
@@ -465,6 +472,11 @@ optional = true
 # =====================================================================
 #  Rôles, du plus haut au plus bas dans la hiérarchie.
 #
+#  self_assignable = true : le rôle est proposé dans le choix des rôles
+#  (bouton « Choisir mes rôles », /roles). Permis seulement pour kind =
+#  "fonction" ou "notification" sans permission ; Samae refuse en plus, au
+#  moment du choix, tout rôle qui porterait une permission sensible.
+#
 #  Samae ne donne JAMAIS la permission Administrateur. Les permissions de
 #  modération ne sont possibles que pour kind = "staff". Un rôle existant
 #  (même nom ou ancien nom) est réutilisé : jamais de doublon, jamais de
@@ -506,6 +518,7 @@ color = "#4F8FD6"
 kind = "fonction"
 hoist = true
 description = "Code du jeu, outils et intégration."
+self_assignable = true
 aliases = ["Développeur", "Dev"]
 profiles = ["projet"]
 
@@ -515,6 +528,7 @@ color = "#B07CD8"
 kind = "fonction"
 hoist = true
 description = "Conception du gameplay, des règles et des niveaux."
+self_assignable = true
 profiles = ["projet"]
 
 [roles.art]
@@ -523,6 +537,7 @@ color = "#E07A9B"
 kind = "fonction"
 hoist = true
 description = "Graphismes, interface, sons et références visuelles."
+self_assignable = true
 aliases = ["Designer", "Design"]
 profiles = ["projet"]
 
@@ -532,6 +547,7 @@ color = "#D19A4B"
 kind = "fonction"
 hoist = true
 description = "Tests des builds et signalement des bugs."
+self_assignable = true
 
 [roles.membre]
 name = "Membre"
@@ -570,6 +586,7 @@ name = "Notif · Votes"
 color = "#9AA5B1"
 kind = "notification"
 mentionable = true
-self_assignable = true
 description = "Être prévenu des votes (système de votes à venir)."
 optional = true
+# Pas proposé dans /roles tant que le système de votes n'existe pas.
+self_assignable = false

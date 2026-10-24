@@ -32,27 +32,27 @@ Cochez chaque case et notez l'heure de tout résultat inattendu (le journal
 - [ ] Le journal affiche « N commandes slash synchronisées », puis « Connecté en tant que ».
 - [ ] Arrêt (Ctrl+C) puis relance : « Commandes slash inchangées … rien à envoyer » ; les commandes restent utilisables.
 - [ ] Lancer une deuxième fois `python -m src.main` dans un autre terminal : refus immédiat « une autre instance du bot tourne déjà ». Le premier bot continue.
-- [ ] `/status` : réponse visible par vous seul, en moins de 2 secondes, ligne « Réactivité ».
-- [ ] `/status` depuis le téléphone : lisible sans défilement horizontal.
+- [ ] `/etat` : réponse visible par vous seul, en moins de 2 secondes, ligne « Réactivité ».
+- [ ] `/etat` depuis le téléphone : lisible sans défilement horizontal.
 
 ## 2. Aide
 
-- [ ] `/help` : 6 pages, boutons Précédente/Suivante, menu de sections ; réponse éphémère.
-- [ ] `/help section:Réunions` ouvre directement la bonne page.
+- [ ] `/aide` : 6 pages, boutons Précédente/Suivante, menu de sections ; réponse éphémère.
+- [ ] `/aide section:Réunions` ouvre directement la bonne page.
 - [ ] Compte membre : les pages d'administration détaillées n'apparaissent pas.
 - [ ] Le compte membre ne peut pas cliquer sur les boutons de **votre** aide (message « réservé »).
 - [ ] Après 10 minutes, les boutons sont désactivés, sans message d'erreur.
-- [ ] `/reunion help` : aide des réunions sur plusieurs pages ; aucune fonction non développée (sondages, tier lists, rôles automatiques, validation des propositions de décision) n'est présentée comme disponible.
+- [ ] `/reunion aide` : aide des réunions sur plusieurs pages ; aucune fonction non développée (sondages, tier lists, rôles automatiques, validation des propositions de décision) n'est présentée comme disponible.
 
 ## 3. Configuration et messages permanents
 
-- [ ] `/setup` : aperçu « rien n'a encore été modifié » ; **Annuler** : « rien n'a été modifié ».
-- [ ] `/setup` puis **Confirmer** : messages permanents publiés et épinglés ; deux clics rapides sur Confirmer n'appliquent qu'une fois.
-- [ ] `/setup` sans cliquer pendant 2 minutes : « Délai de confirmation expiré ».
-- [ ] Compte membre : `/setup`, `/refresh`, `/refonte` invisibles ou refusés (« Accès refusé »).
+- [ ] `/admin installer` : aperçu « rien n'a encore été modifié » ; **Annuler** : « rien n'a été modifié ».
+- [ ] `/admin installer` puis **Confirmer** : messages permanents publiés et épinglés ; deux clics rapides sur Confirmer n'appliquent qu'une fois.
+- [ ] `/admin installer` sans cliquer pendant 2 minutes : « Délai de confirmation expiré ».
+- [ ] Compte membre : `/admin installer`, `/admin actualiser`, `/refonte` invisibles ou refusés (« Accès refusé »).
 - [ ] Supprimer à la main un message permanent : il est recréé au bout de quelques secondes.
-- [ ] `/refresh` : « N message(s) modifié(s) » ; un second `/refresh` : 0 modifié.
-- [ ] `/admin backup` : « Sauvegarde créée … vérifiée » (la réponse peut d'abord afficher « réfléchit… »).
+- [ ] `/admin actualiser` : « N message(s) modifié(s) » ; un second `/admin actualiser` : 0 modifié.
+- [ ] `/admin sauvegarde` : « Sauvegarde créée … vérifiée » (la réponse peut d'abord afficher « réfléchit… »).
 
 ## 4. Réunions
 
@@ -61,8 +61,8 @@ Cochez chaque case et notez l'heure de tout résultat inattendu (le journal
 - [ ] Le membre clique « Démarrer » : refusé avec une explication (réservé au responsable ou à un admin).
 - [ ] Vous : « Démarrer », « Étape suivante » × 2, « Étape précédente » : l'étape en cours suit.
 - [ ] Cliquer très vite deux fois sur « Étape suivante » : une seule avance, ou un message « panneau pas à jour » puis le panneau actualisé.
-- [ ] `/reunion decision` (responsable) : la décision apparaît comme **décision**. Le membre ne peut pas enregistrer de décision.
-- [ ] `/reunion action` avec responsable et échéance : visible sur le panneau et dans le compte rendu.
+- [ ] `/reunion ajouter decision` (responsable) : la décision apparaît comme **décision**. Le membre ne peut pas enregistrer de décision.
+- [ ] `/reunion ajouter action` avec responsable et échéance : visible sur le panneau et dans le compte rendu.
 - [ ] Redémarrer le bot pendant la réunion : les boutons du panneau fonctionnent encore après le redémarrage.
 - [ ] « Terminer » puis confirmer : compte rendu publié **une seule fois** dans `#comptes-rendus` (ou `#decisions` si le salon n'existe pas), lien dans la réponse ; objectif, étapes, participants, décisions, actions (responsable, échéance) lisibles.
 - [ ] `/reunion compte-rendu` : même contenu, paginé si long.
@@ -96,7 +96,7 @@ Application :
 - [ ] Une permission posée à la main pour un autre rôle sur un salon : toujours là.
 - [ ] Samae peut toujours écrire dans `#🧾・bot-logs` et les salons en lecture seule (`/admin diagnostic`).
 - [ ] `data/backups/` contient une sauvegarde `…avantrefonte…` et `data/refonte/` un journal JSON ; `/refonte journal` l'affiche.
-- [ ] `/refresh` : les messages permanents citent les salons avec leurs nouveaux noms ; panneau d'une réunion ouverte avant la refonte toujours fonctionnel ; notifications GitLab/GitHub toujours reçues.
+- [ ] `/admin actualiser` : les messages permanents citent les salons avec leurs nouveaux noms ; panneau d'une réunion ouverte avant la refonte toujours fonctionnel ; notifications GitLab/GitHub toujours reçues.
 - [ ] Deuxième `/refonte lancer` : aucune action proposée (hors associations).
 - [ ] Serveur Communauté : `#📢・annonces` devient un vrai salon d'annonces ; avec `facultatifs:True`, forum et conférence créés.
 
@@ -118,3 +118,21 @@ Retour arrière :
 Notez les cases non cochées et les heures des anomalies. Le test d'un serveur de test ne
 garantit pas le résultat sur le vrai serveur (salons, rôles et permissions différents) :
 sur le vrai serveur, lisez attentivement l'aperçu de `/refonte lancer` avant de confirmer.
+
+
+## 1.4.0 : commandes regroupées, choix des rôles, accueil
+
+À faire sur le serveur de test avant le vrai serveur. Guide : [accueil-et-roles.md](accueil-et-roles.md).
+
+- [ ] Après redémarrage, taper `/` : seules `/aide`, `/etat`, `/roles`, `/activite`, `/ia`, `/reunion`, `/admin`, `/refonte` apparaissent (Ctrl+R si d'anciens noms restent).
+- [ ] `/reunion animer etape:Démarrer` puis `etape:Étape suivante` : même effet que les boutons du panneau.
+- [ ] `/reunion ajouter decision texte:Test` (responsable) ; un membre non responsable est refusé.
+- [ ] `/admin actualiser` : le règlement est **modifié** dans `#annonces` (pas de second message) ; pied de page « Message géré par Samae ».
+- [ ] Créer `#règlement` (`/refonte lancer facultatifs:True`), puis `/admin installer` : le règlement apparaît dans `#règlement` et disparaît de `#annonces`.
+- [ ] Le panneau « Choisir mes rôles » est publié (dans `#rôles` ou `#bienvenue`) ; relancer `/admin actualiser` ne crée aucun doublon.
+- [ ] Compte membre : bouton **Choisir mes rôles** → menu privé coché avec ses rôles ; cocher Développement et Art & Design : les deux rôles sont ajoutés ; décocher l'un : il est retiré.
+- [ ] Le menu ne propose jamais Responsable projet ni Modérateur ; le rôle de staff d'un membre n'est jamais retiré.
+- [ ] Donner « Mentionner @everyone » au rôle Testeur : il disparaît du menu et `/admin diagnostic` explique pourquoi. Retirer la permission.
+- [ ] Placer le rôle de Samae sous Développement : `/admin diagnostic` le signale ; remettre l'ordre.
+- [ ] Redémarrer le bot : le bouton **Choisir mes rôles** d'un ancien message fonctionne toujours.
+- [ ] (Si `WELCOME_ON_JOIN=true` et l'intent activé) un compte de test rejoint : message « Bienvenue @… » dans `#bienvenue`, avec le bouton ; il quitte : le message disparaît. Avec `WELCOME_DELETE_AFTER_HOURS=1`, le message disparaît après une heure (vérification toutes les 10 minutes) et aucun autre message du salon n'est touché.

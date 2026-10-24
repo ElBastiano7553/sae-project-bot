@@ -1,0 +1,21 @@
+# Message permanent du salon des réunions (clé « reunions ») : mode d'emploi court de /reunion.
+
+channel = "reunions"
+title = "🗓️ Organiser une réunion avec Samae"
+description = """
+Ce salon accueille les réunions de l'équipe. Chaque réunion a un **panneau** tenu à jour par Samae : ordre du jour, participants, décisions, actions.
+"""
+
+[[fields]]
+name = "En bref"
+value = """
+1. `/reunion creer titre:… etapes:Bilan ; Démo ; Planning` publie le panneau ici.
+2. Les participants cliquent sur **Rejoindre**.
+3. Le responsable clique sur **Démarrer**, puis **Étape suivante** au fil de la réunion.
+4. Pendant la réunion : `/reunion ajouter` (point, décision, réserve, action).
+5. **Terminer** : le compte rendu est publié dans {{#comptes_rendus}}.
+"""
+
+[[fields]]
+name = "Pour aller plus loin"
+value = "`/reunion aide` : le guide complet, avec des exemples et les permissions de chacun."

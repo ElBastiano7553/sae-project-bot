@@ -1,4 +1,4 @@
-"""Recherche documentaire simple pour /ask : quels extraits envoyer à l'IA.
+"""Recherche documentaire simple pour /ia question : quels extraits envoyer à l'IA.
 
 Sources, toutes locales et relues à chaque question :
 

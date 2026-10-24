@@ -1,4 +1,4 @@
-# Message permanent « Tableau de bord » du salon #gitlab-activite.
+# Message permanent « Tableau de bord » du salon de l'activité Git (#activité-git, clé « gitlab_activite »).
 # Les champs sont calculés par le bot à partir des webhooks GitLab qu'il a reçus
 # (voir docs/history-and-stats.md). Le message est modifié sur place quelques
 # secondes après chaque nouvel événement, et vérifié toutes les 30 minutes.
@@ -7,7 +7,8 @@ channel = "gitlab_activite"
 title = "Tableau de bord du projet"
 dynamic = "dashboard"
 description = """
-État du dépôt d'après les événements GitLab reçus par le bot. Détails : `/stats`, `/events`, `/leaderboard`.
+Ce salon reçoit automatiquement les commits, merge requests et pipelines GitLab, et les pull requests du dépôt GitHub du jeu.
+Ce tableau résume le dépôt **GitLab** d'après les événements reçus par Samae. Détails : `/activite stats`, `/activite evenements`, `/activite contributions`.
 """
 
 [[buttons]]

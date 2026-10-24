@@ -23,7 +23,7 @@ class ConfirmView(discord.ui.View):
         on_confirm: ConfirmCallback,
         *,
         timeout: float = 120,
-        command: str = "/setup",
+        command: str = "/admin installer",
     ) -> None:
         super().__init__(timeout=timeout)
         self._author_id = author_id
@@ -62,7 +62,7 @@ class ConfirmView(discord.ui.View):
             await self._show_failure(
                 interaction,
                 f"**Échec** : {self._command} s'est arrêté sur une erreur inattendue. "
-                "Une partie des changements a pu être appliquée : vérifiez l'état avec `/status` "
+                "Une partie des changements a pu être appliquée : vérifiez l'état avec `/etat` "
                 "(et `/admin messages` pour les messages permanents). Le détail est dans les journaux du bot.",
             )
 
@@ -93,7 +93,7 @@ SubmitCallback = Callable[[discord.Interaction, str, str], Awaitable[None]]
 
 
 class AnnouncementModal(discord.ui.Modal, title="Annonce en cours"):
-    """Formulaire de /announce : le texte est prévisualisé avant toute publication."""
+    """Formulaire de /admin annonce : le texte est prévisualisé avant toute publication."""
 
     def __init__(
         self,

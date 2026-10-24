@@ -37,7 +37,7 @@ requêtes vers le bot, sans ouvrir de port sur votre box ni dans le pare-feu Win
 
 ## 2. Prérequis
 
-- La V1 fonctionne : le bot démarre, `/setup` a été **confirmé** (c'est lui qui
+- La V1 fonctionne : le bot démarre, `/admin installer` a été **confirmé** (c'est lui qui
   associe `#gitlab-activite` et `#builds-et-tests`). Sans cela, les notifications
   sont ignorées et un avertissement apparaît dans `logs/bot.log`.
 - Le bot peut **voir**, **envoyer des messages** et **intégrer des liens** dans
@@ -69,7 +69,7 @@ requêtes vers le bot, sans ouvrir de port sur votre box ni dans le pare-feu Win
      pouvoir joindre le bot.
    - Un secret de moins de 16 caractères, un port ou un identifiant de projet
      invalide **désactivent la V2** (message d'erreur au démarrage et dans
-     `/status`), mais le reste du bot démarre normalement.
+     `/etat`), mais le reste du bot démarre normalement.
 
 3. Relancez le bot (`Ctrl+C` puis `python -m src.main`). **Résultat attendu** :
 
@@ -79,7 +79,7 @@ requêtes vers le bot, sans ouvrir de port sur votre box ni dans le pare-feu Win
    ... | INFO | src.gitlab.webhook | Webhooks GitLab : écoute sur http://127.0.0.1:8080/webhooks/gitlab
    ```
 
-   (Les lignes « Migration » n'apparaissent qu'une fois.) Dans Discord, `/status`
+   (Les lignes « Migration » n'apparaissent qu'une fois.) Dans Discord, `/etat`
    affiche **GitLab ✅ webhooks actifs**.
 
    Si Windows affiche une fenêtre « Pare-feu Windows Defender » pour Python,
@@ -285,7 +285,7 @@ dans le webhook. Un pipeline réussi n'est **jamais** présenté comme un déplo
 
 Tous les événements acceptés sont aussi enregistrés en base (titre, lien, branche,
 auteur, date), **y compris ceux qui ne sont pas notifiés** (branche non suivie…) :
-`/project`, `/events`, `/stats`, `/leaderboard` et le tableau de bord les utilisent.
+`/activite resume`, `/activite evenements`, `/activite stats`, `/activite contributions` et le tableau de bord les utilisent.
 Seuls les événements reçus depuis l'activation des webhooks sont connus du bot.
 Voir [history-and-stats.md](history-and-stats.md).
 
@@ -311,21 +311,21 @@ automatiquement un webhook qui échoue trop souvent.
 
 | Symptôme | Cause probable | Solution |
 |---|---|---|
-| `/status` : GitLab ⏸️ désactivé | `GITLAB_WEBHOOK_SECRET` vide | Remplissez-le (étape 3) et relancez le bot. |
-| `/status` : GitLab ❌ « configuration invalide » | secret de moins de 16 caractères, `WEBHOOK_PORT` ou `GITLAB_PROJECT_ID` invalide | Corrigez `.env` (le message dit quelle variable), relancez. La V1 fonctionne en attendant. |
-| `/status` : GitLab ❌ avec une erreur sur `gitlab.toml` | fichier `config/gitlab.toml` mal rempli | Corrigez la ligne indiquée, relancez. |
+| `/etat` : GitLab ⏸️ désactivé | `GITLAB_WEBHOOK_SECRET` vide | Remplissez-le (étape 3) et relancez le bot. |
+| `/etat` : GitLab ❌ « configuration invalide » | secret de moins de 16 caractères, `WEBHOOK_PORT` ou `GITLAB_PROJECT_ID` invalide | Corrigez `.env` (le message dit quelle variable), relancez. La V1 fonctionne en attendant. |
+| `/etat` : GitLab ❌ avec une erreur sur `gitlab.toml` | fichier `config/gitlab.toml` mal rempli | Corrigez la ligne indiquée, relancez. |
 | `impossible d'écouter sur 127.0.0.1:8080` | port déjà utilisé (autre programme, bot lancé deux fois) | Fermez l'autre programme ou changez `WEBHOOK_PORT` (et le port du tunnel). La V1 continue de fonctionner. |
 | GitLab : `HTTP 401` | secret différent dans GitLab et `.env` | Recollez le même secret des deux côtés, sans espace. |
 | GitLab : `HTTP 403` | mauvais `GITLAB_PROJECT_ID` | Vérifiez l'identifiant numérique du projet. |
 | GitLab : erreur de connexion, `HTTP 502` ou `530` | tunnel arrêté, URL périmée (option A) ou bot arrêté | Relancez le tunnel et le bot, mettez à jour l'URL du webhook. |
-| GitLab répond 200 mais rien dans Discord | `/setup` jamais confirmé, salon renommé ou permissions manquantes | Lisez `logs/bot.log`, relancez `/setup`, vérifiez les permissions du bot dans le salon. |
+| GitLab répond 200 mais rien dans Discord | `/admin installer` jamais confirmé, salon renommé ou permissions manquantes | Lisez `logs/bot.log`, relancez `/admin installer`, vérifiez les permissions du bot dans le salon. |
 | GitLab affiche le webhook comme « désactivé » ou « temporairement désactivé » | trop d'échecs consécutifs (tunnel ou bot arrêtés longtemps) | Relancez bot et tunnel, puis **Edit** > **Save changes** ou **Test** sur le webhook pour le réactiver. |
 | `Invalid url given` dans GitLab | GitLab refuse certaines adresses (réseau local) | Utilisez l'adresse `https://` du tunnel, jamais `127.0.0.1`. |
 | GitLab de l'école (instance interne) n'arrive pas à joindre le tunnel | l'instance peut bloquer les appels vers Internet | Testez avec le bouton **Test** ; si l'échec persiste, demandez aux administrateurs ou passez par un hébergement (V5). |
 
 ## 9. Sécurité
 
-- Le secret n'est jamais affiché (ni dans les journaux, ni dans `/config`, ni dans
+- Le secret n'est jamais affiché (ni dans les journaux, ni dans `/admin config`, ni dans
   les réponses HTTP). En cas de fuite : générez-en un nouveau, mettez-le dans
   `.env` et dans GitLab, relancez le bot.
 - Le secret est vérifié **avant** de lire le corps de la requête, avec une

@@ -89,7 +89,7 @@ sudo systemctl restart samae     # VPS (systemd) ; avec Docker : docker compose 
 - Depuis Internet : la même commande sur `https://bot.exemple-sae.fr/webhooks/github`
   doit aussi afficher `401`.
 - `python -m src.github.demo ping` sur le serveur : `200 pong`.
-- Sur Discord : `/status` → ligne GitHub ✅.
+- Sur Discord : `/etat` → ligne GitHub ✅.
 
 ## 5. Créer le webhook GitHub
 

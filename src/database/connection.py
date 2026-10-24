@@ -231,7 +231,7 @@ MIGRATIONS: list[str] = [
     CREATE INDEX meeting_log_meeting ON meeting_log (meeting_id, id);
     """,
     # v8 : livraisons des webhooks GitHub (dépôt du jeu). Table séparée de gitlab_events :
-    # /stats, /leaderboard, /project et le tableau de bord ne lisent que des données GitLab.
+    # /activite stats, /activite contributions, /activite resume et le tableau de bord ne lisent que des données GitLab.
     # Uniquement une création de table : rien d'existant n'est modifié.
     """
     CREATE TABLE github_deliveries (
@@ -314,7 +314,7 @@ class Database:
         return result == "ok"
 
     def ping(self) -> bool:
-        """Vérifie que la base répond (utilisé par /health)."""
+        """Vérifie que la base répond (utilisé par /etat)."""
         try:
             self.conn.execute("SELECT 1").fetchone()
         except sqlite3.Error:

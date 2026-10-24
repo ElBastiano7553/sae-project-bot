@@ -24,8 +24,12 @@ def test_permanent_message_embed_and_buttons():
     embed = payload_to_embed(payload)
     assert embed.title == payload.title
     assert embed.footer.text == payload.footer
-    assert payload_to_view(payload) is None  # aucun lien configuré : pas de bouton
-    with_button = payload.__class__(**{**payload.__dict__, "buttons": (LinkButton("GitLab", "https://gitlab.com"),)})
+    # Aucun lien configuré : seul le bouton d'action « Choisir mes rôles » (identifiant fixe) est présent.
+    view = payload_to_view(payload)
+    assert [(item.label, item.custom_id) for item in view.children] == [("Choisir mes rôles", "samae:roles:open")]
+    links_only = payload.__class__(**{**payload.__dict__, "actions": ()})
+    assert payload_to_view(links_only) is None
+    with_button = payload.__class__(**{**links_only.__dict__, "buttons": (LinkButton("GitLab", "https://gitlab.com"),)})
     view = payload_to_view(with_button)
     assert view is not None and view.children[0].url == "https://gitlab.com"
 

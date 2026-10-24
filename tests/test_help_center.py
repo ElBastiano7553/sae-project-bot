@@ -1,4 +1,4 @@
-"""Centre d'aide (/help, /reunion help) : contenu fidèle aux commandes réelles, navigation, limites Discord."""
+"""Centre d'aide (/aide, /reunion aide) : contenu fidèle aux commandes réelles, navigation, limites Discord."""
 
 from __future__ import annotations
 
@@ -79,7 +79,9 @@ def embed_text(embed: discord.Embed) -> str:
 
 
 def groups(bot) -> set[str]:
-    return {name.split()[0] for name in (c.name for c in collect_commands(bot.tree)) if " " in name}
+    """Groupes et sous-groupes : « reunion », « reunion ajouter »."""
+    names = [c.name.split() for c in collect_commands(bot.tree)]
+    return {" ".join(words[:size]) for words in names for size in range(1, len(words))}
 
 
 # --- Source de vérité ----------------------------------------------------------------------
@@ -90,8 +92,10 @@ async def test_commands_are_read_from_discord_with_their_parameters(bot):
     creer = commands["reunion creer"]
     assert creer.required == ["titre"]
     assert {"etapes", "participants", "duree", "responsable"} <= set(creer.optional)
-    assert commands["refonte lancer"].admin and commands["refonte retour"].admin and not commands["help"].admin
-    assert {"help", "reunion help", "refonte lancer", "refonte retour", "refonte journal"} <= set(commands)
+    assert commands["refonte lancer"].admin and commands["refonte retour"].admin and not commands["aide"].admin
+    assert {"aide", "reunion aide", "refonte lancer", "refonte retour", "refonte journal"} <= set(commands)
+    # Sous-groupe : « /reunion ajouter decision » est lu avec ses paramètres.
+    assert commands["reunion ajouter decision"].required == ["texte"]
 
 
 async def test_every_example_matches_a_real_command_and_its_options(bot):
@@ -123,11 +127,11 @@ async def test_member_pages_never_cite_admin_commands(bot):
 
 def test_planned_features_are_never_presented_as_available():
     everything = "\n".join(page_text(p) for p in (*GUIDE_PAGES, *MEETING_PAGES))
-    for planned in ("/idee", "/sondage", "/debat", "/classement", "/ressources", "/roles", "/reunion classer"):
+    for planned in ("/idee", "/sondage", "/debat", "/classement", "/ressources", "/reunion classer"):
         assert planned not in everything
     organisation = next(p for p in GUIDE_PAGES if p.key == "organisation")
     unavailable = next(s for s in organisation.sections if s.title == "Pas encore disponible").body
-    for feature in ("tier lists", "sondages", "auto-attribution", "Proposer une décision"):
+    for feature in ("tier lists", "sondages", "Proposer une décision"):
         assert feature in unavailable
 
 
@@ -147,8 +151,14 @@ def test_check_example_reports_unknown_and_missing_options():
 
 
 def test_mentioned_commands_ignores_paths_and_urls():
-    text = "Voir `config/server.toml`, logs/bot.log, https://x.y/z puis `/status` et /reunion creer."
-    assert mentioned_commands(text, {"reunion"}) == {"status", "reunion creer"}
+    text = "Voir `config/server.toml`, logs/bot.log, https://x.y/z puis `/etat` et /reunion creer."
+    assert mentioned_commands(text, {"reunion"}) == {"etat", "reunion creer"}
+
+
+def test_mentioned_commands_understands_subgroups():
+    text = "`/reunion ajouter decision texte:…`, `/reunion creer` et `/activite stats`."
+    groups = {"reunion", "reunion ajouter", "activite"}
+    assert mentioned_commands(text, groups) == {"reunion ajouter decision", "reunion creer", "activite stats"}
 
 
 # --- Rendu et limites Discord -------------------------------------------------------------

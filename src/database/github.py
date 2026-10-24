@@ -1,7 +1,7 @@
 """Dépôt des livraisons de webhooks GitHub (table ``github_deliveries``, migration v8).
 
-Volontairement séparé de ``gitlab_events`` : l'historique GitLab alimente /stats,
-/leaderboard, /project et le tableau de bord, qui ne savent pas lire des données GitHub.
+Volontairement séparé de ``gitlab_events`` : l'historique GitLab alimente /activite stats,
+/activite contributions, /activite resume et le tableau de bord, qui ne savent pas lire des données GitHub.
 
 Statuts : ``queued`` (en attente d'envoi), ``sent`` (publié sur Discord),
 ``failed`` (envoi impossible), ``skipped`` (salon non associé).

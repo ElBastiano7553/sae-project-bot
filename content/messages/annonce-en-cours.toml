@@ -1,5 +1,5 @@
 # Message permanent « Annonce en cours » du salon #annonces.
-# Son texte n'est pas écrit ici : un administrateur le rédige sur Discord avec /announce.
+# Son texte n'est pas écrit ici : un administrateur le rédige sur Discord avec /admin annonce.
 # Chaque nouvelle annonce MODIFIE ce message (même lien, mêmes réactions) au lieu d'en publier un autre.
 # Le texte ci-dessous ne s'affiche que tant qu'aucune annonce n'a été publiée.
 
@@ -8,5 +8,5 @@ title = "📣 Annonce en cours"
 dynamic = "announcement"
 description = """
 Aucune annonce en cours pour le moment.
-Les administrateurs du bot peuvent en publier une avec `/announce`.
+Les administrateurs du bot peuvent en publier une avec `/admin annonce`.
 """

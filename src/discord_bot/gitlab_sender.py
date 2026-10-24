@@ -19,7 +19,7 @@ class DiscordNotificationSender:
             try:
                 channel = await self._client.fetch_channel(channel_id)
             except discord.HTTPException as exc:
-                raise GatewayError(f"salon {channel_id} inaccessible ({exc.status}) : relancez /setup") from exc
+                raise GatewayError(f"salon {channel_id} inaccessible ({exc.status}) : relancez /admin installer") from exc
         if not isinstance(channel, discord.TextChannel):
             raise GatewayError(f"le salon {channel_id} n'est pas un salon textuel")
         try:

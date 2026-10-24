@@ -115,7 +115,7 @@ def panel_embed(detail: MeetingDetail, *, now: dt.datetime | None = None, report
     add_field(
         embed,
         f"Ordre du jour ({done}/{len(detail.steps)})",
-        limits.chunk_lines(steps, limits.FIELD_VALUE)[0] if steps else "*Aucun point : `/reunion point` pour en ajouter.*",
+        limits.chunk_lines(steps, limits.FIELD_VALUE)[0] if steps else "*Aucun point : `/reunion ajouter point` pour en ajouter.*",
     )
 
     decisions = [n for n in detail.notes if n.kind == DECISION]

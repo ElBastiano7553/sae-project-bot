@@ -1,9 +1,9 @@
-"""Rapport d'état utilisé par les commandes /status et /health.
+"""Rapport d'état utilisé par la commande /etat et /admin diagnostic.
 
 Chaque ligne décrit uniquement ce qui a réellement été vérifié par le bot, au
 moment de la commande. Une ligne dit explicitement quand un service n'est pas
 vérifié (par exemple la joignabilité des webhooks depuis Internet) : répondre à
-/status ne prouve pas que le bot est disponible en continu, ce que seule une
+/etat ne prouve pas que le bot est disponible en continu, ce que seule une
 surveillance externe peut garantir.
 """
 
@@ -115,7 +115,7 @@ def _backup_check(summary: BackupSummary) -> HealthCheck:
     name = "Sauvegardes"
     if summary.last_age_hours is None:
         status = HealthStatus.WARNING
-        detail = "aucune sauvegarde : `/admin backup`"
+        detail = "aucune sauvegarde : `/admin sauvegarde`"
     else:
         detail = f"dernière il y a {summary.last_age_hours:.0f} h, {summary.count} conservée(s)"
         late = summary.interval_hours and summary.last_age_hours > 2 * summary.interval_hours
@@ -134,7 +134,7 @@ class AISummary:
     config_error: str | None = None
     used_today: int = 0
     daily_limit: int = 0
-    gitlab_api: bool = False  # /review possible
+    gitlab_api: bool = False  # /ia relecture possible
 
 
 def _ai_check(summary: AISummary) -> HealthCheck:
@@ -144,7 +144,7 @@ def _ai_check(summary: AISummary) -> HealthCheck:
     if summary.provider == "none":
         return HealthCheck(name, HealthStatus.DISABLED, "désactivée (AI_PROVIDER=none)")
     usage = f"{summary.used_today}/{summary.daily_limit} demandes aujourd'hui"
-    review = "" if summary.gitlab_api else " ; /review indisponible (API GitLab non configurée)"
+    review = "" if summary.gitlab_api else " ; /ia relecture indisponible (API GitLab non configurée)"
     if summary.provider == "fake":
         return HealthCheck(name, HealthStatus.WARNING, f"faux fournisseur de test (AI_PROVIDER=fake) : aucune vraie IA, {usage}{review}")
     # La clé n'est pas testée ici : un appel coûterait une demande. Une clé refusée apparaît dans « Dernière erreur ».
@@ -154,7 +154,7 @@ def _ai_check(summary: AISummary) -> HealthCheck:
 @dataclass(frozen=True)
 class AlertsSummary:
     channel_key: str | None  # ALERTS_CHANNEL
-    channel_bound: bool  # salon associé par /setup
+    channel_bound: bool  # salon associé par /admin installer
     errors_24h: int  # erreurs distinctes vues dans les dernières 24 heures
 
 
@@ -172,7 +172,7 @@ def _alerts_check(summary: AlertsSummary) -> HealthCheck:
         return HealthCheck("Alertes", HealthStatus.DISABLED, f"désactivées (ALERTS_CHANNEL vide), {errors}")
     if not summary.channel_bound:
         return HealthCheck(
-            "Alertes", HealthStatus.WARNING, f"salon « {summary.channel_key} » non associé : vérifiez ALERTS_CHANNEL puis /setup"
+            "Alertes", HealthStatus.WARNING, f"salon « {summary.channel_key} » non associé : vérifiez ALERTS_CHANNEL puis /admin installer"
         )
     return HealthCheck("Alertes", HealthStatus.OK, f"actives dans « {summary.channel_key} », {errors}")
 
@@ -198,7 +198,7 @@ class MessagesSummary:
 def _messages_check(setup_confirmed: bool, summary: MessagesSummary | None) -> HealthCheck:
     name = "Messages permanents"
     if not setup_confirmed:
-        return HealthCheck(name, HealthStatus.WARNING, "lancez /setup puis confirmez")
+        return HealthCheck(name, HealthStatus.WARNING, "lancez /admin installer puis confirmez")
     if summary is None:
         return HealthCheck(name, HealthStatus.OK, "configuration confirmée")
     detail = f"{summary.published}/{summary.expected} publiés"
@@ -207,7 +207,7 @@ def _messages_check(setup_confirmed: bool, summary: MessagesSummary | None) -> H
     if summary.errors:
         return HealthCheck(name, HealthStatus.ERROR, f"{detail}, {summary.errors} en erreur : voir /admin messages")
     if summary.published < summary.expected:
-        return HealthCheck(name, HealthStatus.WARNING, f"{detail} : lancez /refresh")
+        return HealthCheck(name, HealthStatus.WARNING, f"{detail} : lancez /admin actualiser")
     return HealthCheck(name, HealthStatus.OK, detail)
 
 
@@ -242,7 +242,7 @@ def _gitlab_check(
 
 @dataclass(frozen=True)
 class GitHubSummary:
-    """État des webhooks GitHub (dépôt du jeu), mesuré au moment de /status."""
+    """État des webhooks GitHub (dépôt du jeu), mesuré au moment de /etat."""
 
     enabled: bool = False  # configurés, même de façon invalide
     listening: bool = False
@@ -272,5 +272,5 @@ def _structure_check(structure: StructureReport | None) -> HealthCheck:
     if structure.is_complete:
         return HealthCheck("Salons", HealthStatus.OK, f"{usable}/{total} salons reconnus")
     return HealthCheck(
-        "Salons", HealthStatus.WARNING, f"{usable}/{total} salons utilisables, détails avec /setup"
+        "Salons", HealthStatus.WARNING, f"{usable}/{total} salons utilisables, détails avec /admin installer"
     )

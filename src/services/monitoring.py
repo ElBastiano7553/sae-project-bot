@@ -1,9 +1,9 @@
 """Suivi des erreurs récentes et masquage des secrets dans les journaux.
 
 ``RecentErrors`` garde en mémoire les dernières erreurs journalisées (niveau ERROR),
-réduites à une ligne et sans trace d'appel : ``/status`` affiche la plus récente.
+réduites à une ligne et sans trace d'appel : ``/etat`` affiche la plus récente.
 ``InteractionStats`` compte les commandes slash, leurs erreurs et leurs réponses
-lentes depuis le démarrage (affiché par ``/status``).
+lentes depuis le démarrage (affiché par ``/etat``).
 ``redact`` remplace les secrets connus (token Discord, secret des webhooks, clés
 d'API) par ``***`` : il est appliqué à tous les journaux, console et fichier.
 """

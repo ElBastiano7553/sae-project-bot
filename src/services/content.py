@@ -18,8 +18,11 @@ from pathlib import Path
 from src.config import CONTENT_DIR, ConfigError, Deadline, LinkCatalog, Planning, load_toml
 from src.services import text_limits as limits
 from src.services.design import Color, discord_timestamp, parse_timestamp
+from src.services.self_roles import ROLE_PICKER_ID, SelfRoleCatalog
 
-FOOTER_PREFIX = "Message géré par SAE Project Bot · réf."
+FOOTER_PREFIX = "Message géré par Samae · réf."
+# Anciens pieds de message : un message publié avant le renommage du bot reste reconnu.
+LEGACY_FOOTER_PREFIXES = ("Message géré par SAE Project Bot · réf.",)
 DEFAULT_COLOR = int(Color.INFO)
 _PLACEHOLDER = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
 # {{#cle}} : lien vers le salon associé à cette fonction (config/server.toml), toujours à jour du nom réel.
@@ -27,7 +30,10 @@ _CHANNEL_PLACEHOLDER = re.compile(r"\{\{\s*#([a-z0-9_]+)\s*\}\}")
 _MISSING_LINK = "*lien à configurer*"
 MISSING_FIELD_NAME = "🛠️ À compléter"
 # Contenus calculés par le bot (clé « dynamic » d'un fichier de content/messages/).
-DYNAMIC_KINDS = {"planning", "links", "announcement", "dashboard"}
+DYNAMIC_KINDS = {"planning", "links", "announcement", "dashboard", "roles"}
+# Boutons d'action ([[actions]] d'un fichier de content/messages/) : traités par Samae, ils survivent
+# aux redémarrages (identifiant fixe). Seule action connue : ouvrir le choix des rôles.
+ACTIONS = {"roles": ROLE_PICKER_ID}
 ANNOUNCEMENT_TITLE_MAX = 200
 ANNOUNCEMENT_BODY_MAX = 3500
 
@@ -46,6 +52,12 @@ class ButtonTemplate:
 
 
 @dataclass(frozen=True)
+class ActionTemplate:
+    label: str
+    action: str  # clé de ACTIONS
+
+
+@dataclass(frozen=True)
 class MessageTemplate:
     key: str
     channel_key: str
@@ -54,7 +66,10 @@ class MessageTemplate:
     color: int = DEFAULT_COLOR
     fields: tuple[FieldTemplate, ...] = ()
     buttons: tuple[ButtonTemplate, ...] = ()
-    dynamic: str | None = None  # "planning", "links", "announcement" ou "dashboard" (voir DYNAMIC_KINDS)
+    dynamic: str | None = None  # "planning", "links", "announcement", "dashboard" ou "roles" (voir DYNAMIC_KINDS)
+    actions: tuple[ActionTemplate, ...] = ()
+    # Anciennes clés (nom du fichier avant un renommage) : le message déjà publié est repris, pas dupliqué.
+    previous_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,8 +86,14 @@ class LinkButton:
 
 
 @dataclass(frozen=True)
+class ActionButton:
+    label: str
+    custom_id: str
+
+
+@dataclass(frozen=True)
 class Announcement:
-    """Annonce publiée depuis Discord avec /announce (stockée en base, jamais inventée)."""
+    """Annonce publiée depuis Discord avec /admin annonce (stockée en base, jamais inventée)."""
 
     title: str
     body: str
@@ -90,6 +111,7 @@ class MessagePayload:
     buttons: tuple[LinkButton, ...] = ()
     # Liens utilisés par le message mais pas encore renseignés : le message est « provisoire ».
     missing_links: tuple[str, ...] = ()
+    actions: tuple[ActionButton, ...] = ()
 
     @property
     def provisional(self) -> bool:
@@ -104,6 +126,11 @@ class MessagePayload:
 def footer_for(key: str) -> str:
     """Pied de message qui permet aussi de retrouver un message si la base est perdue."""
     return f"{FOOTER_PREFIX} {key}"
+
+
+def footer_markers(keys: tuple[str, ...] | list[str]) -> set[str]:
+    """Pieds de message qui désignent l'une de ces clés, avec le nom actuel du bot ou l'ancien."""
+    return {f"{prefix} {key}" for key in keys for prefix in (FOOTER_PREFIX, *LEGACY_FOOTER_PREFIXES)}
 
 
 # ---------------------------------------------------------------------------
@@ -135,9 +162,18 @@ def _parse_template(path: Path) -> MessageTemplate:
             ),
             buttons=tuple(ButtonTemplate(_text(b, "label", where), _text(b, "link", where)) for b in data.get("buttons", [])),
             dynamic=_parse_dynamic(data.get("dynamic"), where),
+            actions=tuple(_parse_action(a, where) for a in data.get("actions", [])),
+            previous_keys=tuple(str(k).strip() for k in data.get("previous_keys", []) if str(k).strip()),
         )
     except (TypeError, AttributeError) as exc:
         raise ConfigError(f"{where} : structure invalide ({exc}).") from exc
+
+
+def _parse_action(table: dict, where: str) -> ActionTemplate:
+    action = _text(table, "action", where)
+    if action not in ACTIONS:
+        raise ConfigError(f"{where} : action inconnue « {action} » (actions possibles : {', '.join(sorted(ACTIONS))}).")
+    return ActionTemplate(_text(table, "label", where), action)
 
 
 def _parse_dynamic(raw: object, where: str) -> str | None:
@@ -177,6 +213,7 @@ def render_message(
     announcement: Announcement | None = None,
     dashboard: list[EmbedField] | tuple[EmbedField, ...] | None = None,
     channels: Mapping[str, str] | None = None,
+    self_roles: SelfRoleCatalog | None = None,
 ) -> MessagePayload:
     """Construit le contenu final d'un message en respectant les limites de Discord.
 
@@ -211,6 +248,8 @@ def render_message(
     elif template.dynamic == "dashboard":
         # Champs calculés par services.dashboard à partir de l'historique GitLab enregistré.
         fields.extend(dashboard if dashboard is not None else [EmbedField("⏳ Données", "*tableau de bord pas encore calculé*")])
+    elif template.dynamic == "roles":
+        fields.extend(role_fields(self_roles))
     elif template.dynamic is not None:
         raise ConfigError(f"{template.key}.toml : valeur « dynamic » inconnue : {template.dynamic!r}.")
 
@@ -227,6 +266,7 @@ def render_message(
         fields=tuple(fields[: limits.EMBED_FIELDS]),
         buttons=buttons,
         missing_links=missing,
+        actions=_actions(template, self_roles),
     )
     return _fit_total(payload)
 
@@ -268,13 +308,39 @@ def _buttons(template: MessageTemplate, links: dict[str, str], used: list[str]) 
     return tuple(buttons[: limits.BUTTONS_PER_MESSAGE])
 
 
+def _actions(template: MessageTemplate, self_roles: SelfRoleCatalog | None) -> tuple[ActionButton, ...]:
+    actions = []
+    for action in template.actions:
+        if action.action == "roles" and self_roles is not None and not self_roles.roles:
+            continue  # aucun rôle à choisir : le bouton ne mènerait nulle part
+        actions.append(ActionButton(limits.truncate(action.label, limits.BUTTON_LABEL), ACTIONS[action.action]))
+    return tuple(actions[: limits.BUTTONS_PER_MESSAGE])
+
+
+def role_fields(catalog: SelfRoleCatalog | None) -> list[EmbedField]:
+    """Panneau du choix des rôles : chaque rôle proposé et à quoi il sert (rôles réellement présents)."""
+    if catalog is None or not catalog.roles:
+        return [
+            EmbedField(
+                "🎭 Rôles à choisir",
+                "*Aucun rôle n'est proposé pour le moment.* Un administrateur peut les créer avec `/refonte lancer`, "
+                "puis lancer `/admin actualiser`.",
+            )
+        ]
+    fields = []
+    for title, roles in catalog.grouped():
+        lines = [f"**{role.name}** — {role.description}" for role in roles]
+        fields.extend(_chunked_fields(title, lines))
+    return fields
+
+
 def missing_links_field(catalog: LinkCatalog, missing: tuple[str, ...] | list[str]) -> EmbedField:
     ordered = sorted(missing, key=lambda key: not catalog.is_required(key))
     lines = [
         f"• {catalog.label(key)} — {'**obligatoire**' if catalog.is_required(key) else 'facultatif'}" for key in ordered
     ]
     if any(catalog.is_required(key) for key in ordered):
-        lines.append("*Version provisoire : renseignez `config/links.toml`, puis `/refresh` met à jour ce message.*")
+        lines.append("*Version provisoire : renseignez `config/links.toml`, puis `/admin actualiser` met à jour ce message.*")
     else:
         lines.append("*Liens facultatifs : à ajouter dans `config/links.toml` quand ils existeront.*")
     return EmbedField(MISSING_FIELD_NAME, limits.truncate("\n".join(lines), limits.FIELD_VALUE))
@@ -325,7 +391,7 @@ def planning_fields(planning: Planning, today: dt.date) -> list[EmbedField]:
         fields.append(
             EmbedField(
                 "📌 Prochaines échéances",
-                "Aucune échéance à venir n'est renseignée.\nAjoutez-les dans `config/planning.toml`, puis lancez `/refresh`.",
+                "Aucune échéance à venir n'est renseignée.\nAjoutez-les dans `config/planning.toml`, puis lancez `/admin actualiser`.",
             )
         )
     if past:

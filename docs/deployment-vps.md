@@ -114,9 +114,9 @@ serveur, le lance, puis attend la connexion à Discord. Il se termine par
 « Samae tourne en service ».
 
 **7. Vérifier sur Discord** (voir aussi le plan de test, docs/test-manuel.md) :
-`/status` (tout en ✅ ou ⏸️, ligne « Réactivité »), `/help`, puis `/setup` **sans
+`/etat` (tout en ✅ ou ⏸️, ligne « Réactivité »), `/aide`, puis `/admin installer` **sans
 confirmer** pour voir ce que la mise à jour des messages changerait. Quand le résultat
-vous convient : `/refresh` (modifie les messages sur place, ne supprime rien), puis
+vous convient : `/admin actualiser` (modifie les messages sur place, ne supprime rien), puis
 remettez `AUTO_REFRESH_ON_STARTUP=true` dans `.env` et `sudo systemctl restart samae`.
 
 **8. Tester le redémarrage automatique** (facultatif, recommandé) :
@@ -153,7 +153,7 @@ lui, ne tourne jamais avec ces droits (`NoNewPrivileges`).
 | voir les derniers contrôles | `sudo journalctl -u samae-check -n 20 --no-pager` |
 | mémoire et CPU du bot | `systemctl status samae` (lignes `Memory` et `CPU`) |
 
-Sur Discord, `/status` donne aussi l'état mesuré à l'instant (connexion, base,
+Sur Discord, `/etat` donne aussi l'état mesuré à l'instant (connexion, base,
 sauvegardes, réactivité des commandes, dernière erreur).
 
 Le bot écrit aussi `logs/bot.log` (3 × 1 Mo au plus, rotation automatique). Les journaux
@@ -185,7 +185,7 @@ Le script affiche les changements et demande confirmation, puis :
 5. redémarre et attend la connexion à Discord (150 s au plus) ;
 6. en cas d'échec, affiche les journaux et propose le retour à la version précédente.
 
-Ensuite : `/status` et `/help` sur Discord.
+Ensuite : `/etat` et `/aide` sur Discord.
 
 ## 6. Revenir en arrière
 
@@ -215,7 +215,7 @@ La mise à jour suivante (`bash deploy/update.sh`) revient automatiquement sur `
 | Avant chaque mise à jour (`update.sh`) ou `python -m src.ops backup` | `data/backups/deploiements/` | 10 |
 | Avant une migration du schéma | `data/backups/` (`…-avantvN`) | 30 |
 | Avant une `/refonte` | `data/backups/` (`…-avantrefonte`) | avec les automatiques |
-| À la demande sur Discord | `/admin backup` | avec les automatiques |
+| À la demande sur Discord | `/admin sauvegarde` | avec les automatiques |
 
 Chaque copie est faite avec l'API de sauvegarde de SQLite (cohérente même si le bot
 écrit) puis rouverte et vérifiée (`PRAGMA integrity_check`).
@@ -317,7 +317,7 @@ automatiques (`sudo apt install unattended-upgrades`) et connexion SSH par clé.
 | `Watchdog timeout` dans les journaux | le bot était bloqué : systemd l'a relancé | signalez-le avec l'heure ; les journaux juste avant indiquent l'opération en cours |
 | « Sauvegarde automatique échouée … Read-only file system » | `BACKUP_DIR` modifié dans `.env` après l'installation | relancez `bash deploy/install-service.sh` |
 | les commandes slash n'apparaissent pas | synchronisation ignorée ou refusée | `.venv/bin/python -m src.ops resync`, puis `sudo systemctl restart samae` |
-| `/status` affiche « Réactivité » en ⚠️ | commandes lentes ou en erreur | `sudo journalctl -u samae -g "lente\|Erreur pendant"` |
+| `/etat` affiche « Réactivité » en ⚠️ | commandes lentes ou en erreur | `sudo journalctl -u samae -g "lente\|Erreur pendant"` |
 
 Les commandes slash ne sont envoyées à Discord que lorsqu'elles ont changé (empreinte
 enregistrée en base) : un redémarrage ordinaire ne les resynchronise pas, ce qui rend le

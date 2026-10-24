@@ -19,7 +19,7 @@ def setup_logging(
     secrets: Iterable[str] = (),
     errors: RecentErrors | None = None,
 ) -> None:
-    """``secrets`` : valeurs à masquer dans tous les journaux. ``errors`` : reçoit les erreurs pour /status."""
+    """``secrets`` : valeurs à masquer dans tous les journaux. ``errors`` : reçoit les erreurs pour /etat."""
     log_dir.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter(LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
     redactor = SecretRedactingFilter(secrets)

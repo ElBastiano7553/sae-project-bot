@@ -1,7 +1,7 @@
-"""Commandes d'IA (lot 3) : /ask, /summary, /review.
+"""Groupe /ia (lot 3) : question, bilan, relecture.
 
 Ouvertes à tous les membres, réponses éphémères. Désactivées proprement si
-AI_PROVIDER=none ; /review demande en plus l'API GitLab en lecture seule.
+AI_PROVIDER=none ; /ia relecture demande en plus l'API GitLab en lecture seule.
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ SUMMARY_PERIODS = [app_commands.Choice(name=PERIOD_LABELS[key], value=key) for k
 
 
 class AICog(commands.Cog):
+    ia = app_commands.Group(name="ia", description="Assistant IA : questions sur le projet, bilans, relectures", guild_only=True)
+
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
 
@@ -37,7 +39,7 @@ class AICog(commands.Cog):
         assistant = self.bot.assistant
         if assistant is None:
             reason = (
-                "la configuration de l'IA est invalide (voir `/status`)"
+                "la configuration de l'IA est invalide (voir `/etat`)"
                 if self.bot.settings.ai_config_error
                 else "AI_PROVIDER=none dans la configuration du bot"
             )
@@ -53,9 +55,8 @@ class AICog(commands.Cog):
     async def _reply_error(self, interaction: discord.Interaction, exc: Exception) -> None:
         await send_error(interaction, str(exc), title="L'IA n'a pas pu répondre", tone="warning")
 
-    @app_commands.command(name="ask", description="Poser une question sur le projet (réponse de l'IA à partir des documents de l'équipe)")
+    @ia.command(name="question", description="Poser une question sur le projet (réponse de l'IA à partir des documents de l'équipe)")
     @app_commands.describe(question="Votre question (500 caractères au plus)")
-    @app_commands.guild_only()
     async def ask(self, interaction: discord.Interaction, question: app_commands.Range[str, 3, 500]) -> None:
         assistant = await self._assistant(interaction)
         if assistant is None:
@@ -71,10 +72,9 @@ class AICog(commands.Cog):
             return
         await interaction.followup.send(embed=ai_answer_embed(answer, title="Réponse", subject=question), ephemeral=True)
 
-    @app_commands.command(name="summary", description="Bilan de l'activité GitLab rédigé par l'IA (événements reçus par le bot)")
+    @ia.command(name="bilan", description="Bilan de l'activité GitLab rédigé par l'IA (événements reçus par le bot)")
     @app_commands.describe(periode="Période (7 jours par défaut)")
     @app_commands.choices(periode=SUMMARY_PERIODS)
-    @app_commands.guild_only()
     async def summary(self, interaction: discord.Interaction, periode: app_commands.Choice[str] | None = None) -> None:
         assistant = await self._assistant(interaction)
         if assistant is None:
@@ -91,14 +91,13 @@ class AICog(commands.Cog):
         embed = ai_answer_embed(answer, title=f"Bilan GitLab : {PERIOD_LABELS[period]}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="review", description="Relecture d'une merge request GitLab par l'IA (aide, pas une validation)")
+    @ia.command(name="relecture", description="Relecture d'une merge request GitLab par l'IA (aide, pas une validation)")
     @app_commands.describe(mr="Numéro de la merge request (le n de !n)")
-    @app_commands.guild_only()
     async def review(self, interaction: discord.Interaction, mr: app_commands.Range[int, 1, 1_000_000]) -> None:
         if self.bot.gitlab_api is None:
             await send_error(
                 interaction,
-                "/review lit la merge request sur GitLab : il faut GITLAB_ACCESS_TOKEN (scope read_api) et "
+                "/ia relecture lit la merge request sur GitLab : il faut GITLAB_ACCESS_TOKEN (scope read_api) et "
                 "GITLAB_PROJECT_ID dans la configuration du bot (voir docs/ai.md).",
                 title="API GitLab non configurée",
                 tone="warning",

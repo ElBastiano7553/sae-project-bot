@@ -1,4 +1,4 @@
-# Assistant IA (lot 3) : `/ask`, `/summary`, `/review`
+# Assistant IA (lot 3) : `/ia question`, `/ia bilan`, `/ia relecture`
 
 L'IA est **désactivée par défaut** (`AI_PROVIDER=none`) : le bot fonctionne sans clé.
 Quand elle est activée, elle sert d'aide à l'équipe. Elle ne prend aucune décision, ne
@@ -9,9 +9,9 @@ modifie rien sur GitLab et ne publie rien dans les salons : toutes ses réponses
 
 | Commande | Ce que l'IA reçoit | Ce qu'elle produit |
 |---|---|---|
-| `/ask question:…` | La question, plus au plus 6 extraits trouvés dans les documents de l'équipe (voir §3) | Une réponse brève qui **cite ses sources** ([1], [2]…) ou dit qu'elle ne sait pas. Sans extrait correspondant, l'IA n'est pas appelée. |
-| `/summary [periode]` | Les événements GitLab enregistrés par le bot sur la période (300 au plus) et leurs statistiques | Un bilan en quatre parties : synthèse, avancées, points d'attention, pistes. Sans événement, l'IA n'est pas appelée. |
-| `/review mr:12` | Le titre, la description et le diff de la merge request !12, lus sur GitLab **en lecture seule** (60 000 caractères au plus, 8 000 par fichier) | Une relecture : bugs probables, cas non gérés, sécurité, tests manquants, lisibilité, puis un verdict. **Une aide, pas une validation** : la relecture d'un membre reste nécessaire. |
+| `/ia question question:…` | La question, plus au plus 6 extraits trouvés dans les documents de l'équipe (voir §3) | Une réponse brève qui **cite ses sources** ([1], [2]…) ou dit qu'elle ne sait pas. Sans extrait correspondant, l'IA n'est pas appelée. |
+| `/ia bilan [periode]` | Les événements GitLab enregistrés par le bot sur la période (300 au plus) et leurs statistiques | Un bilan en quatre parties : synthèse, avancées, points d'attention, pistes. Sans événement, l'IA n'est pas appelée. |
+| `/ia relecture mr:12` | Le titre, la description et le diff de la merge request !12, lus sur GitLab **en lecture seule** (60 000 caractères au plus, 8 000 par fichier) | Une relecture : bugs probables, cas non gérés, sécurité, tests manquants, lisibilité, puis un verdict. **Une aide, pas une validation** : la relecture d'un membre reste nécessaire. |
 
 Chaque réponse indique :
 
@@ -29,12 +29,12 @@ Chaque réponse indique :
 | `AI_MODEL` | vide = `claude-opus-5-5` | Modèle Claude utilisé, par exemple `claude-sonnet-5-5` (moins cher) ou `claude-haiku-5-5` (bien moins cher, moins précis). |
 | `AI_DAILY_LIMIT` | 50 | Nombre maximal de demandes par jour pour toute l'équipe (remise à zéro à minuit UTC). |
 | `AI_COOLDOWN_SECONDS` | 20 | Délai minimal entre deux demandes d'un même membre. |
-| `GITLAB_ACCESS_TOKEN` | token GitLab, scope `read_api` | Nécessaire uniquement pour `/review`. **Secret.** |
-| `GITLAB_PROJECT_ID` | identifiant numérique | Nécessaire pour `/review`. Déjà utilisé par les webhooks. |
+| `GITLAB_ACCESS_TOKEN` | token GitLab, scope `read_api` | Nécessaire uniquement pour `/ia relecture`. **Secret.** |
+| `GITLAB_PROJECT_ID` | identifiant numérique | Nécessaire pour `/ia relecture`. Déjà utilisé par les webhooks. |
 | `GITLAB_BASE_URL` | `https://gitlab.com` (défaut) | Adresse de l'instance GitLab. Une adresse non `https://` désactive l'API, pour que le token ne circule jamais en clair. |
 
 Une valeur invalide (fournisseur inconnu, clé absente…) **désactive seulement l'IA** :
-le reste du bot démarre, et `/status` affiche la raison.
+le reste du bot démarre, et `/etat` affiche la raison.
 
 ### Créer le token GitLab (lecture seule)
 
@@ -54,7 +54,7 @@ sur Discord. Le bot n'envoie le token que dans l'en-tête `PRIVATE-TOKEN` des re
 Chaque demande consomme des tokens facturés par Anthropic sur le compte de la clé.
 Le bot conserve, pour chaque demande, la date, le membre, la commande, le modèle et
 le nombre de tokens. Le texte des questions et des réponses n'est jamais conservé.
-`/status` affiche le nombre de demandes du jour. Le modèle travaille avec un effort
+`/etat` affiche le nombre de demandes du jour. Le modèle travaille avec un effort
 « medium », qui suffit pour résumer et relire.
 
 Pour Claude Opus 5.5 (et Sonnet 5.5, Opus 5, Fable 5.1), le **repli côté serveur** est
@@ -64,7 +64,7 @@ modèle dans le même appel, au lieu de renvoyer un refus. Ce repli est facturé
 du modèle de secours. Le retirer : choisir un `AI_MODEL` qui ne le prend pas en charge
 (Haiku), ou modifier `FALLBACK_MODELS` dans `src/ai/anthropic_provider.py`.
 
-## 3. Sources de `/ask`
+## 3. Sources de `/ia question`
 
 Dans l'ordre :
 

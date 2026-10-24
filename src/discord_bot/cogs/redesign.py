@@ -273,7 +273,7 @@ class RedesignCog(commands.Cog):
         setup = self.bot.setup_confirmed_at
         return [
             f"{len(bindings)} salon(s) et {len(self.bot.role_bindings)} rôle(s) associés · {len(messages)} message(s) permanent(s)"
-            + (f" · /setup confirmé le {setup}" if setup else " · /setup jamais confirmé"),
+            + (f" · /admin installer confirmé le {setup}" if setup else " · /admin installer jamais confirmé"),
             f"Réunions : {open_count} prévue(s) ou en cours, {finished} terminée(s). Panneaux et comptes rendus sont "
             "retrouvés par identifiant : un renommage ou un déplacement ne les casse pas.",
         ]
