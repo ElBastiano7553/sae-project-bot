@@ -131,9 +131,11 @@ les commandes et ne me transmet jamais de secret.
    Le renouvellement automatique déjà en place le prendra en charge.
 
 5. **Nginx, partie HTTPS** : décommenter le second bloc, puis `sudo nginx -t && sudo systemctl reload nginx`.
-   Seuls `POST /github/webhook` et `POST /gitlab/webhook/<identifiant>` passent ; tout le reste répond 404.
+   Seuls `POST /github/webhook`, `POST /gitlab/webhook/<identifiant>` et, depuis la 1.9.0, `GET /github/setup`
+   et `GET /github/callback` (connexion GitHub, [github-app.md](github-app.md)) passent ; tout le reste répond 404.
+   Le journal Nginx de ce site n'enregistre pas les paramètres d'adresse (jetons à usage unique).
 
-6. **Samae** : dans `.env`, `PROJECTS_HTTP_ENABLED=true` (et `GITHUB_APP_WEBHOOK_SECRET` en B4),
+6. **Samae** : dans `.env`, `PROJECTS_HTTP_ENABLED=true` (et, pour la GitHub App, les variables de [github-app.md](github-app.md)),
    puis redémarrage. Contrôle local : `curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8090/gitlab/webhook/essai-0000000000000`
    doit afficher `401`.
 

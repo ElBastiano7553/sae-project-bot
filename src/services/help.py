@@ -102,6 +102,13 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         "/projet modifier projet:1 categorie:Code (commits) branches:main, develop",
         admin=True,
     ),
+    HelpEntry(
+        "projet configurer",
+        "projets",
+        "Connecter un dépôt GitHub par la GitHub App de Samae : lien d'installation, vérification sur GitHub, choix du dépôt. Aucun token dans Discord.",
+        "/projet configurer",
+        admin=True,
+    ),
     HelpEntry("ia question", "ia", "Question sur le projet : l'IA répond à partir des documents de l'équipe et cite ses sources.", "/ia question question:Quand est la prochaine soutenance ?"),
     HelpEntry("ia bilan", "ia", "Bilan de l'activité GitLab de la période, rédigé par l'IA à partir des événements reçus.", "/ia bilan periode:7 derniers jours"),
     HelpEntry("ia relecture", "ia", "Relecture d'une merge request par l'IA : bugs probables, tests, sécurité (une aide, pas une validation).", "/ia relecture mr:12"),

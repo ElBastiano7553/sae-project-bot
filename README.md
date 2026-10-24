@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.8.0 (multi-projets : `/projet` et réception commune des événements)
+## État actuel : version 1.9.0 (multi-projets : `/projet`, réception commune, connexion GitHub)
 
 | Fonction | État |
 |---|---|
@@ -32,7 +32,8 @@ et bilans assistés par IA.
 | Multi-projets : `/projet ajouter` (admins) enregistre un projet à partir de l'adresse de son dépôt GitHub ou GitLab, après récapitulatif et confirmation ; pas encore de notifications (connexion en B4/B5) | ✅ 1.7.0 ([guide](docs/projets.md)) |
 | Projets masqués aux membres qui ne voient aucun de leurs salons (liste, détails, autocomplétion) ; les administrateurs voient tout | ✅ 1.7.1 ([guide](docs/projets.md)) |
 | Multi-projets, étape B3 : réception commune des événements GitHub et GitLab des projets enregistrés (127.0.0.1:8090, désactivée par défaut), filtres et anti-doublons par projet, guide Nginx/DNS/certificat ; aucun projet n'est encore relié (B4/B5) | ✅ 1.8.0 ([guide](docs/projets-reception.md)) |
-| Multi-projets, étapes B4 à B7 : connexion GitHub App et GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
+| Multi-projets, étape B4 : `/projet configurer` (admins) relie un dépôt GitHub par la GitHub App de Samae (lien d'installation personnel et à usage unique, vérification OAuth puis révocation, aucune clé privée ni token gardé), message de test ; désactivée sans configuration | ✅ 1.9.0 ([guide](docs/github-app.md)) |
+| Multi-projets, étapes B5 à B7 : connexion GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
 `/aide` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :

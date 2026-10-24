@@ -1,0 +1,22 @@
+{
+  "name": "Samae Test",
+  "url": "https://samae.exemple.fr",
+  "description": "Notifications Discord de Samae (application de TEST, lecture seule).",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://samae.exemple.fr/github/webhook",
+    "active": true
+  },
+  "callback_urls": ["https://samae.exemple.fr/github/callback"],
+  "setup_url": "https://samae.exemple.fr/github/setup",
+  "setup_on_update": true,
+  "request_oauth_on_install": false,
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "read",
+    "pull_requests": "read",
+    "issues": "read",
+    "actions": "read"
+  },
+  "default_events": ["push", "pull_request", "issues", "workflow_run"]
+}

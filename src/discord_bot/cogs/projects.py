@@ -8,8 +8,10 @@ auteur, emplacement de la configuration).
 
 Administrateurs seulement (vérifié par le bot à chaque appel) : ``ajouter`` enregistre
 un projet à partir de l'adresse de son dépôt, après un récapitulatif et une confirmation ;
-``modifier`` choisit ensuite le salon et les filtres de chaque catégorie de notifications.
-Les deux opérations restent distinctes.
+``modifier`` choisit ensuite le salon et les filtres de chaque catégorie de notifications ;
+``configurer`` relie un dépôt GitHub à la GitHub App de Samae (étape B4) : lien d'installation
+personnel et à usage unique, vérification auprès de GitHub, choix du dépôt, confirmation,
+message de test. Aucun token ni mot de passe n'est demandé dans Discord.
 
 Chaque serveur ne voit que ses propres projets. Les projets configurés dans
 ``.env`` apparaissent comme « historiques », en lecture seule.
@@ -25,6 +27,10 @@ from src.config import ConfigError, load_server_layout
 from src.discord_bot.bot import SaeBot, send_error
 from src.discord_bot.cogs.admin import admin_only
 from src.discord_bot.embeds import (
+    github_connect_embed,
+    github_connect_preview_embed,
+    github_connected_embed,
+    project_test_embed,
     project_add_preview_embed,
     project_added_embed,
     project_detail_embed,
@@ -32,10 +38,12 @@ from src.discord_bot.embeds import (
     projects_list_pages,
 )
 from src.discord_bot.meeting_ui import PagesView
+from src.discord_bot.project_views import MAX_OPTIONS, GithubConnectView, RepositorySelectView, TestMessageView
 from src.discord_bot.views import ConfirmView
 from src.discord_bot.permissions import is_bot_admin
 from src.github.dispatcher import CHANNEL_KEY as GITHUB_CHANNEL_KEY
 from src.gitlab.rules import load_gitlab_rules
+from src.providers.github_app import STATE_TTL
 from src.services.projects import (
     CATEGORIES,
     CLEAR_FILTER,
@@ -54,6 +62,7 @@ from src.services.projects import (
 )
 
 REF_MAX = 20
+REPOSITORY_MAX = 140
 FILTER_TEXT_MAX = 300
 CATEGORY_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in CATEGORIES.items()]
 # Permissions dont Samae a besoin dans un salon de notifications.
@@ -332,6 +341,208 @@ class ProjectsCog(commands.Cog):
                 f"« {m} »" for m in missing
             ) + "."
         return ""
+
+    @projet.command(
+        name="configurer",
+        description="Admins : connecter un dépôt GitHub à Samae (GitHub App, sans aucun token dans Discord)",
+        extras={"admin": True},
+    )
+    @app_commands.describe(depot="Dépôt déjà autorisé à connecter directement (sinon : lien d'installation, puis menu)")
+    @admin_only()
+    async def configure(self, interaction: discord.Interaction, depot: app_commands.Range[str, 1, REPOSITORY_MAX] | None = None) -> None:
+        guild = await self._guild_or_error(interaction)
+        if guild is None:
+            return
+        problem = self._github_connection_unavailable()
+        if problem:
+            await send_error(interaction, problem, title="Connexion GitHub indisponible", tone="warning")
+            return
+        if depot is not None:
+            await self._preview_connection(interaction, depot.strip())
+            return
+        flow = self.bot.github_setup
+        install_url = flow.install_url(guild.id, interaction.user.id)
+        installations = self.bot.github_setup_repo.installations(guild.id)
+        view = GithubConnectView(interaction.user.id, install_url, self._choose_repository)
+        view.original = interaction
+        embed = github_connect_embed(installations, expires_minutes=int(STATE_TTL.total_seconds() // 60))
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    def _github_connection_unavailable(self) -> str:
+        settings = self.bot.settings
+        if self.bot.github_setup is None:
+            reason = f" Configuration refusée : {settings.github_app_error}" if settings.github_app_error else ""
+            return (
+                "La connexion GitHub n'est pas encore activée par l'hébergeur de Samae (GitHub App, adresse HTTPS : "
+                f"voir `docs/github-app.md`).{reason} En attendant, `/projet ajouter` enregistre le projet sans le connecter."
+            )
+        server = self.bot.projects_server
+        if server is None or not server.listening:
+            return "La réception des événements des projets est arrêtée : voir `/etat`. Rien n'a été relié."
+        return ""
+
+    async def _admin_still(self, interaction: discord.Interaction) -> discord.Guild | None:
+        """Revérifie, à chaque bouton, que la personne est toujours administratrice de CE serveur."""
+        guild = interaction.guild
+        if guild is None or guild.id not in self.project_guilds() or not self._is_admin(interaction):
+            await send_error(interaction, "Réservé aux administrateurs de ce serveur.", title="Accès refusé")
+            return None
+        return guild
+
+    def _github_candidates(self, guild_id: int) -> list[str]:
+        """Dépôts des installations vérifiées pour CE serveur qui ne sont pas encore connectés ici."""
+        linked = self.bot.projects_repo.linked_ids(guild_id)
+        connected = {p.external_id for p in self.bot.projects_repo.list_for_guild(guild_id) if p.provider == "github" and p.id in linked}
+        seen: dict[str, str] = {}
+        for installation in self.bot.github_setup_repo.installations(guild_id):
+            for name in installation.repositories:
+                if name.casefold() not in connected:
+                    seen.setdefault(name.casefold(), name)
+        return sorted(seen.values(), key=str.casefold)
+
+    async def _choose_repository(self, interaction: discord.Interaction) -> None:
+        guild = await self._admin_still(interaction)
+        if guild is None:
+            return
+        candidates = self._github_candidates(guild.id)
+        if not candidates:
+            await send_error(
+                interaction,
+                "Aucun dépôt à connecter pour l'instant : terminez l'installation sur GitHub (avec l'autorisation demandée "
+                "ensuite), puis cliquez à nouveau. Les dépôts déjà connectés ne sont pas proposés.",
+                title="Aucun dépôt disponible",
+                tone="warning",
+            )
+            return
+        note = ""
+        if len(candidates) > MAX_OPTIONS:
+            note = f" Seuls les {MAX_OPTIONS} premiers sont proposés : pour un autre, utilisez `/projet configurer depot:`."
+        view = RepositorySelectView(interaction.user.id, candidates, self._preview_connection)
+        view.original = interaction
+        await interaction.response.send_message(f"Choisissez le dépôt à connecter.{note}", view=view, ephemeral=True)
+
+    def _connection_problem(self, guild_id: int, repository: str) -> str:
+        installation = self.bot.github_setup_repo.installation_for(guild_id, repository)
+        if installation is None:
+            return (
+                "Ce dépôt n'est couvert par aucune installation de la GitHub App vérifiée pour ce serveur. "
+                "Lancez `/projet configurer` sans option et suivez le lien d'installation."
+            )
+        external_id = repository.casefold()
+        existing = self.bot.projects_repo.find(guild_id, "github", external_id)
+        if existing is not None and existing.id in self.bot.projects_repo.linked_ids(guild_id):
+            return f"Ce dépôt est déjà connecté sur ce serveur (projet `{existing.id}`). Voir `/projet details`."
+        settings = self.bot.settings
+        if guild_id == settings.guild_id and settings.github_requested and settings.github_repository.casefold() == external_id:
+            return (
+                "Ce dépôt est déjà suivi par la configuration `.env` (projet historique `env-github`). Le connecter aussi "
+                "doublerait ses notifications : videz d'abord `GITHUB_WEBHOOK_SECRET` sur le serveur qui héberge Samae "
+                "(voir `docs/github-app.md`). Rien n'a été relié."
+            )
+        return ""
+
+    async def _preview_connection(self, interaction: discord.Interaction, repository: str) -> None:
+        guild = await self._admin_still(interaction)
+        if guild is None:
+            return
+        connected = self.bot.projects_repo.find(guild.id, "github", repository.casefold())
+        if connected is not None and connected.id in self.bot.projects_repo.linked_ids(guild.id):
+            # Déjà connecté : on le dit, et on propose le message de test si ses salons sont choisis.
+            await self._show_connected(interaction, connected, interaction.response.send_message, ephemeral=True)
+            return
+        problem = self._connection_problem(guild.id, repository)
+        if problem:
+            await send_error(interaction, problem, title="Connexion impossible", tone="warning")
+            return
+        installation = self.bot.github_setup_repo.installation_for(guild.id, repository)
+        # Orthographe donnée par GitHub (la saisie peut différer par les majuscules).
+        repository = next(n for n in installation.repositories if n.casefold() == repository.casefold())
+        existing = self.bot.projects_repo.find(guild.id, "github", repository.casefold())
+        name = existing.name if existing else normalize_name(repository.split("/")[-1])
+        author = interaction.user
+
+        async def confirm(confirmation: discord.Interaction) -> None:
+            # Revérifié : droits, installation et doublons ont pu changer pendant la confirmation.
+            if not self._member_is_admin(confirmation.user):
+                await confirmation.edit_original_response(content="Réservé aux administrateurs de ce serveur.", embeds=[], view=None)
+                return
+            again = self._connection_problem(guild.id, repository)
+            if again:
+                await confirmation.edit_original_response(content=again, embeds=[], view=None)
+                return
+            current = self.bot.github_setup_repo.installation_for(guild.id, repository)
+            record = self.bot.projects_repo.find(guild.id, "github", repository.casefold())
+            if record is None:
+                record = self.bot.projects_repo.create(guild.id, "github", repository, name, created_by=author.id)
+            self.bot.projects_repo.link_github(guild.id, record.id, current.installation_id)
+            self.bot.record_admin_action(confirmation, "projet configurer", str(record.id), f"github {record.external_id}")
+            await self._show_connected(confirmation, record, confirmation.edit_original_response, content=None)
+
+        view = ConfirmView(author.id, confirm, command="/projet configurer")
+        view.original = interaction
+        embed = github_connect_preview_embed(
+            repository, installation.account, guild.name, existing_ref=str(existing.id) if existing else None, name=name
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    async def _show_connected(self, interaction: discord.Interaction, record, show, **extra) -> None:
+        """État « connecté », avec le bouton du message de test si des salons sont choisis."""
+        view = registered_view(record, self.bot.projects_repo.routes(record.guild_id, record.id), connected=True)
+        test_view = TestMessageView(interaction.user.id, lambda inter: self._send_test(inter, record.id)) if view.routes else None
+        if test_view is not None:
+            test_view.original = interaction
+            extra["view"] = test_view
+        elif "content" in extra:  # modification d'un message : retirer les anciens boutons
+            extra["view"] = None
+        await show(embed=github_connected_embed(view), **extra)
+
+    async def _send_test(self, interaction: discord.Interaction, project_id: int) -> None:
+        """Message de test dans chaque salon du projet, après vérification du salon dans CE serveur."""
+        guild = await self._admin_still(interaction)
+        if guild is None:
+            return
+        record = self.bot.projects_repo.get(guild.id, project_id)
+        routes = self.bot.projects_repo.routes(guild.id, project_id) if record else ()
+        if not routes:
+            await send_error(interaction, "Aucun salon n'est choisi pour ce projet : utilisez d'abord `/projet modifier`.", tone="warning")
+            return
+        by_channel: dict[int, list[str]] = {}
+        for route in routes:
+            if route.channel_id is not None:
+                by_channel.setdefault(route.channel_id, []).append(route.category)
+        # Plusieurs envois peuvent dépasser les 3 secondes accordées par Discord pour répondre.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        sent, refused = [], []
+        for channel_id, categories in by_channel.items():
+            if self._channel_problem(guild, channel_id):  # salon d'un autre serveur, supprimé ou sans permission
+                refused.append(f"<#{channel_id}>")
+                continue
+            channel = guild.get_channel(channel_id)
+            try:
+                message = await channel.send(embed=project_test_embed(record.name, categories))
+            except discord.HTTPException:
+                refused.append(f"<#{channel_id}>")
+                continue
+            # Envoi confirmé par Discord : le message renvoyé est bien dans CE salon de CE serveur.
+            posted = getattr(message, "channel", None)
+            if getattr(posted, "id", None) == channel_id and getattr(getattr(posted, "guild", None), "id", None) == guild.id:
+                sent.append(f"<#{channel_id}>")
+            else:
+                refused.append(f"<#{channel_id}>")
+        self.bot.record_admin_action(interaction, "projet tester", str(project_id), f"{len(sent)}/{len(by_channel)} salon(s)")
+        lines = [f"Message de test envoyé et confirmé dans : {', '.join(sent)}." if sent else "Aucun message de test n'a pu être envoyé."]
+        if refused:
+            lines.append(f"Impossible de publier dans : {', '.join(refused)} (vérifiez le salon et les permissions de Samae).")
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+    @configure.autocomplete("depot")
+    async def _repository_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        # Autocomplétion appelée sans les vérifications de la commande : administrateurs seulement.
+        guild = interaction.guild
+        if guild is None or guild.id not in self.project_guilds() or not self._is_admin(interaction):
+            return []
+        needle = current.casefold()
+        return [app_commands.Choice(name=n[:100], value=n[:100]) for n in self._github_candidates(guild.id) if needle in n.casefold()][:25]
 
     @modify.autocomplete("projet")
     async def _registered_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:

@@ -315,6 +315,34 @@ MIGRATIONS: list[str] = [
     CREATE UNIQUE INDEX project_deliveries_dedup ON project_deliveries (project_id, dedup_key) WHERE dedup_key IS NOT NULL;
     CREATE INDEX project_deliveries_received_at ON project_deliveries (received_at);
     """,
+    # v11 : connexion des projets GitHub par la GitHub App (multi-projets, étape B4).
+    # github_setup_states : liens d'installation et d'autorisation en attente, à usage unique et
+    # limités dans le temps ; seule l'empreinte SHA-256 du jeton est gardée, et la ligne est
+    # supprimée dès son utilisation (réussie ou non) ou son expiration. github_installations : installations
+    # dont l'accès a été vérifié auprès de GitHub pour CE serveur Discord, avec la liste des dépôts
+    # lue à ce moment-là. Aucun token GitHub n'est enregistré. Uniquement des créations de tables.
+    """
+    CREATE TABLE github_setup_states (
+        token_hash      TEXT    PRIMARY KEY CHECK (length(token_hash) = 64),
+        step            TEXT    NOT NULL CHECK (step IN ('install', 'oauth')),
+        guild_id        INTEGER NOT NULL,
+        user_id         INTEGER NOT NULL,
+        installation_id INTEGER,  -- étape « oauth » : installation à vérifier
+        expires_at      TEXT    NOT NULL,
+        CHECK ((step = 'install' AND installation_id IS NULL) OR (step = 'oauth' AND installation_id IS NOT NULL))
+    );
+    CREATE INDEX github_setup_states_expires_at ON github_setup_states (expires_at);
+
+    CREATE TABLE github_installations (
+        guild_id        INTEGER NOT NULL,
+        installation_id INTEGER NOT NULL CHECK (installation_id > 0),
+        account         TEXT    NOT NULL,  -- compte GitHub où l'App est installée
+        repositories    TEXT    NOT NULL,  -- JSON : dépôts « propriétaire/depot » que la personne administre, lus à la vérification
+        authorized_by   INTEGER NOT NULL,  -- administrateur Discord qui a lancé la connexion
+        authorized_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (guild_id, installation_id)
+    );
+    """,
 ]
 
 
