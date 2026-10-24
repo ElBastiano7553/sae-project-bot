@@ -700,6 +700,10 @@ CONNECTION_NOT_READY = (
     "Aucun token ni mot de passe ne vous sera demandé dans Discord."
 )
 CONNECTION_GITHUB_NEXT = "\n**Connexion :** ensuite, `/projet configurer` relie le dépôt à la GitHub App de Samae."
+CONNECTION_GITLAB_NEXT = (
+    "\n**Connexion :** ensuite, `/projet configurer projet:<référence>` relie le projet par l'application OAuth "
+    "GitLab de Samae (rôle Maintainer, secret du webhook affiché une seule fois)."
+)
 
 
 def project_add_preview_embed(parsed: ParsedRepository, name: str, guild_name: str, *, warning: str = "") -> discord.Embed:
@@ -711,7 +715,7 @@ def project_add_preview_embed(parsed: ParsedRepository, name: str, guild_name: s
     add_field(embed, "Nom du projet", design.escape_markdown(name), inline=True)
     add_field(embed, "Serveur concerné", design.escape_markdown(guild_name), inline=True)
     add_field(embed, "Dépôt", f"`{design.escape_markdown(target)}`")
-    next_step = CONNECTION_GITHUB_NEXT if parsed.provider == "github" else ""
+    next_step = CONNECTION_GITHUB_NEXT if parsed.provider == "github" else CONNECTION_GITLAB_NEXT
     add_field(embed, "À ce stade", CONNECTION_NOT_READY.format(provider=provider) + next_step)
     if warning:
         add_field(embed, "À vérifier", warning)
@@ -790,6 +794,34 @@ def github_connected_embed(project: ProjectView) -> discord.Embed:
         tone=Tone.SUCCESS,
     )
     embed.set_footer(text=design.footer(f"référence {project.ref}"))
+    return fit_embed(embed)
+
+
+def gitlab_connect_embed(project: ProjectView, *, expires_minutes: int, replacing: bool) -> discord.Embed:
+    """Lien d'autorisation GitLab d'un projet enregistré, et ce qui se passe ensuite."""
+    embed = make_embed(
+        f"Connecter le projet GitLab {design.escape_markdown(project.name)}",
+        "1. **Se connecter avec GitLab** : GitLab vous demande d'autoriser Samae à lire votre profil et ce projet, "
+        "en lecture seule. Il faut le rôle **Maintainer** ou **Owner** sur le projet.\n"
+        "2. La page suivante affiche **une seule fois** l'adresse et le secret du webhook à coller dans GitLab "
+        "(Paramètres → Webhooks). Samae n'en garde qu'une empreinte.\n"
+        "3. Bouton « Tester » de GitLab : la notification arrive dans les salons choisis avec `/projet modifier`.",
+        tone=Tone.INFO,
+    )
+    add_field(embed, "Projet", f"`{design.escape_markdown(project.target)}` · référence `{project.ref}`")
+    add_field(
+        embed,
+        "Sécurité",
+        f"Le lien est personnel, valable {expires_minutes} minutes et utilisable une seule fois. Samae oublie l'autorisation "
+        "GitLab aussitôt et ne peut rien modifier sur GitLab. Aucun token ni mot de passe ne vous sera demandé dans Discord.",
+    )
+    if replacing:
+        add_field(
+            embed,
+            "⚠️ Projet déjà relié",
+            "Suivre le lien crée un **nouveau secret** : l'ancien cesse aussitôt de fonctionner, il faudra modifier le webhook dans GitLab.",
+        )
+    embed.set_footer(text=design.footer("réservé aux administrateurs"))
     return fit_embed(embed)
 
 

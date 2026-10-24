@@ -37,6 +37,7 @@ from src.discord_bot.snapshot import snapshot_guild
 from src.database.github import GitHubDeliveryRepository
 from src.database.project_deliveries import ProjectDeliveryRepository
 from src.database.github_setup import GithubSetupRepository
+from src.database.gitlab_setup import GitlabSetupRepository
 from src.database.projects import ProjectRepository
 from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
@@ -46,6 +47,7 @@ from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
 from src.providers.dispatcher import ProjectDispatcher
 from src.providers.github_app import GitHubSetupFlow, build_flow
+from src.providers.gitlab_oauth import GitLabSetupFlow, build_gitlab_flow
 from src.providers.server import ProjectsHttpServer, create_projects_app
 from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
@@ -154,6 +156,13 @@ class SaeBot(commands.Bot):
         self.github_setup_repo = GithubSetupRepository(database)
         self.github_setup: GitHubSetupFlow | None = (
             build_flow(settings, self.github_setup_repo) if settings.github_app_enabled else None
+        )
+        # Connexion des projets GitLab (étape B5) : None tant que l'application OAuth GitLab n'est pas configurée.
+        self.gitlab_setup_repo = GitlabSetupRepository(database)
+        self.gitlab_setup: GitLabSetupFlow | None = (
+            build_gitlab_flow(settings, self.gitlab_setup_repo, self.projects_repo, on_linked=self.record_gitlab_link)
+            if settings.gitlab_app_enabled
+            else None
         )
         self._github_task: asyncio.Task | None = None
         self.errors = errors or RecentErrors()
@@ -338,6 +347,7 @@ class SaeBot(commands.Bot):
                 projects=self.projects_repo,
                 dispatcher=dispatcher,
                 github_setup=self.github_setup,
+                gitlab_setup=self.gitlab_setup,
             )
             self.projects_server = ProjectsHttpServer(app, self.settings.projects_http_host, self.settings.projects_http_port)
             if not await self.projects_server.start():
@@ -786,6 +796,10 @@ class SaeBot(commands.Bot):
         self.state_repo.set(ANNOUNCEMENT_KEY, json.dumps(asdict(announcement), ensure_ascii=False))
 
     # --- Journal d'administration -------------------------------------------------
+
+    def record_gitlab_link(self, guild_id: int, user_id: int, project_id: int, replaced: bool) -> None:
+        """Connexion GitLab terminée dans le navigateur (pas d'interaction Discord) : notée au nom de la personne."""
+        self.admin_log.record(user_id, f"{user_id} (via GitLab)", "projet configurer", str(project_id), "gitlab, secret remplacé" if replaced else "gitlab")
 
     def record_admin_action(self, interaction: discord.Interaction, action: str, target: str = "", outcome: str = "") -> None:
         try:

@@ -1,4 +1,4 @@
-"""Boutons et menus de /projet configurer (connexion des projets GitHub, étape B4).
+"""Boutons et menus de /projet configurer (connexion des projets GitHub, étape B4, et GitLab, étape B5).
 
 Chaque vue est réservée à la personne qui a lancé la commande ; l'action appelée revérifie
 ensuite, côté bot, qu'elle est toujours administratrice de ce serveur.
@@ -51,6 +51,27 @@ class GithubConnectView(_AuthorView):
     @discord.ui.button(label="Choisir le dépôt", style=discord.ButtonStyle.primary, row=0)
     async def choose(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._on_choose(interaction)
+
+
+class GitlabConnectView(_AuthorView):
+    """Lien « Se connecter avec GitLab » (jeton personnel, 15 minutes) et, si le projet est déjà relié
+    et a des salons, bouton « Envoyer un message de test »."""
+
+    def __init__(self, author_id: int, authorize_url: str, on_test: Action | None = None, *, timeout: float = 15 * 60) -> None:
+        super().__init__(author_id, timeout=timeout)
+        self._on_test = on_test
+        self.sent = False
+        self.add_item(discord.ui.Button(label="Se connecter avec GitLab", url=authorize_url, style=discord.ButtonStyle.link, row=0))
+        if on_test is None:
+            self.remove_item(self.test)
+
+    @discord.ui.button(label="Envoyer un message de test", style=discord.ButtonStyle.secondary, row=0)
+    async def test(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if self.sent:
+            await interaction.response.send_message("Le message de test a déjà été envoyé.", ephemeral=True)
+            return
+        self.sent = True
+        await self._on_test(interaction)
 
 
 class RepositorySelectView(_AuthorView):
