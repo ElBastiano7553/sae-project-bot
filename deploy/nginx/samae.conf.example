@@ -1,0 +1,63 @@
+# Site Nginx de Samae : réception des événements des projets enregistrés (multi-projets, étape B3).
+#
+# EXEMPLE À ADAPTER ET À INSTALLER PAR LE PROPRIÉTAIRE DU VPS, avec son accord : ce fichier n'est
+# lu par rien tant qu'il n'est pas copié dans /etc/nginx/sites-available/ puis activé.
+# Guide complet (vérifications, DNS, certificat, activation, retour arrière) : docs/projets-reception.md
+#
+# Remplacer samae.exemple.fr par le sous-domaine choisi (2 occurrences + chemins du certificat).
+# Samae écoute sur 127.0.0.1:8090 (PROJECTS_HTTP_PORT) : seul Nginx y accède.
+
+# 1) HTTP : seulement le défi Let's Encrypt (certbot --webroot), le reste part en HTTPS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name samae.exemple.fr;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/samae-acme;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# 2) HTTPS : à activer seulement APRÈS avoir obtenu le certificat (étape 4 du guide).
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name samae.exemple.fr;
+
+    ssl_certificate     /etc/letsencrypt/live/samae.exemple.fr/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/samae.exemple.fr/privkey.pem;
+
+    client_max_body_size 2m;   # même limite que Samae
+    access_log /var/log/nginx/samae.access.log;
+    error_log  /var/log/nginx/samae.error.log;
+    server_tokens off;
+
+    # Événements de la GitHub App (étape B4).
+    location = /github/webhook {
+        limit_except POST { deny all; }
+        proxy_pass http://127.0.0.1:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 15s;
+    }
+
+    # Un webhook par projet GitLab (étape B5) : identifiant de 16 à 64 caractères.
+    location ~ ^/gitlab/webhook/[A-Za-z0-9_-]{16,64}$ {
+        limit_except POST { deny all; }
+        proxy_pass http://127.0.0.1:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 15s;
+    }
+
+    # Tout le reste : rien. (Les pages /github/setup, /gitlab/connect et /gitlab/callback
+    # seront ajoutées ici aux étapes B4 et B5, après relecture.)
+    location / {
+        return 404;
+    }
+}

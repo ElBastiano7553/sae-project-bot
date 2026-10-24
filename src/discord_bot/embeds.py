@@ -596,7 +596,7 @@ def backup_embed(info: BackupInfo, backups: list[BackupInfo], keep: int) -> disc
 
 # --- Projets suivis (/projet) --------------------------------------------------------------
 
-PROJECT_STATUS_TONES = {"pending": Tone.WARNING, "active": Tone.SUCCESS, "legacy_on": Tone.SUCCESS, "suspended": Tone.WARNING, "legacy_error": Tone.FAILURE}
+PROJECT_STATUS_TONES = {"pending": Tone.WARNING, "connected": Tone.SUCCESS, "active": Tone.SUCCESS, "legacy_on": Tone.SUCCESS, "suspended": Tone.WARNING, "legacy_error": Tone.FAILURE}
 
 
 def _project_line(project: ProjectView) -> str:

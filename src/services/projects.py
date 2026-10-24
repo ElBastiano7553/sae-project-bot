@@ -16,6 +16,9 @@ Aucun token ni secret n'est manipulé ici. Pas d'import de discord : testable se
 
 from __future__ import annotations
 
+import fnmatch
+import hashlib
+import hmac
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -36,6 +39,8 @@ CATEGORIES = {
 STATUS_LABELS = {
     # Projet enregistré, sans connexion au fournisseur (GitHub App, OAuth GitLab : étapes B4 et B5).
     "pending": "enregistré, pas encore connecté : aucune notification",
+    # Projet relié à son fournisseur (lien créé par B4 ou B5) : ses événements sont reçus (B3).
+    "connected": "connecté : notifications actives",
     "active": "actif",
     "suspended": "suspendu",
     "legacy_on": "actif (configuré dans .env)",
@@ -259,15 +264,18 @@ def describe_filters(filters: Mapping[str, object]) -> str:
     return " · ".join(parts) or "tout"
 
 
-def registered_view(record, routes: tuple[Route, ...]) -> ProjectView:
-    """Vue d'un projet enregistré en base (``database.projects.ProjectRecord``)."""
+def registered_view(record, routes: tuple[Route, ...], *, connected: bool = False) -> ProjectView:
+    """Vue d'un projet enregistré en base (``database.projects.ProjectRecord``).
+
+    ``connected`` : le projet a un lien avec son fournisseur (table ``provider_links``).
+    """
     if record.provider == "github":
         target = record.external_id
     else:
         label = f"projet n° {record.external_id}" if record.external_id.isdigit() else record.external_id
         target = f"{label} · {record.instance_url}"
-    # Aucune connexion au fournisseur n'existe encore (étapes B4 et B5) : un projet actif est « en attente ».
-    status = "pending" if record.status == "active" else record.status
+    # Sans lien avec le fournisseur (créé par les étapes B4 et B5), un projet actif ne reçoit rien : « en attente ».
+    status = ("connected" if connected else "pending") if record.status == "active" else record.status
     return ProjectView(
         ref=str(record.id),
         guild_id=record.guild_id,
@@ -361,3 +369,35 @@ def project_visible(project: ProjectView, can_view: Callable[[int], bool]) -> bo
     il n'apparaît ni dans les listes, ni dans les détails, ni dans l'autocomplétion.
     """
     return any(r.channel_id is not None and can_view(r.channel_id) for r in project.routes)
+
+
+# --- Réception des événements (étape B3) ------------------------------------------------------
+
+
+def route_allows(category: str, filters: Mapping[str, object], *, value: str | None, branch: str | None) -> bool:
+    """Les filtres d'une catégorie laissent-ils passer cet événement ?
+
+    ``value`` : action ou statut dans le vocabulaire commun (``FILTER_CHOICES``), None s'il n'a
+    pas d'équivalent ; ``branch`` : branche concernée, si l'événement en a une. Sans filtre, tout passe.
+    """
+    patterns = filters.get("branches")
+    if patterns and category in BRANCH_CATEGORIES:
+        if not branch or not any(fnmatch.fnmatchcase(branch, pattern) for pattern in patterns):
+            return False
+    if category in FILTER_CHOICES:
+        chosen = filters.get(FILTER_CHOICES[category][0])
+        if chosen and value not in chosen:
+            return False
+    return True
+
+
+def hash_secret(secret: str) -> str:
+    """Empreinte SHA-256 d'un secret de webhook généré par Samae : seule cette empreinte est stockée."""
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def secret_matches(expected_hash: str, received: str | None) -> bool:
+    """Compare en temps constant l'empreinte du secret reçu à l'empreinte enregistrée."""
+    if not expected_hash or not received:
+        return False
+    return hmac.compare_digest(hash_secret(received), expected_hash)

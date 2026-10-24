@@ -278,6 +278,43 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (project_id, category)
     );
     """,
+    # v10 : réception commune des événements des projets enregistrés (multi-projets, étape B3).
+    # provider_links : ce qui relie un projet à son fournisseur, sans aucun token ni secret en clair
+    # (GitHub : numéro d'installation de l'App ; GitLab : identifiant public du webhook et empreinte
+    # SHA-256 de son secret). Ces liens seront créés par les étapes B4 et B5 : sans lien, un projet
+    # ne reçoit rien. project_deliveries : anti-doublons et file d'envoi, par projet.
+    # Uniquement des créations de tables : rien d'existant n'est modifié.
+    """
+    CREATE TABLE provider_links (
+        project_id      INTEGER PRIMARY KEY REFERENCES projects (id) ON DELETE CASCADE,
+        provider        TEXT    NOT NULL CHECK (provider IN ('github', 'gitlab')),
+        installation_id INTEGER,   -- GitHub : installation de la GitHub App
+        hook_id         TEXT UNIQUE,  -- GitLab : identifiant public du webhook (/gitlab/webhook/<hook_id>)
+        secret_hash     TEXT,      -- GitLab : SHA-256 hexadécimal du secret du webhook, jamais le secret
+        created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+        CHECK (
+            (provider = 'github' AND installation_id IS NOT NULL AND hook_id IS NULL AND secret_hash IS NULL)
+            OR (provider = 'gitlab' AND installation_id IS NULL AND hook_id IS NOT NULL AND length(secret_hash) = 64)
+        )
+    );
+    CREATE INDEX provider_links_installation ON provider_links (installation_id) WHERE installation_id IS NOT NULL;
+
+    CREATE TABLE project_deliveries (
+        project_id   INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        guild_id     INTEGER NOT NULL,  -- serveur du projet : le salon est revérifié dans CE serveur avant l'envoi
+        delivery_key TEXT    NOT NULL,  -- « <fournisseur>:<événement>:<identifiant de livraison> »
+        dedup_key    TEXT,              -- empreinte du fait (même fait livré sous un autre identifiant)
+        category     TEXT    NOT NULL,
+        channel_id   INTEGER,
+        status       TEXT    NOT NULL,
+        notification TEXT,              -- JSON, pour renvoyer après un redémarrage
+        received_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (project_id, delivery_key)
+    );
+    CREATE UNIQUE INDEX project_deliveries_dedup ON project_deliveries (project_id, dedup_key) WHERE dedup_key IS NOT NULL;
+    CREATE INDEX project_deliveries_received_at ON project_deliveries (received_at);
+    """,
 ]
 
 

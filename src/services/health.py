@@ -59,6 +59,7 @@ def build_health_checks(
     backups: BackupSummary | None = None,
     interactions: InteractionSummary | None = None,
     github: GitHubSummary | None = None,
+    projects: ProjectsReceptionSummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -79,6 +80,8 @@ def build_health_checks(
     ]
     if github is not None:
         checks.insert(-1, _github_check(github))
+    if projects is not None:
+        checks.insert(-1, _projects_check(projects))
     if history is not None:
         checks.append(_history_check(history))
     if alerts is not None:
@@ -262,6 +265,35 @@ def _github_check(summary: GitHubSummary) -> HealthCheck:
     repo = f" pour {summary.repository}" if summary.repository else ""
     # Comme pour GitLab : le bot sait seulement qu'il écoute localement.
     return HealthCheck("GitHub", HealthStatus.OK, f"webhooks actifs{where}{repo}, {last} (accès depuis Internet non vérifié)")
+
+
+@dataclass(frozen=True)
+class ProjectsReceptionSummary:
+    """Réception commune des projets enregistrés (multi-projets, étape B3), mesurée au moment de /etat."""
+
+    enabled: bool = False
+    listening: bool = False
+    error: str | None = None
+    address: str = ""
+    github_app: bool = False  # chemin /github/webhook ouvert (GITHUB_APP_WEBHOOK_SECRET défini)
+    last_event_at: str | None = None
+
+
+def _projects_check(summary: ProjectsReceptionSummary) -> HealthCheck:
+    name = "Réception des projets"
+    if summary.error:
+        return HealthCheck(name, HealthStatus.ERROR, summary.error)
+    if not summary.enabled:
+        return HealthCheck(name, HealthStatus.DISABLED, "désactivée (PROJECTS_HTTP_ENABLED)")
+    if not summary.listening:
+        return HealthCheck(name, HealthStatus.ERROR, "serveur arrêté")
+    github = "GitHub App ouverte" if summary.github_app else "GitHub App fermée (GITHUB_APP_WEBHOOK_SECRET vide)"
+    last = f"dernier événement : {summary.last_event_at} UTC" if summary.last_event_at else "aucun événement reçu"
+    return HealthCheck(
+        name, HealthStatus.OK,
+        # Aucun nombre de projets ici : /etat est ouvert à tous, et un projet peut être masqué à un membre.
+        f"écoute locale sur {summary.address}, {github}, {last} (accès depuis Internet non vérifié)",
+    )
 
 
 def _structure_check(structure: StructureReport | None) -> HealthCheck:

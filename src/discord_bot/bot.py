@@ -35,6 +35,7 @@ from src.discord_bot.gateway import DiscordMessageGateway
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
 from src.database.github import GitHubDeliveryRepository
+from src.database.project_deliveries import ProjectDeliveryRepository
 from src.database.projects import ProjectRepository
 from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
@@ -42,6 +43,8 @@ from src.gitlab.api import GitLabAPI
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY, NotificationDispatcher
 from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
+from src.providers.dispatcher import ProjectDispatcher
+from src.providers.server import ProjectsHttpServer, create_projects_app
 from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
 from src.services.backup import BackupError, BackupInfo, create_backup, list_backups
@@ -140,6 +143,11 @@ class SaeBot(commands.Bot):
         self.github_error: str | None = None
         # Projets suivis (/projet) : un serveur Discord ne voit que les siens.
         self.projects_repo = ProjectRepository(database)
+        # Réception commune des projets enregistrés (étape B3) : désactivée sans PROJECTS_HTTP_ENABLED.
+        self.project_deliveries_repo = ProjectDeliveryRepository(database)
+        self.projects_server: ProjectsHttpServer | None = None
+        self.projects_error: str | None = None
+        self._projects_task: asyncio.Task | None = None
         self._github_task: asyncio.Task | None = None
         self.errors = errors or RecentErrors()
         self.errors.add_listener(self._on_error)
@@ -174,6 +182,7 @@ class SaeBot(commands.Bot):
         await self.sync_commands()
         await self.start_gitlab_webhooks()
         await self.start_github_webhooks()
+        await self.start_project_reception()
 
     def commands_fingerprint(self, guild: discord.abc.Snowflake) -> str:
         """Empreinte de ce qui serait envoyé à Discord : change dès qu'une commande, une option ou un texte change."""
@@ -300,6 +309,55 @@ class SaeBot(commands.Bot):
             self.github_error = "la tâche d'envoi des notifications GitHub s'est arrêtée, voir logs/bot.log"
             log.error("Tâche des notifications GitHub arrêtée", exc_info=task.exception())
 
+    async def start_project_reception(self) -> None:
+        """Démarre la réception commune des projets (127.0.0.1). Une erreur ici n'arrête jamais le reste du bot."""
+        if self.settings.projects_http_error:
+            self.projects_error = f"configuration invalide : {self.settings.projects_http_error}"
+            log.error("Réception des projets désactivée, %s", self.projects_error)
+            return
+        if not self.settings.projects_http_enabled:
+            log.info("Réception des projets désactivée : PROJECTS_HTTP_ENABLED n'est pas à true.")
+            return
+        try:
+            dispatcher = ProjectDispatcher(
+                self.projects_repo,
+                self.project_deliveries_repo,
+                DiscordNotificationSender(self),
+                self.channel_guild_id,
+                wait_until_ready=self.wait_until_ready,
+            )
+            app = create_projects_app(
+                github_secret=self.settings.github_app_webhook_secret, projects=self.projects_repo, dispatcher=dispatcher
+            )
+            self.projects_server = ProjectsHttpServer(app, self.settings.projects_http_host, self.settings.projects_http_port)
+            if not await self.projects_server.start():
+                self.projects_error = self.projects_server.error
+                return
+            dispatcher.restore_pending()
+            self._projects_task = asyncio.create_task(dispatcher.run(), name="project-notifications")
+            self._projects_task.add_done_callback(self._on_projects_task_done)
+        except Exception as exc:
+            self.projects_error = f"erreur inattendue au démarrage ({type(exc).__name__}), voir logs/bot.log"
+            log.exception("Réception des projets désactivée : erreur inattendue au démarrage")
+            if self.projects_server is not None:
+                await self.projects_server.stop()
+
+    def _on_projects_task_done(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            self.projects_error = "la tâche d'envoi des notifications des projets s'est arrêtée, voir logs/bot.log"
+            log.error("Tâche des notifications des projets arrêtée", exc_info=task.exception())
+
+    async def channel_guild_id(self, channel_id: int) -> int | None:
+        """Serveur Discord d'un salon (None s'il est introuvable) : revérifié avant chaque envoi d'un projet."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.fetch_channel(channel_id)
+            except discord.HTTPException:
+                return None
+        guild = getattr(channel, "guild", None)
+        return getattr(guild, "id", None)
+
     async def close(self) -> None:
         tasks = [*self._recreate_tasks.values(), *self._alert_tasks, *self._background, self._dashboard_task, self._maintenance_task]
         for task in tasks:
@@ -319,6 +377,11 @@ class SaeBot(commands.Bot):
             self._github_task = None
         if self.github_server is not None:
             await self.github_server.stop()
+        if self._projects_task is not None:
+            self._projects_task.cancel()
+            self._projects_task = None
+        if self.projects_server is not None:
+            await self.projects_server.stop()
         for client in (self.ai_provider, self.gitlab_api):
             if client is not None:
                 try:
@@ -474,6 +537,7 @@ class SaeBot(commands.Bot):
         for label, repository in (
             ("événement(s) GitLab", self.gitlab_events_repo),
             ("livraison(s) GitHub", self.github_deliveries_repo),
+            ("livraison(s) des projets", self.project_deliveries_repo),
             ("action(s) d'administration", self.admin_log),
             ("erreur(s)", self.bot_errors_repo),
             ("demande(s) à l'IA", self.ai_requests_repo),

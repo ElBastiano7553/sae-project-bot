@@ -43,10 +43,16 @@ DEFAULT_AI_COOLDOWN_SECONDS = 20
 DEFAULT_WELCOME_DELETE_HOURS = 24
 MAX_WELCOME_DELETE_HOURS = 168
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
-SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET")
+SECRET_ENV_VARS = (
+    "DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET",
+    "GITHUB_APP_WEBHOOK_SECRET",
+)
 # Webhooks GitHub : seul ce dépôt est accepté par défaut (dépôt privé du jeu).
 DEFAULT_GITHUB_REPOSITORY = "ElBastiano7553/game-project"
 DEFAULT_GITHUB_WEBHOOK_PORT = 8081
+# Réception commune des projets enregistrés (multi-projets, étape B3) : interface locale seulement.
+DEFAULT_PROJECTS_HTTP_PORT = 8090
+LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 _GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 
 
@@ -103,6 +109,13 @@ class Settings:
     github_webhook_port: int = DEFAULT_GITHUB_WEBHOOK_PORT
     # Erreur dans les variables GITHUB_* : GitHub reste désactivé, le reste du bot démarre.
     github_config_error: str | None = None
+    # Réception commune des projets enregistrés (étape B3) : désactivée par défaut, 127.0.0.1 seulement.
+    projects_http_enabled: bool = False
+    projects_http_host: str = "127.0.0.1"
+    projects_http_port: int = DEFAULT_PROJECTS_HTTP_PORT
+    github_app_webhook_secret: str = field(default="", repr=False)  # vide : chemin GitHub App fermé
+    # Erreur dans les variables PROJECTS_HTTP_* / GITHUB_APP_* : la réception reste désactivée.
+    projects_http_error: str | None = None
 
     @property
     def ai_enabled(self) -> bool:
@@ -220,6 +233,12 @@ class Settings:
 
         ai = _parse_ai(env)
         github = _parse_github(env, gitlab_port=webhook_port if webhook_secret and not gitlab_errors else None)
+        used_ports = {}
+        if webhook_secret and not gitlab_errors:
+            used_ports[webhook_port] = "WEBHOOK_PORT"
+        if github["github_webhook_secret"]:
+            used_ports[github["github_webhook_port"]] = "GITHUB_WEBHOOK_PORT"
+        projects_http = _parse_projects_http(env, used_ports=used_ports, legacy_github_secret=github["github_webhook_secret"])
         gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
         gitlab_api_error = None
         if not gitlab_base_url.startswith("https://") or "@" in gitlab_base_url:
@@ -259,6 +278,7 @@ class Settings:
             backup_interval_hours=backup_interval,
             heartbeat_path=db_path.parent / "heartbeat",
             **github,
+            **projects_http,
         )
 
 
@@ -311,6 +331,45 @@ def _parse_github(env: Mapping[str, str], *, gitlab_port: int | None) -> dict:
         "github_webhook_host": host,
         "github_webhook_port": port,
         "github_config_error": " ; ".join(errors) if errors else None,
+    }
+
+
+def _parse_projects_http(env: Mapping[str, str], *, used_ports: Mapping[int, str], legacy_github_secret: str) -> dict:
+    """Réception commune des projets (étape B3). Une erreur la désactive (``projects_http_error``) sans bloquer le bot.
+
+    L'adresse d'écoute doit rester locale : l'exposition publique passe par un site Nginx
+    ajouté par le propriétaire du serveur, jamais par Samae.
+    """
+    problems: list[str] = []
+    flag_errors: list[str] = []
+    enabled = _parse_bool(env, "PROJECTS_HTTP_ENABLED", False, flag_errors)
+    host = env.get("PROJECTS_HTTP_HOST", "").strip() or "127.0.0.1"
+    port_raw = env.get("PROJECTS_HTTP_PORT", "").strip() or str(DEFAULT_PROJECTS_HTTP_PORT)
+    secret = env.get("GITHUB_APP_WEBHOOK_SECRET", "").strip()
+    port = DEFAULT_PROJECTS_HTTP_PORT
+    if host not in LOOPBACK_HOSTS:
+        problems.append(
+            f"PROJECTS_HTTP_HOST doit être une adresse locale ({', '.join(LOOPBACK_HOSTS)}) : "
+            "l'accès depuis Internet passe par Nginx (voir docs/projets-reception.md)."
+        )
+    if port_raw.isdigit() and 1 <= int(port_raw) <= 65535:
+        port = int(port_raw)
+    else:
+        problems.append(f"PROJECTS_HTTP_PORT doit être un nombre entre 1 et 65535 (valeur actuelle : {port_raw!r}).")
+    if port in used_ports:
+        problems.append(f"PROJECTS_HTTP_PORT ({port}) est déjà utilisé par {used_ports[port]} : choisissez un autre port, par exemple {DEFAULT_PROJECTS_HTTP_PORT}.")
+    if secret and len(secret) < MIN_WEBHOOK_SECRET_LENGTH:
+        problems.append(f"GITHUB_APP_WEBHOOK_SECRET est trop court (minimum {MIN_WEBHOOK_SECRET_LENGTH} caractères).")
+    if secret and legacy_github_secret and secret == legacy_github_secret:
+        problems.append("GITHUB_APP_WEBHOOK_SECRET doit être différent de GITHUB_WEBHOOK_SECRET (webhook historique).")
+    if not enabled:
+        problems = flag_errors  # réception non demandée : les autres variables ne comptent pas
+    return {
+        "projects_http_enabled": enabled and not problems,
+        "projects_http_host": host,
+        "projects_http_port": port,
+        "github_app_webhook_secret": "" if problems else secret,
+        "projects_http_error": " ; ".join(problems) if problems else None,
     }
 
 

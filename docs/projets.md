@@ -26,8 +26,9 @@ ce qui existe aujourd'hui (étape **B1**, version 1.5.0) et ce qui suit.
   projets et tous les salons, y compris ceux qui ne sont pas associés, qui a ajouté le projet et où se trouve sa configuration.
 * Toutes les réponses sont éphémères. Aucune commande n'affiche de secret, de token ni de valeur du `.env`.
 
-Les projets s'enregistrent avec `/projet ajouter` (ci-dessous) ; leur connexion à GitHub ou GitLab
-arrive aux étapes B4 et B5, leur suppression à l'étape B6.
+Les projets s'enregistrent avec `/projet ajouter` (ci-dessous) ; la réception de leurs événements
+existe depuis l'étape B3 ([projets-reception.md](projets-reception.md)), leur connexion à GitHub ou
+GitLab arrive aux étapes B4 et B5, leur suppression à l'étape B6.
 
 ## 1 ter. Ajouter un projet (`/projet ajouter`, version 1.7.0)
 
@@ -81,8 +82,8 @@ Une option non donnée ne change rien ; une catégorie sans filtre reçoit tout.
 | Intégration continue | `reussi`, `echoue`, `annule` |
 | Déploiements | `reussi`, `echoue`, `annule`, `en_cours` |
 
-Ce vocabulaire est commun à GitHub et GitLab : chaque fournisseur le traduira à la réception des
-événements (étape B3). Contrôles faits avant d'enregistrer :
+Ce vocabulaire est commun à GitHub et GitLab : chaque fournisseur le traduit à la réception des
+événements (étape B3, tableau dans [projets-reception.md](projets-reception.md)). Contrôles faits avant d'enregistrer :
 
 * le salon appartient à **ce** serveur, est textuel (ou d'annonces) et Samae peut y voir, écrire et
   intégrer des liens (sinon la permission manquante est nommée) ;
@@ -90,8 +91,8 @@ Ce vocabulaire est commun à GitHub et GitLab : chaque fournisseur le traduira �
 * les valeurs sont validées ; en cas d'erreur, rien n'est modifié.
 
 Chaque modification est notée dans le journal d'administration (`/admin historique`) et la réponse
-montre la catégorie avant et après. **Les filtres sont enregistrés mais pas encore appliqués** :
-aucun événement n'arrive pour les projets enregistrés avant l'étape B3. Les webhooks historiques
+montre la catégorie avant et après. Les filtres sont appliqués par la réception commune (B3) dès
+qu'un projet est relié à son fournisseur (B4, B5). Les webhooks historiques
 du `.env` gardent leurs propres réglages (`config/gitlab.toml`), inchangés.
 
 ### Projets « historiques » (configurés dans `.env`)
@@ -146,7 +147,7 @@ l'instant, seulement `DISCORD_GUILD_ID`. L'ouverture à d'autres serveurs est l'
 |---|---|---|
 | ✅ B1 | socle des projets, `/projet liste` et `details` | non |
 | ✅ B2 | salons et filtres par projet, `/projet modifier` (admins) | non |
-| B3 | réception commune des événements (serveur 127.0.0.1:8090, modules GitHub et GitLab), guide Nginx/DNS/certificat | non (tests locaux) |
+| ✅ B3 | réception commune des événements (serveur 127.0.0.1:8090, modules GitHub et GitLab), guide Nginx/DNS/certificat ([projets-reception.md](projets-reception.md)) | non (tests locaux) |
 | B4 | connexion GitHub par GitHub App en lecture seule (`/projet configurer`) | App de test + adresse HTTPS |
 | B5 | connexion GitLab par application OAuth en lecture seule, secret de webhook affiché une seule fois dans le navigateur | application OAuth + adresse HTTPS |
 | B6 | `/projet deconnecter` avec confirmation, masquage des secrets dans les journaux | non |

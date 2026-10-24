@@ -44,7 +44,7 @@ def test_v8_database_is_upgraded_to_v9_without_losing_data(tmp_path):
 
     db = Database(path)
     try:
-        assert db.schema_version == len(MIGRATIONS) == 9
+        assert db.schema_version == len(MIGRATIONS) >= 9
         assert db.conn.execute("SELECT channel_id FROM channel_bindings WHERE key = 'gitlab_activite'").fetchone()[0] == 5
         assert db.conn.execute("SELECT status FROM github_deliveries").fetchone()[0] == "sent"
         # Les projets du .env ne sont pas copiés en base : ils restent lus du .env.
@@ -52,7 +52,7 @@ def test_v8_database_is_upgraded_to_v9_without_losing_data(tmp_path):
         assert db.conn.execute("SELECT COUNT(*) FROM project_routes").fetchone()[0] == 0
     finally:
         db.close()
-    backups = list((tmp_path / "backups").glob("*-avantv9.sqlite3"))
+    backups = list((tmp_path / "backups").glob(f"*-avantv{len(MIGRATIONS)}.sqlite3"))
     assert len(backups) == 1  # sauvegarde automatique avant la migration
 
 
