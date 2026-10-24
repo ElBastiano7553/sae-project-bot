@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 PROVIDERS = {"github": "GitHub", "gitlab": "GitLab"}
 
@@ -33,6 +34,8 @@ CATEGORIES = {
 }
 
 STATUS_LABELS = {
+    # Projet enregistré, sans connexion au fournisseur (GitHub App, OAuth GitLab : étapes B4 et B5).
+    "pending": "enregistré, pas encore connecté : aucune notification",
     "active": "actif",
     "suspended": "suspendu",
     "legacy_on": "actif (configuré dans .env)",
@@ -41,6 +44,11 @@ STATUS_LABELS = {
 
 NAME_MAX = 80
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
+# Chemin d'un projet GitLab (« groupe/sous-groupe/projet ») : 2 à 20 segments.
+GITLAB_PATH = re.compile(r"^[A-Za-z0-9_.][A-Za-z0-9_.-]{0,254}(?:/[A-Za-z0-9_.][A-Za-z0-9_.-]{0,254}){1,19}$")
+GITLAB_PATH_MAX = 255
+GITHUB_HOSTS = {"github.com", "www.github.com"}
+URL_MAX = 300
 
 # Projets historiques : identifiants affichés dans /projet (jamais des numéros de la base).
 LEGACY_GITHUB = "env-github"
@@ -120,15 +128,72 @@ def check_category(category: str) -> str:
 
 
 def normalize_external_id(provider: str, value: str) -> str:
-    """Identifiant chez le fournisseur : « owner/depot » (GitHub) ou numéro de projet (GitLab)."""
+    """Identifiant chez le fournisseur, en minuscules (GitHub et GitLab ignorent la casse : pas de doublon
+    « Equipe/Jeu » / « equipe/jeu ») : « owner/depot » (GitHub), chemin « groupe/projet » ou numéro (GitLab)."""
     value = (value or "").strip()
     if check_provider(provider) == "github":
         if not GITHUB_REPOSITORY.match(value):
             raise ProjectError("Dépôt GitHub attendu sous la forme « propriétaire/depot ».")
-        return value
-    if not value.isdigit() or int(value) <= 0:
-        raise ProjectError("Numéro de projet GitLab attendu (« Project ID », un nombre).")
-    return str(int(value))
+        return value.casefold()
+    if value.isdigit() and int(value) > 0:
+        return str(int(value))
+    if len(value) <= GITLAB_PATH_MAX and GITLAB_PATH.match(value) and not value.endswith(".git"):
+        return value.casefold()
+    raise ProjectError("Projet GitLab attendu sous la forme « groupe/projet » (ou son numéro, « Project ID »).")
+
+
+@dataclass(frozen=True)
+class ParsedRepository:
+    provider: str
+    external_id: str
+    instance_url: str
+    default_name: str  # dernier segment du chemin, tel qu'écrit dans l'URL
+
+
+def parse_repository_url(url: str, *, gitlab_hosts: tuple[str, ...] = ()) -> ParsedRepository:
+    """Dépôt GitHub ou projet GitLab à partir de son adresse ; le fournisseur est déduit de l'hôte.
+
+    Acceptés : ``https://github.com/owner/depot`` (avec ``.git``, ``/tree/main``… ignorés),
+    ``https://gitlab.com/groupe/sous-groupe/projet`` (``/-/…`` ignoré), toute instance GitLab dont
+    l'hôte contient « gitlab » ou figure dans ``gitlab_hosts``, et les adresses SSH ``git@hote:chemin.git``.
+    Refusés : http://, identifiants dans l'adresse (``jean:motdepasse@``), autres hôtes.
+    Aucune requête réseau : l'existence du dépôt n'est pas vérifiée.
+    """
+    raw = (url or "").strip().strip("<>")
+    if not raw or len(raw) > URL_MAX:
+        raise ProjectError("Adresse vide ou trop longue. Exemple : https://github.com/equipe/jeu")
+    ssh = re.match(r"^git@([A-Za-z0-9.-]+):(.+)$", raw)
+    if ssh:
+        host, path = ssh.group(1).casefold(), ssh.group(2)
+    else:
+        parts = urlsplit(raw)
+        if parts.scheme != "https":
+            raise ProjectError("L'adresse doit commencer par https:// (exemple : https://github.com/equipe/jeu).")
+        if parts.username or parts.password or "@" in parts.netloc:
+            raise ProjectError(
+                "L'adresse contient un identifiant ou un mot de passe : ne collez jamais d'identifiants dans Discord. "
+                "Donnez l'adresse publique du dépôt, sans rien avant le nom du site."
+            )
+        host, path = (parts.hostname or "").casefold(), parts.path
+    segments = [s for s in path.split("/") if s]
+    if host in GITHUB_HOSTS:
+        if len(segments) < 2:
+            raise ProjectError("Adresse GitHub incomplète : il faut le propriétaire et le dépôt (https://github.com/equipe/jeu).")
+        repo = segments[1].removesuffix(".git")
+        external_id = normalize_external_id("github", f"{segments[0]}/{repo}")
+        return ParsedRepository("github", external_id, "", repo)
+    if "gitlab" in host or host in {h.casefold() for h in gitlab_hosts}:
+        if "-" in segments:
+            segments = segments[: segments.index("-")]
+        if segments:
+            segments[-1] = segments[-1].removesuffix(".git")
+        if len(segments) < 2:
+            raise ProjectError("Adresse GitLab incomplète : il faut le groupe et le projet (https://gitlab.com/groupe/projet).")
+        external_id = normalize_external_id("gitlab", "/".join(segments))
+        return ParsedRepository("gitlab", external_id, normalize_instance_url("gitlab", f"https://{host}"), segments[-1])
+    raise ProjectError(
+        "Fournisseur non reconnu : seules les adresses GitHub (github.com) et GitLab (gitlab.com ou une instance GitLab) sont acceptées."
+    )
 
 
 def normalize_instance_url(provider: str, value: str) -> str:
@@ -199,14 +264,17 @@ def registered_view(record, routes: tuple[Route, ...]) -> ProjectView:
     if record.provider == "github":
         target = record.external_id
     else:
-        target = f"projet n° {record.external_id} · {record.instance_url}"
+        label = f"projet n° {record.external_id}" if record.external_id.isdigit() else record.external_id
+        target = f"{label} · {record.instance_url}"
+    # Aucune connexion au fournisseur n'existe encore (étapes B4 et B5) : un projet actif est « en attente ».
+    status = "pending" if record.status == "active" else record.status
     return ProjectView(
         ref=str(record.id),
         guild_id=record.guild_id,
         provider=record.provider,
         name=record.name,
         target=target,
-        status=record.status,
+        status=status,
         routes=routes,
         created_by=record.created_by,
         created_at=record.created_at,
