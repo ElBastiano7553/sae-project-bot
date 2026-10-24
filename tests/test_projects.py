@@ -298,6 +298,69 @@ async def test_list_is_paginated_beyond_one_page_and_never_loses_a_project(make_
     assert sum("historique" in name for name in names) == 1
 
 
+class ClickResponse(Response):
+    def __init__(self) -> None:
+        super().__init__()
+        self.edited: list[dict] = []
+
+    async def edit_message(self, **kwargs):
+        self.edited.append(kwargs)
+
+
+class Click(Interaction):
+    """Clic sur un bouton : même forme que l'interaction d'une commande."""
+
+    def __init__(self, client, user) -> None:
+        super().__init__(client, None, user)
+        self.response = ClickResponse()
+        self.original_edits: list[dict] = []
+
+    async def edit_original_response(self, **kwargs):
+        self.original_edits.append(kwargs)
+
+
+async def _paged_list(make_bot, count: int = 25):
+    bot = await make_bot()
+    for number in range(count):
+        bot.projects_repo.create(GUILD, "github", f"equipe/depot-{number}", f"Projet {number:02d}", created_by=7)
+    return bot, (await run(bot, "liste", FakeGuild(), Member()))["view"]
+
+
+async def test_pagination_buttons_navigate_within_bounds(make_bot):
+    bot, view = await _paged_list(make_bot)
+    assert len(view.pages) == 3
+    assert view.previous.disabled and not view.following.disabled
+    click = Click(bot, Member())
+    for _ in range(5):  # plus de clics que de pages : on reste sur la dernière
+        if await view.interaction_check(click):
+            await view.following.callback(click)
+    assert view.index == 2 and view.following.disabled and not view.previous.disabled
+    assert click.response.edited[-1]["embed"] is view.pages[2] and "(3/3)" in view.pages[2].title
+
+
+async def test_pagination_buttons_are_reserved_to_the_author(make_bot):
+    bot, view = await _paged_list(make_bot)
+    intruder = Click(bot, Member(99, admin=True))  # même un administrateur
+    assert await view.interaction_check(intruder) is False
+    assert intruder.response.sent[0]["ephemeral"] and "quelqu'un d'autre" in intruder.response.sent[0]["content"]
+    assert view.index == 0 and intruder.response.edited == []
+    assert await view.interaction_check(Click(bot, Member())) is True
+
+
+async def test_expired_pagination_removes_its_buttons_and_keeps_the_page(make_bot):
+    bot, view = await _paged_list(make_bot)
+    original = Click(bot, Member())
+    view.original = original
+    await view.on_timeout()
+    assert original.original_edits == [{"view": None}]  # la page reste, seuls les boutons partent
+    assert view.timeout is not None and view.timeout <= 14 * 60  # avant l'expiration du jeton Discord (15 min)
+
+
+async def test_list_command_registers_the_original_interaction(make_bot):
+    bot, view = await _paged_list(make_bot)
+    assert view.original is not None
+
+
 async def test_short_list_has_no_navigation_buttons(make_bot):
     bot = await make_bot()
     bot.projects_repo.create(GUILD, "gitlab", "12", "Outils", created_by=7)

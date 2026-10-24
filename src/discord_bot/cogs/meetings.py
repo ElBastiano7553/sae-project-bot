@@ -243,7 +243,11 @@ class MeetingsCog(commands.Cog):
 
     async def show_report(self, interaction: discord.Interaction, meeting_id: int) -> None:
         pages = report_embeds(self.service.report(meeting_id))
-        view = PagesView(pages, interaction.user.id) if len(pages) > 1 else discord.utils.MISSING
+        if len(pages) == 1:
+            await interaction.response.send_message(embed=pages[0], ephemeral=True)
+            return
+        view = PagesView(pages, interaction.user.id)
+        view.original = interaction
         await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
 
     # --- Clôture (avec confirmation) -------------------------------------------------

@@ -87,7 +87,9 @@ class ProjectsCog(commands.Cog):
             await interaction.response.send_message(embed=pages[0], ephemeral=True)
             return
         # Plus de PROJECTS_PER_PAGE projets : boutons « Précédente » / « Suivante », réservés à l'auteur.
-        await interaction.response.send_message(embed=pages[0], view=PagesView(pages, interaction.user.id), ephemeral=True)
+        view = PagesView(pages, interaction.user.id)
+        view.original = interaction
+        await interaction.response.send_message(embed=pages[0], view=view, ephemeral=True)
 
     @projet.command(name="details", description="Détails d'un projet suivi : dépôt, état, salons des notifications")
     @app_commands.describe(projet="Projet (référence affichée par /projet liste)")
