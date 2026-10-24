@@ -603,20 +603,31 @@ def _project_line(project: ProjectView) -> str:
     return f"{project.provider_label} · `{design.escape_markdown(project.target)}` · {project.status_label}\nRéférence : `{project.ref}`"
 
 
-def projects_list_embed(projects: list[ProjectView]) -> discord.Embed:
+# Projets par page de /projet liste : bien en dessous de la limite de 25 champs et de 6000 caractères
+# (un nom fait au plus 80 caractères, un dépôt GitHub 140).
+PROJECTS_PER_PAGE = 10
+
+
+def projects_list_pages(projects: list[ProjectView]) -> list[discord.Embed]:
+    """Une page par tranche de ``PROJECTS_PER_PAGE`` projets : aucun projet n'est jamais coupé."""
     if not projects:
-        return make_embed(
+        return [make_embed(
             "📦 Projets suivis",
             "Aucun projet n'est suivi sur ce serveur. L'ajout de projets GitHub et GitLab depuis Discord arrive "
             "dans une prochaine version ; les webhooks configurés dans `.env` apparaîtront ici dès qu'ils sont activés.",
             tone=Tone.NEUTRAL,
-        )
-    embed = make_embed("📦 Projets suivis", f"{design.plural(len(projects), 'projet')} sur ce serveur. Détails : `/projet details`.")
-    for project in projects:
-        add_field(embed, design.escape_markdown(project.name), _project_line(project))
-    if any(p.legacy for p in projects):
-        embed.set_footer(text=design.footer("historique = configuré dans .env, modifiable seulement sur le serveur qui héberge Samae"))
-    return fit_embed(embed)
+        )]
+    chunks = [projects[i : i + PROJECTS_PER_PAGE] for i in range(0, len(projects), PROJECTS_PER_PAGE)]
+    pages = []
+    for number, chunk in enumerate(chunks, start=1):
+        title = "📦 Projets suivis" + (f" ({number}/{len(chunks)})" if len(chunks) > 1 else "")
+        embed = make_embed(title, f"{design.plural(len(projects), 'projet')} sur ce serveur. Détails : `/projet details`.")
+        for project in chunk:
+            add_field(embed, design.escape_markdown(project.name), _project_line(project))
+        if any(p.legacy for p in projects):
+            embed.set_footer(text=design.footer("historique = configuré dans .env, modifiable seulement sur le serveur qui héberge Samae"))
+        pages.append(fit_embed(embed))
+    return pages
 
 
 def project_detail_embed(project: ProjectView, *, can_view, admin: bool) -> discord.Embed:

@@ -16,7 +16,8 @@ from discord.ext import commands
 
 from src.config import ConfigError, load_server_layout
 from src.discord_bot.bot import SaeBot, send_error
-from src.discord_bot.embeds import project_detail_embed, projects_list_embed
+from src.discord_bot.embeds import project_detail_embed, projects_list_pages
+from src.discord_bot.meeting_ui import PagesView
 from src.discord_bot.permissions import is_bot_admin
 from src.github.dispatcher import CHANNEL_KEY as GITHUB_CHANNEL_KEY
 from src.gitlab.rules import load_gitlab_rules
@@ -81,7 +82,12 @@ class ProjectsCog(commands.Cog):
         guild = await self._guild_or_error(interaction)
         if guild is None:
             return
-        await interaction.response.send_message(embed=projects_list_embed(self.projects_for(guild.id)), ephemeral=True)
+        pages = projects_list_pages(self.projects_for(guild.id))
+        if len(pages) == 1:
+            await interaction.response.send_message(embed=pages[0], ephemeral=True)
+            return
+        # Plus de PROJECTS_PER_PAGE projets : boutons « Précédente » / « Suivante », réservés à l'auteur.
+        await interaction.response.send_message(embed=pages[0], view=PagesView(pages, interaction.user.id), ephemeral=True)
 
     @projet.command(name="details", description="Détails d'un projet suivi : dépôt, état, salons des notifications")
     @app_commands.describe(projet="Projet (référence affichée par /projet liste)")

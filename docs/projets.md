@@ -8,7 +8,7 @@ ce qui existe aujourd'hui (étape **B1**, version 1.5.0) et ce qui suit.
 
 | Commande | Qui | Effet |
 |---|---|---|
-| `/projet liste` | tout le monde | projets suivis sur **ce** serveur : fournisseur, dépôt, état, référence |
+| `/projet liste` | tout le monde | projets suivis sur **ce** serveur : fournisseur, dépôt, état, référence ; au-delà de 10 projets, pages avec boutons « Précédente » / « Suivante » |
 | `/projet details projet:<référence>` | tout le monde | dépôt, état et salons des notifications (autocomplétion sur la référence) |
 
 * Un **membre** ne voit que les salons auxquels il a accès ; les autres sont comptés
@@ -61,7 +61,7 @@ restaurer cette sauvegarde avec l'ancienne version (voir [deployment-vps.md](dep
 | `src/services/projects.py` | modèle commun (fournisseurs, catégories, validation), projets historiques, visibilité ; sans Discord |
 | `src/database/projects.py` | dépôt des tables `projects` et `project_routes`, toujours filtré par serveur |
 | `src/discord_bot/cogs/projects.py` | groupe `/projet` |
-| `src/discord_bot/embeds.py` | `projects_list_embed`, `project_detail_embed` |
+| `src/discord_bot/embeds.py` | `projects_list_pages` (10 projets par page), `project_detail_embed` |
 
 Les serveurs où `/projet` est ouvert sont donnés par `ProjectsCog.project_guilds()` : pour
 l'instant, seulement `DISCORD_GUILD_ID`. L'ouverture à d'autres serveurs est l'étape B7.
