@@ -10,8 +10,9 @@ Parcours (aucun secret ne passe par Discord) :
    un second jeton, lié en plus à ce numéro d'installation ;
 3. ``GET /github/callback`` : Samae vérifie ce second jeton, échange le code contre un accès
    temporaire de la personne, demande à GitHub si cette personne a bien accès à l'installation
-   et quels dépôts elle couvre, révoque aussitôt cet accès et ne garde que le numéro
-   d'installation, le compte et la liste des dépôts, pour CE serveur Discord ;
+   et sur quels dépôts elle a le rôle Admin ou Maintain, révoque aussitôt cet accès (même en cas
+   d'échec) et ne garde que le numéro d'installation, le compte et ces dépôts, pour CE serveur
+   Discord. Les jetons sont supprimés dès leur utilisation ; rien n'est enregistré en cas d'échec ;
 4. de retour sur Discord, l'administrateur choisit le dépôt : le projet est relié à
    l'installation et la réception (B3) l'accepte.
 
@@ -111,7 +112,18 @@ class GitHubUnavailable(Exception):
 class InstallationAccess:
     installation_id: int
     account: str
-    repositories: tuple[str, ...]
+    repositories: tuple[str, ...]  # dépôts que la personne administre ou maintient (seuls reliables)
+    others: int = 0  # dépôts de l'installation où elle n'a que des droits de lecture ou d'écriture
+
+
+# Droits GitHub qui permettent de relier un dépôt (comme « Maintainer » côté GitLab) : administrer
+# ou maintenir le dépôt. Lire ou pousser du code ne suffit pas.
+MANAGE_PERMISSIONS = ("admin", "maintain")
+
+
+def _can_manage(repository: dict) -> bool:
+    permissions = repository.get("permissions")
+    return isinstance(permissions, dict) and any(permissions.get(name) is True for name in MANAGE_PERMISSIONS)
 
 
 class GitHubUserClient:
@@ -176,10 +188,11 @@ class GitHubUserClient:
                 repositories = await self._pages(session, token, f"/user/installations/{installation_id}/repositories", "repositories")
         except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
             raise GitHubUnavailable(f"vérification de l'installation : {type(exc).__name__}") from exc
-        names = tuple(name for r in repositories if isinstance(name := r.get("full_name"), str) and _REPOSITORY.match(name))
+        valid = [r for r in repositories if isinstance(r.get("full_name"), str) and _REPOSITORY.match(r["full_name"])]
+        managed = tuple(r["full_name"] for r in valid if _can_manage(r))
         if not isinstance(account, str) or not _ACCOUNT.match(account):
             account = "?"
-        return InstallationAccess(installation_id, account, names)
+        return InstallationAccess(installation_id, account, managed, others=len(valid) - len(managed))
 
     async def revoke(self, token: str) -> None:
         """Révoque l'accès temporaire (au mieux : un échec est seulement noté, il expire de toute façon)."""
@@ -311,6 +324,16 @@ class GitHubSetupFlow:
                 "Le compte GitHub connecté n'a pas accès à cette installation de l'App : rien n'a été relié.",
                 "Connectez-vous avec un compte qui gère ce dépôt, puis " + _RESTART.lower(),
             )
+        if not access.repositories:
+            log.warning(
+                "Installation GitHub %d refusée : la personne connectée n'administre aucun de ses dépôts (serveur %d)",
+                installation_id, claim.guild_id,
+            )
+            return page(
+                403, "Droits insuffisants",
+                "Le compte GitHub connecté n'administre ni ne maintient aucun dépôt de cette installation : rien n'a été relié.",
+                "Il faut le rôle Admin ou Maintain sur le dépôt. Connectez-vous avec un tel compte, puis " + _RESTART.lower(),
+            )
         self.installations.save_installation(
             claim.guild_id, installation_id, access.account, access.repositories, authorized_by=claim.user_id
         )
@@ -318,9 +341,10 @@ class GitHubSetupFlow:
             "Installation GitHub %d vérifiée pour le serveur %d (%d dépôt(s))", installation_id, claim.guild_id, len(access.repositories)
         )
         count = len(access.repositories)
+        ignored = f" {access.others} autre(s) dépôt(s), où vous n'avez pas le rôle Admin ou Maintain, ne seront pas proposés." if access.others else ""
         return page(
             200, "Installation vérifiée",
-            f"L'App est installée sur le compte {access.account} et donne accès à {count} dépôt(s).",
+            f"L'App est installée sur le compte {access.account}. Vous pourrez relier {count} dépôt(s) que vous administrez.{ignored}",
             "Retournez sur Discord et cliquez sur « Choisir le dépôt » (ou relancez /projet configurer).",
             "Vous pouvez fermer cette page.",
         )

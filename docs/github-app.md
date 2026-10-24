@@ -20,15 +20,18 @@ Les webhooks historiques du `.env` (ports 8080 et 8081) ne changent pas.
 3. Samae vérifie le jeton, puis envoie la personne autoriser Samae sur GitHub (un second jeton, lié en
    plus au numéro d'installation). GitHub la renvoie sur `/github/callback`.
 4. Samae échange le code reçu contre un accès **temporaire** de la personne, demande à GitHub si elle a
-   bien accès à cette installation et quels dépôts celle-ci couvre, puis **révoque aussitôt** cet accès.
-   Il ne garde que le numéro d'installation, le nom du compte et la liste des dépôts, pour **ce serveur
-   Discord seulement**. Sans cette étape, quelqu'un pourrait relier l'installation d'un autre en changeant
-   le numéro dans l'adresse.
+   bien accès à cette installation et sur quels dépôts elle a le rôle **Admin ou Maintain**, puis
+   **révoque aussitôt** cet accès, que la vérification réussisse ou non. Il ne garde que le numéro
+   d'installation, le nom du compte et ces dépôts-là, pour **ce serveur Discord seulement**. Sans cette
+   étape, quelqu'un pourrait relier l'installation d'un autre en changeant le numéro dans l'adresse.
+   Un accès en lecture ou en écriture (Read, Triage, Write) ne suffit pas : un tel dépôt n'est pas proposé.
 5. De retour sur Discord, **Choisir le dépôt** ouvre un menu (ou `/projet configurer depot:equipe/depot`).
    Un récapitulatif demande confirmation. Si le projet existait déjà (ajouté avec `/projet ajouter`), il
    est relié ; sinon il est créé puis relié. Son état devient « connecté : notifications actives ».
 6. Si le projet a déjà des salons (`/projet modifier`), le bouton **Envoyer un message de test** publie
-   un message dans chacun, après avoir vérifié que Samae peut y écrire.
+   un message dans chacun, après avoir vérifié que le salon appartient à ce serveur et que Samae peut y
+   écrire. Un envoi n'est annoncé réussi que si Discord renvoie le message publié **dans ce salon de ce
+   serveur** ; sinon le salon est listé dans « Impossible de publier ».
 
 Chaque bouton revérifie, côté bot, que la personne est toujours administratrice de ce serveur. Un membre
 ne voit pas la commande, et l'autocomplétion de `depot` ne lui propose rien.
@@ -37,7 +40,11 @@ ne voit pas la commande, et l'autocomplétion de `depot` ne lui propose rien.
 
 - Il ne détient **aucune clé privée** de l'App et n'a **aucun droit d'écriture** sur GitHub.
 - Il ne garde **aucun token** : l'accès temporaire est révoqué dès la vérification faite.
-- Les jetons des liens ne sont gardés que sous forme d'empreinte SHA-256.
+- Les jetons des liens ne sont gardés que sous forme d'empreinte SHA-256, et sont **supprimés dès leur
+  utilisation**, réussie ou non. Deux requêtes simultanées avec le même lien : une seule passe
+  (suppression conditionnelle, atomique dans SQLite). Un lien expiré est refusé à 15 minutes pile, puis supprimé.
+- En cas d'échec (lien invalide, autorisation annulée, code refusé, droits insuffisants, GitHub en panne),
+  **rien n'est enregistré** et l'accès temporaire éventuel est révoqué.
 - Les pages de retour ne sont pas mises en cache, n'envoient pas leur adresse à d'autres sites
   (`Referrer-Policy: no-referrer`) et n'affichent jamais de secret.
 - Samae ne journalise pas les adresses reçues (`access_log=None`), et l'exemple Nginx retire les
@@ -134,7 +141,9 @@ un faux GitHub local : lien de `/projet configurer`, page `/github/setup`, autor
   même dépôt relié dans deux serveurs → chacun son salon ; salon d'un autre serveur jamais utilisé ;
   autre dépôt de la même installation ou autre installation → ignoré.
 - **Refus** : lien réutilisé, expiré ou falsifié, jeton d'une étape utilisé à l'autre, numéro
-  d'installation changé dans l'adresse, personne sans accès, autorisation annulée, GitHub injoignable.
+  d'installation changé dans l'adresse, personne sans accès ou sans rôle Admin/Maintain, autorisation
+  annulée, GitHub injoignable ; requêtes simultanées avec le même lien (une seule passe).
+- **Données temporaires** : aucune ligne en attente ni installation après un échec, accès temporaire révoqué.
 - **Secrets** : aucun token, code ou secret dans les pages, les journaux, la base ni Discord.
 - **Discord** : membres refusés, autocomplétion vide pour eux, boutons revérifiés, dépôt du `.env`
   refusé, message de test refusé si Samae ne peut pas publier.
@@ -171,10 +180,10 @@ Recent Deliveries > Redeliver : doit être un doublon), et refus d'un second ser
 
 Création de deux tables, rien d'existant n'est modifié (sauvegarde automatique avant la migration) :
 
-- `github_setup_states` : empreinte SHA-256 des jetons de lien, étape, serveur, personne,
-  expiration, date d'utilisation. Supprimés un jour après expiration.
-- `github_installations` : par serveur Discord, installation vérifiée, compte, liste des dépôts
-  lue au moment de la vérification, administrateur et date.
+- `github_setup_states` : liens en attente seulement (empreinte SHA-256 du jeton, étape, serveur,
+  personne, expiration). Une ligne est supprimée dès que le lien est utilisé ou qu'il expire.
+- `github_installations` : par serveur Discord, installation vérifiée, compte, dépôts que la personne
+  administre ou maintient (lus au moment de la vérification), administrateur Discord et date.
 
 La liste des dépôts est celle du moment de la vérification : après avoir ajouté un dépôt à
 l'installation sur GitHub, relancez `/projet configurer` et refaites le lien pour la mettre à jour.

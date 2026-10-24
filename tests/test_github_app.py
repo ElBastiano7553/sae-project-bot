@@ -9,25 +9,38 @@ notification dans le salon du projet. Aucun appel à Internet.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
 import sqlite3
+import threading
 import uuid
+from types import SimpleNamespace
 from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
+import discord
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from src.config import PROJECT_ROOT, SECRET_ENV_VARS, Settings
-from src.database import Database
+from src.database import Database, GitLabEventRepository
 from src.database.connection import MIGRATIONS
+from src.database.github import GitHubDeliveryRepository
 from src.database.github_setup import GithubSetupRepository, utcnow
 from src.discord_bot.project_views import GithubConnectView, RepositorySelectView, TestMessageView
 from src.github import samples as gh
+from src.github.dispatcher import GitHubDispatcher
 from src.github.security import compute_signature
+from src.github.webhook import WEBHOOK_PATH as LEGACY_GITHUB_PATH
+from src.github.webhook import create_github_app
+from src.gitlab import samples as gl
+from src.gitlab.dispatcher import NotificationDispatcher
+from src.gitlab.rules import GitLabRules
+from src.gitlab.webhook import WEBHOOK_PATH as LEGACY_GITLAB_PATH
+from src.gitlab.webhook import create_webhook_app
 from src.providers.check import FILTER_TEST_BRANCH, run_checks
 from src.providers.dispatcher import ProjectDispatcher
 from src.providers.github_app import CALLBACK_PATH, SETUP_PATH, STATE_TTL, SetupStates, build_flow
@@ -193,6 +206,9 @@ class FakeGitHub:
             INSTALLATION: ("equipe", [REPO, SECOND_REPO]),
             OTHER_INSTALLATION: ("autre", [FOREIGN_REPO]),
         }
+        # (compte, dépôt) → droits renvoyés par GitHub ; par défaut, administrateur.
+        self.roles: dict[tuple[str, str], dict] = {}
+        self.fail_repositories = False
         self.tokens: dict[str, str] = {}
         self.revoked: list[str] = []
         self.requests: list[str] = []
@@ -233,7 +249,12 @@ class FakeGitHub:
         installation = int(request.match_info["id"])
         if user is None or installation not in self.access.get(user, set()):
             return web.json_response({"message": "Not Found"}, status=404)
-        repos = [{"full_name": name} for name in self.installations[installation][1]]
+        if self.fail_repositories:
+            return web.json_response({"message": "Server Error"}, status=500)
+        repos = [
+            {"full_name": name, "permissions": self.roles.get((user, name), {"admin": True, "maintain": True, "push": True, "pull": True})}
+            for name in self.installations[installation][1]
+        ]
         return web.json_response({"total_count": len(repos), "repositories": repos})
 
     async def revoke(self, request):
@@ -288,6 +309,7 @@ async def world(make_bot):  # noqa: F811
 
         async def send(*, embed, _channel=channel):
             _channel.messages.append(embed)
+            return SimpleNamespace(channel=_channel)  # comme Discord : le message envoyé, avec son salon
 
         channel.send = send
         channels[name] = channel
@@ -352,9 +374,26 @@ async def click(w, view, button: str, user=None) -> ConfirmClick:
     """Clic sur un bouton d'une vue, par ``user`` (l'administrateur n° 1 par défaut), sur le serveur du test."""
     interaction = ConfirmClick(w.bot, user or Member(1, admin=True))
     interaction.guild = w.guild
+    interaction.followups = []
+
+    async def defer(**_):
+        interaction.deferred = True
+
+    async def followup_send(content=None, **kwargs):
+        interaction.followups.append({"content": content, **kwargs})
+
+    interaction.response.defer = defer
+    interaction.response.is_done = lambda: getattr(interaction, "deferred", False)
+    interaction.followup = SimpleNamespace(send=followup_send)
     if await view.interaction_check(interaction):
         await getattr(view, button).callback(interaction)
     return interaction
+
+
+def last_text(interaction) -> str:
+    """Dernière réponse affichée à la personne (réponse directe ou suite après « réflexion »)."""
+    last = (interaction.followups or interaction.response.sent)[-1]
+    return last["content"] or embed_text(last["embed"])
 
 
 async def connect_through_discord(w, repository: str = REPO, user=None) -> dict:
@@ -427,10 +466,10 @@ async def test_end_to_end_install_verify_connect_receive_and_test_message(world)
     tester = final["view"]
     assert isinstance(tester, TestMessageView)
     done = await click(w, tester, "test")
-    assert "Message de test envoyé" in done.response.sent[-1]["content"]
+    assert "Message de test envoyé et confirmé" in last_text(done)
     assert len(w.channels["code-depot"].messages) == len(w.channels["ci-depot"].messages) == 1
     again = await click(w, tester, "test")
-    assert "déjà été envoyé" in again.response.sent[-1]["content"]
+    assert "déjà été envoyé" in last_text(again)
     assert len(w.channels["code-depot"].messages) == 1
 
 
@@ -736,7 +775,7 @@ async def test_test_message_refuses_a_channel_samae_cannot_post_in(world):
     w.guild.bot_permissions.discard("send_messages")
     view = TestMessageView(1, lambda inter: cog_of(w.bot)._send_test(inter, project.id))
     done = await click(w, view, "test")
-    assert "Impossible de publier" in done.response.sent[-1]["content"]
+    assert "Impossible de publier" in last_text(done)
     assert w.channels["code-depot"].messages == []
 
 
@@ -790,3 +829,216 @@ def test_nginx_example_opens_only_the_needed_paths_and_never_logs_their_paramete
     assert "access_log /var/log/nginx/samae.access.log samae_sans_parametres;" in text
     assert "$request_method $uri" in text and '"$request"' not in text
     assert "127.0.0.1:8090" in text and "return 404;" in text
+
+
+# --- Contrôles de sécurité du parcours (demandés avant la fusion) ----------------------------------------
+
+
+async def oauth_state_for(w, installation=INSTALLATION) -> str:
+    """Passe l'étape /github/setup et renvoie le jeton de l'étape d'autorisation."""
+    response = await w.samae.get(
+        SETUP_PATH, params={"installation_id": str(installation), "state": state_of(w.bot.github_setup.install_url(GUILD, 1))},
+        allow_redirects=False,
+    )
+    assert response.status == 302
+    return parse_qs(urlsplit(response.headers["Location"]).query)["state"][0]
+
+
+async def test_simultaneous_setup_requests_with_the_same_link_let_only_one_through(world):
+    w = world
+    state = state_of(w.bot.github_setup.install_url(GUILD, 1))
+    params = {"installation_id": str(INSTALLATION), "state": state}
+    responses = await asyncio.gather(*(w.samae.get(SETUP_PATH, params=params, allow_redirects=False) for _ in range(5)))
+    assert sorted(r.status for r in responses) == [302, 400, 400, 400, 400]
+    assert w.bot.github_setup_repo.pending_states() == 1  # seulement le jeton d'autorisation de la requête acceptée
+
+
+async def test_simultaneous_callbacks_with_the_same_link_exchange_one_code_only(world):
+    w = world
+    state = await oauth_state_for(w)
+    w.github.access["romain"] = {INSTALLATION}
+    codes = [f"code-{i}" for i in range(4)]
+    for code in codes:
+        w.github.codes[code] = "romain"
+    responses = await asyncio.gather(*(w.samae.get(CALLBACK_PATH, params={"code": code, "state": state}) for code in codes))
+    assert sorted(r.status for r in responses) == [200, 400, 400, 400]
+    assert len(w.github.tokens) == 1 and len(w.github.revoked) == 1  # un seul échange, aussitôt révoqué
+    assert len(w.bot.github_setup_repo.installations(GUILD)) == 1
+    assert w.bot.github_setup_repo.pending_states() == 0
+
+
+def test_single_use_holds_across_separate_connections_racing_in_threads(tmp_path):
+    path = tmp_path / "course.sqlite3"
+    first = Database(path)
+    token = SetupStates(GithubSetupRepository(first), CLIENT_SECRET).issue("install", GUILD, 1)
+    first.close()
+    barrier = threading.Barrier(8)
+    claims: list = []
+
+    def race() -> None:
+        db = Database(path)  # une connexion par fil, comme deux processus
+        try:
+            states = SetupStates(GithubSetupRepository(db), CLIENT_SECRET)
+            barrier.wait()
+            claims.append(states.consume("install", token))
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=race) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len([c for c in claims if c is not None]) == 1
+
+
+def test_links_expire_after_exactly_15_minutes(setup_repo):
+    clock = Clock()
+    states = SetupStates(setup_repo, CLIENT_SECRET, clock=clock)
+    start = clock.now
+    almost = states.issue("install", GUILD, 1)
+    expired = states.issue("install", GUILD, 1)
+    clock.now = start + STATE_TTL - timedelta(seconds=1)
+    assert states.consume("install", almost) is not None
+    clock.now = start + STATE_TTL
+    assert states.consume("install", expired) is None
+    assert STATE_TTL == timedelta(minutes=15)
+    assert setup_repo.purge_expired(now=clock.now) == 1 and setup_repo.pending_states() == 0  # lien expiré supprimé
+
+
+async def test_expired_links_are_refused_at_both_steps_without_calling_github(world):
+    w = world
+    clock = Clock()
+    w.bot.github_setup.states._clock = clock
+    install_url = w.bot.github_setup.install_url(GUILD, 1)
+    clock.now += STATE_TTL
+    response = await w.samae.get(SETUP_PATH, params={"installation_id": str(INSTALLATION), "state": state_of(install_url)})
+    assert response.status == 400 and "expiré" in await response.text()
+
+    clock.now = utcnow()
+    oauth_state = await oauth_state_for(w)
+    clock.now += STATE_TTL
+    w.github.codes["code-tardif"] = "romain"
+    response = await w.samae.get(CALLBACK_PATH, params={"code": "code-tardif", "state": oauth_state})
+    assert response.status == 400
+    assert w.github.tokens == {} and "code-tardif" in w.github.codes  # le code n'a même pas été échangé
+    assert w.bot.github_setup_repo.installations(GUILD) == []
+
+
+async def test_read_or_write_access_is_not_enough_to_link_a_repository(world):
+    w = world
+    for repo in (REPO, SECOND_REPO):
+        w.github.roles[("romain", repo)] = {"admin": False, "maintain": False, "push": True, "pull": True}
+    status, page = await github_round_trip(w, w.bot.github_setup.install_url(GUILD, 1))
+    assert status == 403 and "Droits insuffisants" in page
+    assert w.bot.github_setup_repo.installations(GUILD) == []
+    assert len(w.github.revoked) == 1
+
+
+async def test_only_repositories_the_person_administers_or_maintains_are_offered(world):
+    w = world
+    w.github.roles[("romain", REPO)] = {"admin": False, "maintain": True, "push": True, "pull": True}
+    w.github.roles[("romain", SECOND_REPO)] = {"admin": False, "maintain": False, "push": False, "pull": True}
+    status, page = await github_round_trip(w, w.bot.github_setup.install_url(GUILD, 1))
+    assert status == 200 and "1 autre(s) dépôt(s)" in page
+    [installation] = w.bot.github_setup_repo.installations(GUILD)
+    assert installation.repositories == (REPO,)
+    assert cog_of(w.bot)._github_candidates(GUILD) == [REPO]
+    _, refused = await configure(w, depot=SECOND_REPO)
+    assert "aucune installation" in embed_text(refused["embed"])
+
+
+async def test_nothing_temporary_is_kept_after_any_failure(world):
+    w = world
+    repo = w.bot.github_setup_repo
+    # 1. lien d'installation inconnu ou falsifié : rien n'est créé
+    await w.samae.get(SETUP_PATH, params={"installation_id": "1", "state": "faux"})
+    assert repo.pending_states() == 0
+    # 2. numéro d'installation invalide : le lien est consommé et supprimé, rien d'autre n'est créé
+    await w.samae.get(SETUP_PATH, params={"installation_id": "abc", "state": state_of(w.bot.github_setup.install_url(GUILD, 1))})
+    assert repo.pending_states() == 0
+    # 3. autorisation annulée, 4. code refusé, 5. GitHub en panne pendant la vérification, 6. personne sans accès
+    await w.samae.get(CALLBACK_PATH, params={"error": "access_denied", "state": await oauth_state_for(w)})
+    await w.samae.get(CALLBACK_PATH, params={"code": "inconnu", "state": await oauth_state_for(w)})
+    w.github.access["romain"] = {INSTALLATION}
+    w.github.fail_repositories = True
+    w.github.codes["code-panne"] = "romain"
+    outage = await w.samae.get(CALLBACK_PATH, params={"code": "code-panne", "state": await oauth_state_for(w)})
+    assert outage.status == 502
+    w.github.fail_repositories = False
+    w.github.access["romain"] = set()
+    w.github.codes["code-sans-acces"] = "romain"
+    await w.samae.get(CALLBACK_PATH, params={"code": "code-sans-acces", "state": await oauth_state_for(w)})
+    # Aucun jeton en attente, aucune installation, et chaque accès temporaire obtenu a été révoqué.
+    assert repo.pending_states() == 0 and repo.installations(GUILD) == []
+    assert sorted(w.github.revoked) == sorted(w.github.tokens) and len(w.github.revoked) == 2
+
+
+async def test_test_button_confirms_the_real_post_in_the_right_channel_only(world):
+    w = world
+    project = w.bot.projects_repo.create(GUILD, "github", REPO, "Dépôt", created_by=1)
+    code, ci = w.channels["code-depot"], w.channels["ci-depot"]
+    w.bot.projects_repo.set_route(GUILD, project.id, "code", code.id)
+    w.bot.projects_repo.set_route(GUILD, project.id, "revues", code.id)  # même salon : un seul message
+    w.bot.projects_repo.set_route(GUILD, project.id, "ci", w.foreign_channel.id)  # salon d'un autre serveur
+    view = TestMessageView(1, lambda inter: cog_of(w.bot)._send_test(inter, project.id))
+    done = await click(w, view, "test")
+    text = last_text(done)
+    assert f"confirmé dans : <#{code.id}>" in text and f"Impossible de publier dans : <#{w.foreign_channel.id}>" in text
+    assert len(code.messages) == 1 and ci.messages == []
+    assert "Revues" in embed_text(code.messages[0]) and "Code" in embed_text(code.messages[0])
+    assert getattr(done, "deferred", False)  # réponse différée : plusieurs envois ne dépassent pas le délai de Discord
+
+
+async def test_test_button_reports_a_post_discord_did_not_confirm(world):
+    w = world
+    project = w.bot.projects_repo.create(GUILD, "github", REPO, "Dépôt", created_by=1)
+    code = w.channels["code-depot"]
+    w.bot.projects_repo.set_route(GUILD, project.id, "code", code.id)
+
+    async def misplaced(*, embed):
+        return SimpleNamespace(channel=w.channels["ci-depot"])  # Discord dit l'avoir mis ailleurs
+
+    code.send = misplaced
+    done = await click(w, TestMessageView(1, lambda inter: cog_of(w.bot)._send_test(inter, project.id)), "test")
+    assert "Aucun message de test" in last_text(done) and f"<#{code.id}>" in last_text(done)
+
+    async def refused(*, embed):
+        raise discord.HTTPException(SimpleNamespace(status=403, reason="Forbidden"), "Missing Access")
+
+    code.send = refused
+    done = await click(w, TestMessageView(1, lambda inter: cog_of(w.bot)._send_test(inter, project.id)), "test")
+    assert "Impossible de publier" in last_text(done)
+
+
+async def test_legacy_env_webhooks_keep_working_with_the_github_app_enabled(make_bot):  # noqa: F811
+    legacy_gitlab = "gitlab-secret-historique-0123456789"
+    bot = await make_bot(GITHUB_WEBHOOK_SECRET=GITHUB_SECRET, GITLAB_WEBHOOK_SECRET=legacy_gitlab, **APP_ENV)
+    config = bot.settings
+    assert config.github_app_enabled and config.github_webhooks_enabled and config.gitlab_webhooks_enabled
+    assert (config.github_webhook_port, config.webhook_port, config.projects_http_port) == (8081, 8080, 8090)
+    assert [p.ref for p in cog_of(bot).projects_for(GUILD)][:2] == ["env-github", "env-gitlab"]
+
+    sender = FakeSender()
+    github_app = create_github_app(
+        secret=config.github_webhook_secret, repository=config.github_repository,
+        dispatcher=GitHubDispatcher(GitHubDeliveryRepository(bot.database), sender, lambda: {"gitlab_activite": 1}),
+    )
+    gitlab_app = create_webhook_app(
+        secret=config.gitlab_webhook_secret, project_id=None,
+        dispatcher=NotificationDispatcher(GitLabEventRepository(bot.database), GitLabRules(routes={"push": "gitlab_activite"}), sender, lambda: {"gitlab_activite": 1}),
+    )
+    for app, path, body, headers in (
+        (github_app, LEGACY_GITHUB_PATH, json.dumps(gh.push_payload()).encode(), {"X-GitHub-Event": "push", "X-GitHub-Delivery": "legacy-1"}),
+        (gitlab_app, LEGACY_GITLAB_PATH, json.dumps(gl.push_payload()).encode(), {"X-Gitlab-Event": "Push Hook", "X-Gitlab-Token": legacy_gitlab}),
+    ):
+        client = await quiet_client(app)
+        try:
+            if path == LEGACY_GITHUB_PATH:
+                headers["X-Hub-Signature-256"] = compute_signature(GITHUB_SECRET, body)
+                wrong = {**headers, "X-Hub-Signature-256": compute_signature(APP_SECRET, body)}  # secret de l'App : refusé ici
+                assert (await client.post(path, data=body, headers={"Content-Type": "application/json", **wrong})).status == 401
+            response = await client.post(path, data=body, headers={"Content-Type": "application/json", **headers})
+            assert response.status == 200 and (await response.json())["status"] == "queued"
+        finally:
+            await client.close()

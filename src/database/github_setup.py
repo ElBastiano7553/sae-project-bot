@@ -1,7 +1,7 @@
 """Connexion des projets GitHub (tables ``github_setup_states`` et ``github_installations``, v11).
 
 * les jetons des liens d'installation et d'autorisation ne sont gardés que sous forme
-  d'empreinte SHA-256, servent une seule fois et expirent ;
+  d'empreinte SHA-256, servent une seule fois (supprimés dès leur utilisation) et expirent ;
 * une installation de la GitHub App n'est utilisable que par le serveur Discord pour lequel
   son accès a été vérifié auprès de GitHub : toutes les lectures prennent le ``guild_id``.
 
@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from src.database.connection import Database
 
 _TIME = "%Y-%m-%d %H:%M:%S"
-# Les jetons expirés ou utilisés sont gardés un jour (pour les journaux), puis supprimés.
-STATE_KEEP = timedelta(days=1)
 
 
 def utcnow() -> datetime:
@@ -57,30 +55,41 @@ class GithubSetupRepository:
     def save_state(
         self, token_hash: str, step: str, guild_id: int, user_id: int, *, expires_at: datetime, installation_id: int | None = None
     ) -> None:
-        now = utcnow()
         with self._conn:
-            self._conn.execute("DELETE FROM github_setup_states WHERE expires_at < ?", (_fmt(now - STATE_KEEP),))
+            self.purge_expired()
             self._conn.execute(
                 "INSERT INTO github_setup_states (token_hash, step, guild_id, user_id, installation_id, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (token_hash, step, guild_id, user_id, installation_id, _fmt(expires_at)),
             )
 
     def consume_state(self, token_hash: str, step: str, *, now: datetime | None = None) -> StateClaim | None:
-        """Utilise le jeton une fois. ``None`` s'il est inconnu, d'une autre étape, expiré ou déjà utilisé."""
+        """Utilise le jeton une seule fois : la ligne est supprimée, que la suite réussisse ou non.
+
+        ``None`` s'il est inconnu, d'une autre étape, expiré ou déjà utilisé. Deux requêtes
+        simultanées avec le même jeton : seule celle dont la suppression aboutit l'obtient
+        (``DELETE`` conditionnel, atomique dans SQLite, même depuis deux connexions).
+        """
         moment = _fmt(now or utcnow())
         with self._conn:
             row = self._conn.execute(
-                "SELECT * FROM github_setup_states WHERE token_hash = ? AND step = ? AND used_at IS NULL AND expires_at > ?",
-                (token_hash, step, moment),
+                "SELECT * FROM github_setup_states WHERE token_hash = ? AND step = ? AND expires_at > ?", (token_hash, step, moment)
             ).fetchone()
             if row is None:
                 return None
             cursor = self._conn.execute(
-                "UPDATE github_setup_states SET used_at = ? WHERE token_hash = ? AND used_at IS NULL", (moment, token_hash)
+                "DELETE FROM github_setup_states WHERE token_hash = ? AND step = ? AND expires_at > ?", (token_hash, step, moment)
             )
             if cursor.rowcount != 1:
-                return None
+                return None  # utilisé entre-temps par une autre requête
         return StateClaim(row["guild_id"], row["user_id"], row["installation_id"])
+
+    def purge_expired(self, *, now: datetime | None = None) -> int:
+        """Supprime les liens expirés jamais utilisés."""
+        with self._conn:
+            return self._conn.execute("DELETE FROM github_setup_states WHERE expires_at <= ?", (_fmt(now or utcnow()),)).rowcount
+
+    def pending_states(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM github_setup_states").fetchone()[0]
 
     # --- Installations vérifiées, par serveur ----------------------------------------------------
 

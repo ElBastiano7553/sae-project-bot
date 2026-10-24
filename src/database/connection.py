@@ -316,8 +316,9 @@ MIGRATIONS: list[str] = [
     CREATE INDEX project_deliveries_received_at ON project_deliveries (received_at);
     """,
     # v11 : connexion des projets GitHub par la GitHub App (multi-projets, étape B4).
-    # github_setup_states : liens d'installation et d'autorisation, à usage unique et limités dans le
-    # temps ; seule l'empreinte SHA-256 du jeton est gardée. github_installations : installations
+    # github_setup_states : liens d'installation et d'autorisation en attente, à usage unique et
+    # limités dans le temps ; seule l'empreinte SHA-256 du jeton est gardée, et la ligne est
+    # supprimée dès son utilisation (réussie ou non) ou son expiration. github_installations : installations
     # dont l'accès a été vérifié auprès de GitHub pour CE serveur Discord, avec la liste des dépôts
     # lue à ce moment-là. Aucun token GitHub n'est enregistré. Uniquement des créations de tables.
     """
@@ -328,7 +329,6 @@ MIGRATIONS: list[str] = [
         user_id         INTEGER NOT NULL,
         installation_id INTEGER,  -- étape « oauth » : installation à vérifier
         expires_at      TEXT    NOT NULL,
-        used_at         TEXT,
         CHECK ((step = 'install' AND installation_id IS NULL) OR (step = 'oauth' AND installation_id IS NOT NULL))
     );
     CREATE INDEX github_setup_states_expires_at ON github_setup_states (expires_at);
@@ -337,7 +337,7 @@ MIGRATIONS: list[str] = [
         guild_id        INTEGER NOT NULL,
         installation_id INTEGER NOT NULL CHECK (installation_id > 0),
         account         TEXT    NOT NULL,  -- compte GitHub où l'App est installée
-        repositories    TEXT    NOT NULL,  -- JSON : dépôts « propriétaire/depot » accessibles, lus à la vérification
+        repositories    TEXT    NOT NULL,  -- JSON : dépôts « propriétaire/depot » que la personne administre, lus à la vérification
         authorized_by   INTEGER NOT NULL,  -- administrateur Discord qui a lancé la connexion
         authorized_at   TEXT    NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (guild_id, installation_id)

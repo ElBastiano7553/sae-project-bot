@@ -217,5 +217,7 @@ Avec la GitHub App de test (après accord du propriétaire du VPS : DNS, certifi
 - [ ] Pull request ouverte, ticket ouvert : notifications dans leurs salons.
 - [ ] GitHub > App > Advanced > Recent Deliveries > Redeliver d'une livraison déjà reçue : réponse `duplicate`, aucun second message.
 - [ ] Un compte GitHub sans accès au dépôt de test suit un lien de `/projet configurer` : page « Accès refusé », rien de relié.
+- [ ] Un compte GitHub avec seulement le rôle Read ou Write sur le dépôt de test : page « Droits insuffisants », rien de relié.
+- [ ] Ouvrir le même lien d'installation dans deux onglets en même temps : un seul aboutit, l'autre affiche « Lien expiré ».
 - [ ] Journal `logs/bot.log` et journal Nginx du site : aucun `code=`, `state=`, token ni secret.
 

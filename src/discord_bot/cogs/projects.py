@@ -510,22 +510,30 @@ class ProjectsCog(commands.Cog):
         for route in routes:
             if route.channel_id is not None:
                 by_channel.setdefault(route.channel_id, []).append(route.category)
+        # Plusieurs envois peuvent dépasser les 3 secondes accordées par Discord pour répondre.
+        await interaction.response.defer(ephemeral=True, thinking=True)
         sent, refused = [], []
         for channel_id, categories in by_channel.items():
-            channel = guild.get_channel(channel_id)
-            if self._channel_problem(guild, channel_id):
+            if self._channel_problem(guild, channel_id):  # salon d'un autre serveur, supprimé ou sans permission
                 refused.append(f"<#{channel_id}>")
                 continue
+            channel = guild.get_channel(channel_id)
             try:
-                await channel.send(embed=project_test_embed(record.name, categories))
-                sent.append(channel.mention)
+                message = await channel.send(embed=project_test_embed(record.name, categories))
             except discord.HTTPException:
-                refused.append(channel.mention)
-        self.bot.record_admin_action(interaction, "projet tester", str(project_id), f"{len(sent)} salon(s)")
-        lines = [f"Message de test envoyé dans : {', '.join(sent)}." if sent else "Aucun message de test n'a pu être envoyé."]
+                refused.append(f"<#{channel_id}>")
+                continue
+            # Envoi confirmé par Discord : le message renvoyé est bien dans CE salon de CE serveur.
+            posted = getattr(message, "channel", None)
+            if getattr(posted, "id", None) == channel_id and getattr(getattr(posted, "guild", None), "id", None) == guild.id:
+                sent.append(f"<#{channel_id}>")
+            else:
+                refused.append(f"<#{channel_id}>")
+        self.bot.record_admin_action(interaction, "projet tester", str(project_id), f"{len(sent)}/{len(by_channel)} salon(s)")
+        lines = [f"Message de test envoyé et confirmé dans : {', '.join(sent)}." if sent else "Aucun message de test n'a pu être envoyé."]
         if refused:
-            lines.append(f"Impossible de publier dans : {', '.join(refused)} (vérifiez les permissions de Samae).")
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+            lines.append(f"Impossible de publier dans : {', '.join(refused)} (vérifiez le salon et les permissions de Samae).")
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     @configure.autocomplete("depot")
     async def _repository_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
