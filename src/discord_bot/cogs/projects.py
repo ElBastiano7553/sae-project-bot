@@ -1,8 +1,10 @@
 """Groupe /projet : projets GitHub et GitLab suivis par Samae sur ce serveur (multi-projets, étapes B1 et B2).
 
 ``liste`` et ``details`` sont ouvertes à tous les membres, en réponse éphémère :
-un membre ne voit que les salons auxquels il a accès ; un administrateur voit
-tout (salons manquants, auteur, emplacement de la configuration).
+un membre ne voit que les salons auxquels il a accès, et un projet dont il ne voit
+aucun salon lui est entièrement masqué (liste, détails, autocomplétion : « introuvable »,
+comme un projet qui n'existe pas). Un administrateur voit tout (salons manquants,
+auteur, emplacement de la configuration).
 
 Administrateurs seulement (vérifié par le bot à chaque appel) : ``ajouter`` enregistre
 un projet à partir de l'adresse de son dépôt, après un récapitulatif et une confirmation ;
@@ -46,6 +48,7 @@ from src.services.projects import (
     legacy_projects,
     normalize_name,
     parse_repository_url,
+    project_visible,
     registered_view,
     update_filters,
 )
@@ -95,6 +98,22 @@ class ProjectsCog(commands.Cog):
         ref = ref.strip()
         return next((p for p in self.projects_for(guild_id) if p.ref == ref), None)
 
+    def visible_projects(self, guild: discord.Guild, member) -> list[ProjectView]:
+        """Projets que ce membre peut voir : tous pour un administrateur, sinon ceux dont il voit au moins un salon."""
+        projects = self.projects_for(guild.id)
+        if self._member_is_admin(member):
+            return projects
+        can_view = self._can_view(guild, member)
+        return [p for p in projects if project_visible(p, can_view)]
+
+    @staticmethod
+    def _can_view(guild: discord.Guild, member):
+        def can_view(channel_id: int) -> bool:
+            channel = guild.get_channel(channel_id)
+            return channel is not None and channel.permissions_for(member).view_channel
+
+        return can_view
+
     async def _guild_or_error(self, interaction: discord.Interaction) -> discord.Guild | None:
         guild = interaction.guild
         if guild is None or guild.id not in self.project_guilds():
@@ -103,7 +122,9 @@ class ProjectsCog(commands.Cog):
         return guild
 
     def _is_admin(self, interaction: discord.Interaction) -> bool:
-        member = interaction.user
+        return self._member_is_admin(interaction.user)
+
+    def _member_is_admin(self, member) -> bool:
         return getattr(member, "guild_permissions", None) is not None and is_bot_admin(member, self.bot.settings.admin_role_name)
 
     # --- Commandes ----------------------------------------------------------------------------
@@ -113,7 +134,7 @@ class ProjectsCog(commands.Cog):
         guild = await self._guild_or_error(interaction)
         if guild is None:
             return
-        pages = projects_list_pages(self.projects_for(guild.id))
+        pages = projects_list_pages(self.visible_projects(guild, interaction.user), admin=self._is_admin(interaction))
         if len(pages) == 1:
             await interaction.response.send_message(embed=pages[0], ephemeral=True)
             return
@@ -128,16 +149,13 @@ class ProjectsCog(commands.Cog):
         guild = await self._guild_or_error(interaction)
         if guild is None:
             return
-        project = self.find(guild.id, projet)
+        ref = projet.strip()
+        # Un projet masqué reçoit exactement la même réponse qu'une référence inconnue.
+        project = next((p for p in self.visible_projects(guild, interaction.user) if p.ref == ref), None)
         if project is None:
             await send_error(interaction, "Projet introuvable sur ce serveur. Les références sont affichées par `/projet liste`.", title="Projet introuvable")
             return
-        member = interaction.user
-
-        def can_view(channel_id: int) -> bool:
-            channel = guild.get_channel(channel_id)
-            return channel is not None and channel.permissions_for(member).view_channel
-
+        can_view = self._can_view(guild, interaction.user)
         embed = project_detail_embed(project, can_view=can_view, admin=self._is_admin(interaction))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -314,6 +332,9 @@ class ProjectsCog(commands.Cog):
 
     @modify.autocomplete("projet")
     async def _registered_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        # Discord appelle l'autocomplétion sans passer par les vérifications de la commande : on refuse ici aussi.
+        if not self._is_admin(interaction):
+            return []
         choices = await self._project_autocomplete(interaction, current)
         return [c for c in choices if c.value.isdigit()]  # les projets historiques ne se modifient pas ici
 
@@ -325,7 +346,7 @@ class ProjectsCog(commands.Cog):
         needle = current.casefold()
         choices = [
             app_commands.Choice(name=f"{p.name} ({p.provider_label})"[:100], value=p.ref)
-            for p in self.projects_for(guild.id)
+            for p in self.visible_projects(guild, interaction.user)
             if needle in p.name.casefold() or needle in p.ref
         ]
         return choices[:25]

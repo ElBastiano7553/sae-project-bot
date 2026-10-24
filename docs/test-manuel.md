@@ -171,3 +171,13 @@ Ajouter d'abord un projet avec `/projet ajouter` (section 1.7.0 ci-dessous).
 - [ ] `url:http://…`, `url:https://bitbucket.org/a/b`, `url:https://nom:motdepasse@github.com/a/b` : message clair, l'adresse fautive n'est pas répétée.
 - [ ] Adresse GitLab (`https://gitlab.com/groupe/projet`) : fournisseur GitLab détecté.
 - [ ] Puis `/projet modifier` sur ce projet (section 1.6.0).
+
+## 1.7.1 : projets masqués aux membres
+
+Préparer deux projets : « Public » avec un salon que tout le monde voit, « Privé » avec un salon qu'un compte membre de test ne voit pas, plus un projet sans salon.
+
+- [ ] Compte membre : `/projet liste` ne montre que « Public » (« 1 projet sur ce serveur »).
+- [ ] Compte membre : `/projet details projet:<référence de Privé>` répond « Projet introuvable », comme `/projet details projet:999`.
+- [ ] Compte membre : en tapant `/projet details projet:`, l'autocomplétion ne propose que « Public » ; `/projet modifier projet:` ne propose rien.
+- [ ] Compte administrateur : les trois projets apparaissent dans la liste, les détails et l'autocomplétion.
+- [ ] Donner au membre l'accès au salon de « Privé » : le projet apparaît pour lui sans redémarrage.

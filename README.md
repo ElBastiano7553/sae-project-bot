@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.7.0 (multi-projets : `/projet liste`, `details`, `ajouter` et `modifier`)
+## État actuel : version 1.7.1 (multi-projets : `/projet liste`, `details`, `ajouter` et `modifier`)
 
 | Fonction | État |
 |---|---|
@@ -30,7 +30,8 @@ et bilans assistés par IA.
 | Multi-projets, étape B1 : projets enregistrés par serveur Discord (GitHub et GitLab), projets du `.env` affichés comme « historiques », `/projet liste` et `/projet details` (un membre ne voit que les salons auxquels il a accès) | ✅ 1.5.0 ([guide](docs/projets.md)) |
 | Multi-projets, étape B2 : salon et filtres (branches, actions, statuts) par catégorie de notifications, `/projet modifier` réservé aux administrateurs | ✅ 1.6.0 ([guide](docs/projets.md)) |
 | Multi-projets : `/projet ajouter` (admins) enregistre un projet à partir de l'adresse de son dépôt GitHub ou GitLab, après récapitulatif et confirmation ; pas encore de notifications (connexion en B4/B5) | ✅ 1.7.0 ([guide](docs/projets.md)) |
-| Multi-projets, étapes B3 à B7 : salons et filtres par projet, connexion GitHub App et GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
+| Projets masqués aux membres qui ne voient aucun de leurs salons (liste, détails, autocomplétion) ; les administrateurs voient tout | ✅ 1.7.1 ([guide](docs/projets.md)) |
+| Multi-projets, étapes B3 à B7 : réception commune des événements, connexion GitHub App et GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
 `/aide` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :

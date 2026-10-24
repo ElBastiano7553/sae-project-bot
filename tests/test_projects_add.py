@@ -208,7 +208,7 @@ async def test_added_project_is_listed_as_pending_and_configurable(make_bot):  #
     await confirm(bot, await add(bot, url="https://github.com/equipe/jeu"))
     [record] = bot.projects_repo.list_for_guild(GUILD)
     cog = bot.get_cog("ProjectsCog")
-    interaction = Interaction(bot, FakeGuild(), Member())
+    interaction = Interaction(bot, FakeGuild(), Member(admin=True))
     await cog.list_projects.callback(cog, interaction)
     assert "pas encore connecté" in embed_text(interaction.response.sent[0]["embed"])
     choices = await cog._registered_autocomplete(Interaction(bot, FakeGuild(), Member(1, admin=True)), "")

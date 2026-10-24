@@ -274,7 +274,7 @@ async def test_list_shows_legacy_and_registered_projects_of_this_guild_only(make
     bot = await make_bot(GITHUB_WEBHOOK_SECRET=GITHUB_SECRET)
     bot.projects_repo.create(GUILD, "gitlab", "12", "Outils", created_by=7)
     bot.projects_repo.create(OTHER_GUILD, "github", "x/secret-ailleurs", "Projet d'un autre serveur", created_by=9)
-    text = embed_text((await run(bot, "liste", FakeGuild(), Member()))["embed"])
+    text = embed_text((await run(bot, "liste", FakeGuild(), Member(admin=True)))["embed"])
     assert "ElBastiano7553/game-project" in text and "Outils" in text and "historique" in text
     assert "secret-ailleurs" not in text
     assert GITHUB_SECRET not in text
@@ -289,7 +289,7 @@ async def test_list_is_paginated_beyond_one_page_and_never_loses_a_project(make_
     for number in range(30):  # + 1 projet historique = 31 projets, plus que les 25 champs d'un embed
         name = f"Projet {number:02d} " + "x" * 60  # noms longs : la taille totale compte aussi
         bot.projects_repo.create(GUILD, "github", f"equipe-{number}/" + "d" * 90, name, created_by=7)
-    sent = await run(bot, "liste", FakeGuild(), Member())
+    sent = await run(bot, "liste", FakeGuild(), Member(admin=True))
     view = sent["view"]
     assert isinstance(view, PagesView) and sent["embed"] is view.pages[0]
     assert len(view.pages) == 4 and "(1/4)" in view.pages[0].title
@@ -326,7 +326,7 @@ async def _paged_list(make_bot, count: int = 25):
     bot = await make_bot()
     for number in range(count):
         bot.projects_repo.create(GUILD, "github", f"equipe/depot-{number}", f"Projet {number:02d}", created_by=7)
-    return bot, (await run(bot, "liste", FakeGuild(), Member()))["view"]
+    return bot, (await run(bot, "liste", FakeGuild(), Member(admin=True)))["view"]
 
 
 async def test_pagination_buttons_navigate_within_bounds(make_bot):
@@ -367,7 +367,7 @@ async def test_list_command_registers_the_original_interaction(make_bot):
 async def test_short_list_has_no_navigation_buttons(make_bot):
     bot = await make_bot()
     bot.projects_repo.create(GUILD, "gitlab", "12", "Outils", created_by=7)
-    sent = await run(bot, "liste", FakeGuild(), Member())
+    sent = await run(bot, "liste", FakeGuild(), Member(admin=True))
     assert "view" not in sent and len(sent["embed"].fields) == 1
 
 
@@ -421,5 +421,5 @@ async def test_autocomplete_offers_only_this_guilds_projects(make_bot):
     mine = bot.projects_repo.create(GUILD, "gitlab", "12", "Outils", created_by=7)
     bot.projects_repo.create(OTHER_GUILD, "gitlab", "13", "Outils ailleurs", created_by=9)
     cog = bot.get_cog("ProjectsCog")
-    choices = await cog._project_autocomplete(Interaction(bot, FakeGuild(), Member()), "")
+    choices = await cog._project_autocomplete(Interaction(bot, FakeGuild(), Member(admin=True)), "")
     assert {c.value for c in choices} == {LEGACY_GITHUB, str(mine.id)}

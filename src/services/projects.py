@@ -352,3 +352,12 @@ def visible_routes(routes: tuple[Route, ...], can_view: Callable[[int], bool]) -
     shown = tuple(r for r in routes if r.channel_id is not None and can_view(r.channel_id))
     hidden = sum(1 for r in routes if r.channel_id is not None) - len(shown)
     return shown, hidden
+
+
+def project_visible(project: ProjectView, can_view: Callable[[int], bool]) -> bool:
+    """Un membre ordinaire ne voit un projet que s'il a accès à au moins un de ses salons.
+
+    Un projet sans salon, ou dont tous les salons lui sont fermés ou introuvables, est masqué :
+    il n'apparaît ni dans les listes, ni dans les détails, ni dans l'autocomplétion.
+    """
+    return any(r.channel_id is not None and can_view(r.channel_id) for r in project.routes)
