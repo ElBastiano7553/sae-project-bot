@@ -80,7 +80,7 @@ TONE_ICONS = {
     Tone.NEUTRAL: "▫️",
 }
 
-# Icônes des catégories de contenu, réutilisées par /help, /project et les notifications.
+# Icônes des catégories de contenu, réutilisées par /aide, /activite resume et les notifications.
 ICONS = {
     "push": "📤",
     "branch_new": "🌱",

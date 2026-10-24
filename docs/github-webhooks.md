@@ -45,8 +45,8 @@ noms de branches) sont nettoyés comme pour GitLab : aucune mention `@everyone`,
 sont retirés et les messages sont envoyés avec `allowed_mentions = none`.
 
 Historique : les livraisons GitHub sont enregistrées dans la table `github_deliveries`
-(migration v8), **séparée** de `gitlab_events`. `/events`, `/stats`, `/leaderboard`,
-`/project` et le tableau de bord restent donc 100 % GitLab. Les livraisons sont oubliées
+(migration v8), **séparée** de `gitlab_events`. `/activite evenements`, `/activite stats`, `/activite contributions`,
+`/activite resume` et le tableau de bord restent donc 100 % GitLab. Les livraisons sont oubliées
 après `HISTORY_RETENTION_DAYS` jours, comme le reste de l'historique.
 
 ## 2. Variables d'environnement (`.env`)
@@ -68,7 +68,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 Les notifications vont dans le salon de clé `gitlab_activite` (`config/server.toml`),
-associé par `/setup`. S'il n'est pas associé, la livraison est marquée `skipped` et un
+associé par `/admin installer`. S'il n'est pas associé, la livraison est marquée `skipped` et un
 avertissement apparaît dans `logs/bot.log`.
 
 ## 3. Vérifier que c'est actif
@@ -82,10 +82,10 @@ Au démarrage, `logs/bot.log` doit contenir :
 
 Sur Discord :
 
-- `/status` affiche une ligne **GitHub** : ⏸️ désactivé, ❌ erreur (secret trop court,
+- `/etat` affiche une ligne **GitHub** : ⏸️ désactivé, ❌ erreur (secret trop court,
   port occupé…), ou ✅ actif avec la date du dernier événement. « Accès depuis Internet
   non vérifié » : le bot sait seulement qu'il écoute localement.
-- `/config` (admins) affiche le dépôt autorisé et le port, jamais le secret.
+- `/admin config` (admins) affiche le dépôt autorisé et le port, jamais le secret.
 
 ## 4. Tester en local, sans GitHub
 
@@ -142,5 +142,5 @@ avait déjà été traitée, le bot répond `duplicate` sans republier.
 - Seuls les échecs de workflows sont annoncés : un retour au vert n'est pas signalé.
 - Pas de filtre par branche ni de choix des actions dans un fichier de configuration
   (les règles sont fixées dans `src/github/events.py`).
-- Comme pour GitLab, `/status` ne peut pas vérifier que GitHub joint réellement le bot :
+- Comme pour GitLab, `/etat` ne peut pas vérifier que GitHub joint réellement le bot :
   seul l'onglet **Recent Deliveries** de GitHub le prouve.

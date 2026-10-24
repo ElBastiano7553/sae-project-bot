@@ -39,6 +39,9 @@ DEFAULT_BACKUP_KEEP = 14
 DEFAULT_BACKUP_INTERVAL_HOURS = 24
 DEFAULT_AI_DAILY_LIMIT = 50
 DEFAULT_AI_COOLDOWN_SECONDS = 20
+# Message d'accueil d'un nouveau membre : supprimé après ce délai (0 = jamais), une semaine au plus.
+DEFAULT_WELCOME_DELETE_HOURS = 24
+MAX_WELCOME_DELETE_HOURS = 168
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
 SECRET_ENV_VARS = ("DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET")
 # Webhooks GitHub : seul ce dépôt est accepté par défaut (dépôt privé du jeu).
@@ -70,6 +73,9 @@ class Settings:
     auto_recreate_deleted: bool = True
     history_retention_days: int = DEFAULT_RETENTION_DAYS
     alerts_channel: str | None = None  # clé de salon (config/server.toml) ; None = alertes désactivées
+    # Accueil des nouveaux membres (content/accueil.toml) : demande l'intent « Server Members » sur le portail.
+    welcome_on_join: bool = False
+    welcome_delete_hours: int = DEFAULT_WELCOME_DELETE_HOURS  # 0 = le message d'accueil reste
     gitlab_webhook_secret: str = field(default="", repr=False)
     gitlab_project_id: int | None = None
     webhook_host: str = "127.0.0.1"
@@ -119,12 +125,12 @@ class Settings:
 
     @property
     def github_requested(self) -> bool:
-        """Vrai si GitHub est configuré, même de façon invalide (affiché en erreur dans /status)."""
+        """Vrai si GitHub est configuré, même de façon invalide (affiché en erreur dans /etat)."""
         return self.github_webhooks_enabled or self.github_config_error is not None
 
     @property
     def gitlab_requested(self) -> bool:
-        """Vrai si la V2 est configurée, même de façon invalide (affiché en erreur dans /health)."""
+        """Vrai si la V2 est configurée, même de façon invalide (affiché en erreur dans /etat)."""
         return self.gitlab_webhooks_enabled or self.gitlab_config_error is not None
 
     @classmethod
@@ -164,6 +170,13 @@ class Settings:
         auto_refresh = _parse_bool(env, "AUTO_REFRESH_ON_STARTUP", True, errors)
         pin_messages = _parse_bool(env, "PIN_PERMANENT_MESSAGES", True, errors)
         auto_recreate = _parse_bool(env, "AUTO_RECREATE_DELETED_MESSAGES", True, errors)
+        welcome_on_join = _parse_bool(env, "WELCOME_ON_JOIN", False, errors)
+        welcome_delete_hours = _parse_int(env, "WELCOME_DELETE_AFTER_HOURS", DEFAULT_WELCOME_DELETE_HOURS, 0, errors)
+        if welcome_delete_hours > MAX_WELCOME_DELETE_HOURS:
+            errors.append(
+                f"WELCOME_DELETE_AFTER_HOURS doit valoir au plus {MAX_WELCOME_DELETE_HOURS} heures "
+                f"(valeur actuelle : {welcome_delete_hours})."
+            )
         retention_raw = env.get("HISTORY_RETENTION_DAYS", "").strip() or str(DEFAULT_RETENTION_DAYS)
         retention = DEFAULT_RETENTION_DAYS
         if retention_raw.isdigit() and int(retention_raw) >= MIN_RETENTION_DAYS:
@@ -230,6 +243,8 @@ class Settings:
             auto_recreate_deleted=auto_recreate,
             history_retention_days=retention,
             alerts_channel=env.get("ALERTS_CHANNEL", "").strip() or None,
+            welcome_on_join=welcome_on_join,
+            welcome_delete_hours=welcome_delete_hours,
             gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
             gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
             gitlab_project_id=project_id,
@@ -363,7 +378,7 @@ def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[st
 
 # --- Structure du serveur (config/server.toml) -------------------------------------------
 #
-# /setup n'en lit que les catégories et salons (noms et anciens noms). /refonte lit
+# /admin installer n'en lit que les catégories et salons (noms et anciens noms). /refonte lit
 # tout : profils, styles d'affichage, emojis, sujets, types de salons, niveaux
 # d'accès (permissions), rôles avec couleurs et politique de réorganisation.
 
@@ -421,6 +436,8 @@ SENSITIVE_PERMISSIONS = frozenset(
 # Jamais accordée par Samae, quel que soit le fichier de configuration.
 FORBIDDEN_PERMISSIONS = frozenset({"administrator"})
 ROLE_KINDS = ("staff", "responsabilite", "fonction", "membre", "notification")
+# Seuls ces rôles peuvent être choisis par les membres eux-mêmes (/roles).
+SELF_ASSIGNABLE_KINDS = ("fonction", "notification")
 # Cibles spéciales des niveaux d'accès (en plus de « role:<clé> ») :
 ACCESS_TARGETS = ("@everyone", "@bot", "@admin")
 
@@ -448,6 +465,8 @@ class ChannelSpec:
     topic: str = ""  # sujet affiché sous le nom du salon (salons textuels)
     access: str = ""  # vide : celui de la catégorie
     profiles: tuple[str, ...] = ()
+    # Salon de repli pour les messages de Samae tant que ce salon (facultatif) n'existe pas.
+    fallback: str = ""
 
 
 @dataclass(frozen=True)
@@ -463,7 +482,7 @@ class RoleSpec:
     hoist: bool = False  # affiché séparément dans la liste des membres
     mentionable: bool = False
     optional: bool = False
-    self_assignable: bool = False  # destiné à l'auto-attribution (système à venir)
+    self_assignable: bool = False  # proposé dans le choix des rôles (/roles) : fonction ou notification seulement
     aliases: tuple[str, ...] = ()
     profiles: tuple[str, ...] = ()
 
@@ -618,7 +637,19 @@ def load_server_layout(path: Path = CONFIG_DIR / "server.toml") -> ServerLayout:
             topic=topic,
             access=str(value.get("access", "")).strip(),
             profiles=_profile_list(value, where, filename, known_profiles),
+            fallback=str(value.get("fallback", "")).strip(),
         )
+    for spec in channels.values():
+        if not spec.fallback:
+            continue
+        target = channels.get(spec.fallback)
+        if target is None or spec.fallback == spec.key:
+            raise ConfigError(f"{filename} : [channels.{spec.key}] « fallback » doit être la clé d'un autre salon (valeur : {spec.fallback!r}).")
+        if target.fallback or {target.type, spec.type} - {"text", "announcement"}:
+            raise ConfigError(
+                f"{filename} : [channels.{spec.key}] le salon de repli « {spec.fallback} » doit être un salon textuel "
+                "sans repli lui-même."
+            )
     if not channels:
         raise ConfigError(f"{filename} ne déclare aucun salon.")
     roles = {key: _parse_role(key, value, filename, known_profiles) for key, value in data.get("roles", {}).items()}
@@ -701,6 +732,13 @@ def _parse_role(key: str, value: Mapping, filename: str, known_profiles: set[str
         raise ConfigError(
             f"{filename} : [{where}] {', '.join(sensitive)} : permission sensible réservée aux rôles kind = \"staff\"."
         )
+    self_assignable = _bool_value(value, "self_assignable", where, filename)
+    if self_assignable and (kind not in SELF_ASSIGNABLE_KINDS or permissions):
+        # Un membre ne peut jamais se donner un rôle de staff, de responsabilité ou porteur de permissions.
+        raise ConfigError(
+            f"{filename} : [{where}] « self_assignable » n'est permis que pour un rôle kind = \"fonction\" ou "
+            "\"notification\" sans aucune permission."
+        )
     return RoleSpec(
         key=key,
         name=name,
@@ -711,7 +749,7 @@ def _parse_role(key: str, value: Mapping, filename: str, known_profiles: set[str
         hoist=_bool_value(value, "hoist", where, filename),
         mentionable=_bool_value(value, "mentionable", where, filename),
         optional=_bool_value(value, "optional", where, filename),
-        self_assignable=_bool_value(value, "self_assignable", where, filename),
+        self_assignable=self_assignable,
         aliases=_str_list(value, "aliases", where, filename),
         profiles=_profile_list(value, where, filename, known_profiles),
     )

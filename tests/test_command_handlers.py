@@ -105,8 +105,8 @@ async def test_help_hides_admin_commands_from_members(bot):
     sent = interaction.response.sent[0]
     assert sent["ephemeral"]
     text = embed_text(sent["embed"])
-    assert "/status" in text and "/project" in text
-    assert "/setup" not in text and "Administrer" not in text
+    assert "/etat" in text and "/activite resume" in text
+    assert "/admin installer" not in text and "Administrer" not in text
 
 
 async def test_status_works_without_discord_connection_or_ai(bot):
@@ -132,8 +132,8 @@ async def test_status_shows_last_error_without_traceback(bot):
 
 async def test_project_without_gitlab_data_invents_nothing(bot):
     interaction = FakeInteraction(bot)
-    general = cog(bot, "GeneralCog")
-    await general.project.callback(general, interaction)
+    activity = cog(bot, "ActivityCog")
+    await activity.project.callback(activity, interaction)
     text = embed_text(interaction.response.sent[0]["embed"])
     assert "inconnue (aucun webhook reçu)" in text
     assert "aucun événement enregistré" in text
@@ -144,7 +144,7 @@ async def test_refresh_before_setup_is_refused(bot):
     interaction = FakeInteraction(bot)
     admin = cog(bot, "AdminCog")
     await admin.refresh.callback(admin, interaction, None)
-    assert "/setup" in interaction.response.sent[0]["content"]
+    assert "/admin installer" in interaction.response.sent[0]["content"]
 
 
 async def test_admin_messages_and_history(bot):
@@ -174,7 +174,7 @@ async def test_announce_previews_then_saves_only_after_confirmation(bot):
     await preview["view"]._on_confirm(interaction)
     assert bot.announcement.title == "Réunion lundi"
     assert bot.announcement.author == "Alice"
-    assert bot.admin_log.recent()[0].action == "announce"
+    assert bot.admin_log.recent()[0].action == "admin annonce"
 
 
 async def test_announcement_round_trip_and_corrupted_value(bot):
@@ -194,7 +194,7 @@ async def test_deleted_permanent_message_is_scheduled_for_recreation(bot, monkey
     bot.messages_repo.upsert("bienvenue", 1, 99, "h")
     assert bot.handle_deleted_messages([12345]) == []  # message d'un membre : rien à faire
     assert bot.handle_deleted_messages([99]) == ["bienvenue"]
-    assert calls == []  # pas de /setup confirmé : le bot ne republie rien de lui-même
+    assert calls == []  # pas de /admin installer confirmé : le bot ne republie rien de lui-même
     bot.mark_setup_confirmed()
     bot.handle_deleted_messages([99])
     await asyncio.sleep(0)
@@ -452,7 +452,7 @@ async def test_status_shows_ai_usage(ai_bot):
     interaction = FakeInteraction(ai_bot)
     await general.status.callback(general, interaction)
     text = embed_text(interaction.response.sent[0]["embed"])
-    assert "faux fournisseur de test" in text and "0/50 demandes" in text and "/review indisponible" in text
+    assert "faux fournisseur de test" in text and "0/50 demandes" in text and "/ia relecture indisponible" in text
 
 
 # --- Lot 4 : sauvegardes et fichier de vie ---------------------------------------------------
@@ -482,7 +482,7 @@ async def test_admin_backup_creates_a_verified_copy(file_bot):
     embed = interaction.followup.sent[0]["embed"]
     assert "Sauvegarde créée" in embed.title and "vérifiée" in embed.description
     assert file_bot.last_backup() is not None
-    assert file_bot.admin_log.recent(1)[0].action == "admin backup"
+    assert file_bot.admin_log.recent(1)[0].action == "admin sauvegarde"
 
 
 async def test_backup_in_memory_is_refused(bot):

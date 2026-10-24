@@ -11,6 +11,7 @@ import pytest
 
 from src.config import Settings
 from src.discord_bot.bot import EXTENSIONS, SaeBot
+from src.discord_bot.cogs.meetings import STEP_CHOICES
 from src.discord_bot.meeting_ui import BUTTON_TEMPLATE, MeetingButton, panel_embed, panel_view, report_embeds
 from src.services import text_limits as limits
 from src.services.meetings import DECISION, FINISHED, RESERVE, RUNNING, Actor
@@ -257,6 +258,11 @@ async def test_deleted_panel_is_republished_once(env):
     assert channels[CHANNEL_ID].edits[-1][0] == new_id
 
 
+def step(value: str):
+    """Choix de l'option « etape » de /reunion animer, tel que Discord le transmet."""
+    return next(choice for choice in STEP_CHOICES if choice.value == value)
+
+
 async def test_full_meeting_from_discord_commands(env):
     bot, cog, channels = env
     await create(bot, cog, channels)
@@ -268,11 +274,11 @@ async def test_full_meeting_from_discord_commands(env):
         await command.callback(cog, interaction, **kwargs)
         return interaction
 
-    await run(cog.demarrer)
+    await run(cog.animer, etape=step("demarrer"))
     await run(cog.decision, texte="On garde Pygame", motif="déjà maîtrisé")
     await run(cog.reserve, user=MEMBER, texte="Planning serré")
     await run(cog.action, user=MEMBER, description="Écrire le README", responsable=MEMBER, echeance="05/11/2026")
-    await run(cog.suivante)
+    await run(cog.animer, etape=step("suivante"))
     refused = await run(cog.decision, user=MEMBER, texte="Je décide seul")
     assert "Accès refusé" in refused.response.sent[0]["embed"].title
     progress = await run(cog.progression)
@@ -319,7 +325,7 @@ async def test_admin_can_control_any_meeting(env, monkeypatch):
     meeting = bot.meetings.repo.list()[0]
     monkeypatch.setattr(cog, "_actor", lambda interaction: Actor(interaction.user.id, "Admin", is_admin=True))
     interaction = FakeInteraction(bot, OUTSIDER, channels[CHANNEL_ID])
-    await cog.demarrer.callback(cog, interaction, reunion=meeting.id)
+    await cog.animer.callback(cog, interaction, etape=step("demarrer"), reunion=meeting.id)
     assert bot.meetings.get(meeting.id).meeting.status == RUNNING
 
 
@@ -370,7 +376,7 @@ async def test_default_meeting_and_unknown_meeting(env):
     await cog.voir.callback(cog, interaction, reunion=None, publier=False)
     assert "Aucune réunion" in interaction.response.sent[0]["embed"].description
     interaction = FakeInteraction(bot, MEMBER, channels[CHANNEL_ID])
-    await cog.demarrer.callback(cog, interaction, reunion=999)
+    await cog.animer.callback(cog, interaction, etape=step("demarrer"), reunion=999)
     assert "n'existe pas" in interaction.response.sent[0]["embed"].description
 
 

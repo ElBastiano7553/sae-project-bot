@@ -1,4 +1,4 @@
-"""Centre d'aide interactif (/help et /reunion help) : pages, navigation et menu.
+"""Centre d'aide interactif (/aide et /reunion aide) : pages, navigation et menu.
 
 Le contenu vient de ``services.help`` (texte pédagogique) et de l'arbre des
 commandes réellement enregistrées (noms, descriptions, paramètres) : la page
@@ -31,15 +31,18 @@ SELECT_LIMIT = 25
 
 def collect_commands(tree: app_commands.CommandTree) -> list[CommandInfo]:
     """Commandes enregistrées, avec leurs paramètres, lues directement dans discord.py."""
-    result = []
-    for command in tree.get_commands():
-        if isinstance(command, app_commands.Group):
-            admin = _is_admin(command)
+    result: list[CommandInfo] = []
+
+    def visit(command, admin: bool) -> None:
+        admin = admin or _is_admin(command)
+        if isinstance(command, app_commands.Group):  # groupe ou sous-groupe (« reunion ajouter »)
             for sub in command.commands:
-                if isinstance(sub, app_commands.Command):
-                    result.append(_info(sub, admin or _is_admin(sub)))
+                visit(sub, admin)
         elif isinstance(command, app_commands.Command):
-            result.append(_info(command, _is_admin(command)))
+            result.append(_info(command, admin))
+
+    for command in tree.get_commands():
+        visit(command, False)
     return result
 
 
@@ -200,7 +203,7 @@ class HelpView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author_id:
-            await interaction.response.send_message("Cette aide a été ouverte par quelqu'un d'autre : tapez `/help`.", ephemeral=True)
+            await interaction.response.send_message("Cette aide a été ouverte par quelqu'un d'autre : tapez `/aide`.", ephemeral=True)
             return False
         return True
 

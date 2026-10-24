@@ -6,7 +6,7 @@
 #  Seules les adresses https:// complètes sont acceptées (sans identifiants).
 #  Le bot n'invente aucune adresse : il affiche uniquement ce qui est écrit ici.
 #
-#  Après modification : /refresh sur Discord. Les messages existants sont
+#  Après modification : /admin actualiser sur Discord. Les messages existants sont
 #  modifiés sur place (même lien Discord, mêmes réactions), jamais republiés.
 # =====================================================================
 

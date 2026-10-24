@@ -26,6 +26,7 @@ from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall
 from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
+from src.services.self_roles import SelfRoleCatalog
 from src.services.server_structure import ChannelStatus, StructureReport
 
 COLOR_OK = discord.Color(design.Color.SUCCESS)
@@ -139,10 +140,13 @@ def payload_to_embed(payload: MessagePayload) -> discord.Embed:
 
 
 def payload_to_view(payload: MessagePayload) -> discord.ui.View | None:
-    """Boutons-liens : ils ouvrent une URL et ne nécessitent aucun traitement par le bot."""
-    if not payload.buttons:
+    """Boutons d'action d'abord (identifiant fixe, traités par Samae même après un redémarrage),
+    puis boutons-liens (ils ouvrent une URL sans traitement par le bot)."""
+    if not payload.buttons and not payload.actions:
         return None
     view = discord.ui.View(timeout=None)
+    for action in payload.actions:
+        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label=action.label, custom_id=action.custom_id))
     for button in payload.buttons:
         view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label=button.label, url=button.url))
     return view
@@ -249,7 +253,7 @@ def config_embed(
     add_field(
         embed,
         "Salons",
-        f"{len(report.bindings)}/{len(report.channels)} utilisables" + ("" if report.is_complete else " — détails avec `/setup`"),
+        f"{len(report.bindings)}/{len(report.channels)} utilisables" + ("" if report.is_complete else " — détails avec `/admin installer`"),
     )
     if messages:
         lines = [f"• **{m.key}** : [voir le message]({_message_link(guild_id, m.channel_id, m.message_id)})" for m in messages]
@@ -257,7 +261,7 @@ def config_embed(
     else:
         value = "Aucun message publié pour l'instant."
     add_field(embed, "Messages permanents", value)
-    embed.set_footer(text=design.footer(f"dernier /setup confirmé : {setup_confirmed_at or 'jamais'}"))
+    embed.set_footer(text=design.footer(f"dernier /admin installer confirmé : {setup_confirmed_at or 'jamais'}"))
     return fit_embed(embed)
 
 
@@ -277,9 +281,9 @@ def messages_status_embed(statuses: list[MessageStatus], guild_id: int, catalog:
             when = f" · vérifié {design.relative_time(item.record.last_checked_at)}" if item.record.last_checked_at else ""
             line = f"{'❌' if item.error else '✅'} **{item.key}** → {where} · {state}{when}"
         elif item.channel_id is None:
-            line = f"⏭️ **{item.key}** : salon « {item.channel_key} » non associé (lancez /setup)"
+            line = f"⏭️ **{item.key}** : salon « {item.channel_key} » non associé (lancez /admin installer)"
         else:
-            line = f"🆕 **{item.key}** : pas encore publié dans <#{item.channel_id}> (lancez /refresh)"
+            line = f"🆕 **{item.key}** : pas encore publié dans <#{item.channel_id}> (lancez /admin actualiser)"
         if item.missing_links:
             labels = ", ".join(catalog.label(k) + (" (obligatoire)" if catalog.is_required(k) else "") for k in item.missing_links)
             line += f"\n  ↳ liens à compléter : {labels}"
@@ -287,7 +291,7 @@ def messages_status_embed(statuses: list[MessageStatus], guild_id: int, catalog:
             line += f"\n  ↳ dernière erreur : {item.error}"
         lines.append(line)
     _add_lines(embed, lines)
-    embed.set_footer(text=design.footer("/refresh met à jour sur place", "/admin rebuild reconstruit"))
+    embed.set_footer(text=design.footer("/admin actualiser met à jour sur place", "/admin reconstruire reconstruit"))
     return fit_embed(embed)
 
 
@@ -296,7 +300,7 @@ def diagnostic_embed(results: list[ChannelDiagnostic]) -> discord.Embed:
     embed = make_embed("Diagnostic", tone=Tone.WARNING if problems else Tone.SUCCESS)
     lines = []
     for r in results:
-        uses = " + ".join({"messages": "messages permanents", "notifications": "notifications GitLab"}[u] for u in r.uses)
+        uses = " + ".join({"messages": "messages permanents", "notifications": "notifications Git"}[u] for u in r.uses)
         target = f"<#{r.channel_id}>" if r.channel_id else f"`{r.channel_key}`"
         if r.problem:
             lines.append(f"❌ {target} ({uses}) : {r.problem}")
@@ -304,8 +308,30 @@ def diagnostic_embed(results: list[ChannelDiagnostic]) -> discord.Embed:
             lines.append(f"⚠️ {target} ({uses}) : il manque {', '.join(r.missing)}")
         else:
             lines.append(f"✅ {target} ({uses})")
-    _add_lines(embed, lines or ["Aucun salon utilisé : lancez /setup."])
+    _add_lines(embed, lines or ["Aucun salon utilisé : lancez /admin installer."])
     embed.set_footer(text=design.footer("permissions calculées par Discord pour le rôle du bot"))
+    return fit_embed(embed)
+
+
+def roles_diagnostic_embed(catalog: SelfRoleCatalog | None, *, welcome_on_join: bool, welcome_delete_hours: int) -> discord.Embed:
+    """Choix des rôles (/roles) : rôles proposés, rôles écartés et pourquoi, accueil des nouveaux membres."""
+    if catalog is None:
+        return make_embed("Choix des rôles", "Serveur inaccessible : impossible de vérifier les rôles.", tone=Tone.WARNING)
+    problems = list(catalog.problems)
+    tone = Tone.FAILURE if not catalog.bot_can_manage else Tone.WARNING if problems or not catalog.roles else Tone.SUCCESS
+    embed = make_embed("Choix des rôles et accueil", tone=tone)
+    lines = [f"✅ **{role.name}**" for role in catalog.roles]
+    lines += [f"⚠️ **{p.name}** : {p.reason}" for p in problems]
+    if not catalog.bot_can_manage:
+        lines.insert(0, "❌ Samae n'a pas la permission « Gérer les rôles » : les membres ne peuvent rien choisir.")
+    _add_lines(embed, lines or ["Aucun rôle marqué « self_assignable » dans config/server.toml."])
+    if welcome_on_join:
+        delay = f"supprimé après {welcome_delete_hours} h" if welcome_delete_hours else "jamais supprimé"
+        welcome = f"Message d'accueil à chaque arrivée : activé ({delay})."
+    else:
+        welcome = "Message d'accueil à chaque arrivée : désactivé (`WELCOME_ON_JOIN=false`)."
+    add_field(embed, "Accueil des nouveaux membres", welcome)
+    embed.set_footer(text=design.footer("rôles proposés par le bouton « Choisir mes rôles » et /roles"))
     return fit_embed(embed)
 
 
@@ -535,7 +561,7 @@ def alert_embed(alert: Alert) -> discord.Embed:
     add_field(embed, "Source", f"`{design.escape_markdown(alert.error.source)}`", inline=True)
     add_field(embed, "Total enregistré", design.plural(alert.error.count, "fois", "fois"), inline=True)
     add_field(embed, "Message", design.escape_markdown(alert.error.message))
-    add_field(embed, "Que faire ?", "Consulter `logs/bot.log` sur le serveur et `/status`. Aucune nouvelle alerte pour cette erreur pendant 1 heure.")
+    add_field(embed, "Que faire ?", "Consulter `logs/bot.log` sur le serveur et `/etat`. Aucune nouvelle alerte pour cette erreur pendant 1 heure.")
     return fit_embed(embed)
 
 

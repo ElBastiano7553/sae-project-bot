@@ -1,6 +1,6 @@
 # Refonte du serveur, centre d'aide et identité visuelle (versions 1.2.0 et 1.3.0)
 
-Ce document décrit `/refonte`, `/help`, `/reunion help` et la nouvelle apparence de
+Ce document décrit `/refonte`, `/aide`, `/reunion aide` et la nouvelle apparence de
 Samae : ce qui a été audité, comment l'utiliser, comment revenir en arrière et ce qui
 reste à faire à la main. Rien n'a été testé sur le vrai serveur Discord : les tests
 utilisent un faux serveur en mémoire.
@@ -15,11 +15,11 @@ retour arrière, tests et limites) est dans **[refonte.md](refonte.md)**.
 
 ## 7. Centre d'aide
 
-- `/help [section]` : 6 pages (Accueil, Réunions, Commandes, Organisation,
+- `/aide [section]` : 6 pages (Accueil, Réunions, Commandes, Organisation,
   Administration, Dépannage), un menu de sections, Précédent / Accueil / Suivant et
   l'indicateur de page. Les sections d'administration n'apparaissent que pour les
   admins du bot.
-- `/reunion help [sujet]` : 6 pages (Créer, Participer, Animer, Décisions et réserves,
+- `/reunion aide [sujet]` : 6 pages (Créer, Participer, Animer, Décisions et réserves,
   Terminer, Qui peut faire quoi).
 - Pour ne pas devenir obsolète : la page « Commandes » est générée à partir des
   commandes enregistrées dans Discord, et des tests vérifient que chaque exemple
@@ -44,7 +44,7 @@ retour arrière, tests et limites) est dans **[refonte.md](refonte.md)**.
 
 ## 9. Tests et limites
 
-- `tests/test_help_center.py` : contenu, limites Discord, navigation de `/help`.
+- `tests/test_help_center.py` : contenu, limites Discord, navigation de `/aide`.
 - Tests de `/refonte` : voir [refonte.md](refonte.md#10-tests).
 - Suite complète (1.3.0) : 736 tests verts.
 
@@ -57,5 +57,5 @@ python -m src.main
 ```
 
 Au démarrage, le bot synchronise ses commandes sur le serveur `DISCORD_GUILD_ID` (depuis 1.2.1, seulement si elles ont changé) :
-`/refonte lancer`, `/help section:` et `/reunion help` apparaissent tout de suite. Si une
+`/refonte lancer`, `/aide section:` et `/reunion aide` apparaissent tout de suite. Si une
 commande n'apparaît pas, redémarrez Discord (Ctrl+R).

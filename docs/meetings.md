@@ -16,10 +16,10 @@ historique et son compte rendu.
 3. Le responsable clique sur **Démarrer** : la première étape passe « en cours ».
 4. Pendant la réunion :
    - **Étape suivante** / **Étape précédente** (responsable) ;
-   - `/reunion decision texte:… motif:…` (responsable) ;
-   - `/reunion reserve texte:… type:Désaccord` (participants) ;
-   - `/reunion action description:… responsable:@Bob echeance:05/11` (participants) ;
-   - `/reunion point texte:…` ajoute un point à la fin de l'ordre du jour.
+   - `/reunion ajouter decision texte:… motif:…` (responsable) ;
+   - `/reunion ajouter reserve texte:… type:Désaccord` (participants) ;
+   - `/reunion ajouter action description:… responsable:@Bob echeance:05/11` (participants) ;
+   - `/reunion ajouter point texte:…` ajoute un point à la fin de l'ordre du jour.
 5. **Terminer** (après confirmation) : l'étape en cours est marquée traitée, le
    compte rendu est **figé** puis publié dans `#comptes-rendus` (créé par `/refonte`),
    à défaut dans le salon des décisions (`#decisions-et-comptes-rendus` avant la refonte),
@@ -131,7 +131,7 @@ vérifiée de la base est faite avant la migration.
 
 ## Aide intégrée et apparence (1.2.0)
 
-- `/reunion help [sujet]` ouvre une aide en 6 pages (créer, participer, animer,
+- `/reunion aide [sujet]` ouvre une aide en 6 pages (créer, participer, animer,
   décisions et réserves, terminer, qui peut faire quoi), visible seulement par vous.
 - Une **décision officielle** est réservée au responsable de la réunion et aux admins.
   Proposer une décision pour la faire valider par l'équipe n'existe **pas encore**.

@@ -145,7 +145,7 @@ class GitHubDispatcher:
         channel_id = self._bindings().get(self.channel_key)
         if channel_id is None:
             log.warning(
-                "Notification GitHub non publiée : le salon « %s » n'est pas associé (lancez /setup).", self.channel_key
+                "Notification GitHub non publiée : le salon « %s » n'est pas associé (lancez /admin installer).", self.channel_key
             )
             status = EventStatus.SKIPPED
         else:

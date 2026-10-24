@@ -1,4 +1,4 @@
-"""Commandes de consultation, ouvertes à tous les membres : /help, /status (/health), /project."""
+"""Commandes de consultation, ouvertes à tous les membres : /aide et /etat."""
 
 from __future__ import annotations
 
@@ -10,12 +10,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from src import __version__
-from src.config import ConfigError, load_link_catalog
+from src.config import ConfigError
 from src.discord_bot.bot import SaeBot
-from src.discord_bot.embeds import health_embed, project_embed
+from src.discord_bot.embeds import health_embed
 from src.discord_bot.help_ui import HelpView, collect_commands, render_pages
 from src.discord_bot.permissions import is_bot_admin
-from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
 from src.services.backup import list_backups
 from src.services.health import (
     AISummary,
@@ -30,18 +29,17 @@ from src.services.help import GUIDE_PAGES
 
 log = logging.getLogger(__name__)
 
-RECENT_EVENTS = 5
 HELP_SECTIONS = [app_commands.Choice(name=page.title, value=page.key) for page in GUIDE_PAGES]
 
 
 def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.Embed:
-    """Assemble /status à partir de mesures faites maintenant ; rien n'est supposé."""
+    """Assemble /etat à partir de mesures faites maintenant ; rien n'est supposé."""
     guild = bot.target_guild
     report = None
     try:
         report = bot.resolve_structure(guild) if guild else None
     except ConfigError:
-        log.exception("Configuration invalide pendant /status")
+        log.exception("Configuration invalide pendant /etat")
     checks = build_health_checks(
         latency_ms=bot.latency * 1000,
         database_ok=bot.database.ping(),
@@ -109,7 +107,7 @@ def _messages_summary(bot: SaeBot) -> MessagesSummary | None:
     try:
         statuses = bot.build_message_service().status(bot.bindings_repo.get_all())
     except ConfigError:
-        log.exception("Contenu des messages permanents invalide pendant /status")
+        log.exception("Contenu des messages permanents invalide pendant /etat")
         return None
     return MessagesSummary(
         expected=len(statuses),
@@ -123,7 +121,7 @@ class GeneralCog(commands.Cog):
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="help", description="Centre d'aide : présentation, réunions, commandes, organisation, dépannage")
+    @app_commands.command(name="aide", description="Centre d'aide : présentation, réunions, commandes, organisation, dépannage")
     @app_commands.describe(section="Ouvrir directement une section (Accueil par défaut)")
     @app_commands.choices(section=HELP_SECTIONS)
     async def help(self, interaction: discord.Interaction, section: app_commands.Choice[str] | None = None) -> None:
@@ -137,31 +135,10 @@ class GeneralCog(commands.Cog):
         view.original = interaction
         await interaction.response.send_message(embed=view.embed, view=view, ephemeral=True)
 
-    @app_commands.command(name="status", description="État du bot et de ses intégrations (Discord, base, GitLab, IA)")
+    @app_commands.command(name="etat", description="État du bot et de ses intégrations (Discord, base, GitLab, GitHub, IA)")
     @app_commands.guild_only()
     async def status(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(embed=build_status_embed(self.bot), ephemeral=True)
-
-    @app_commands.command(name="health", description="Ancien nom de /status : état du bot et de ses intégrations")
-    @app_commands.guild_only()
-    async def health(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(embed=build_status_embed(self.bot), ephemeral=True)
-
-    @app_commands.command(name="project", description="Résumé du projet : liens, branche principale, derniers événements GitLab")
-    @app_commands.guild_only()
-    async def project(self, interaction: discord.Interaction) -> None:
-        repo = self.bot.gitlab_events_repo
-        default_branch = self.bot.state_repo.get(DEFAULT_BRANCH_KEY)
-        embed = project_embed(
-            catalog=load_link_catalog(),
-            default_branch=default_branch,
-            latest_pipeline=repo.latest_pipeline(default_branch) if default_branch else None,
-            merge_requests=repo.recent(("merge_request",), RECENT_EVENTS),
-            pipelines=repo.recent(("pipeline",), RECENT_EVENTS),
-            pushes=repo.recent(("push",), RECENT_EVENTS),
-            gitlab_enabled=self.bot.settings.gitlab_webhooks_enabled,
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: SaeBot) -> None:

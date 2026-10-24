@@ -87,7 +87,7 @@ def test_github_actions_variable_github_repository_is_not_used():
     assert config.github_repository == "ElBastiano7553/game-project"
 
 
-# --- /status -------------------------------------------------------------------------
+# --- /etat -------------------------------------------------------------------------
 
 
 def checks(**github):
@@ -165,7 +165,7 @@ async def test_github_port_in_use_keeps_the_rest_of_the_bot(db, unused_tcp_port)
             await bot.load_extension(extension)
         await bot.start_github_webhooks()
         assert "impossible d'écouter" in bot.github_error
-        assert len(bot.build_message_service().templates) == 8
+        assert len(bot.build_message_service().templates) == 10
     finally:
         blocker.close()
         await bot.close()

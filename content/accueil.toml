@@ -1,0 +1,28 @@
+# Message d'accueil publié quand un membre rejoint le serveur (si WELCOME_ON_JOIN=true dans .env),
+# puis supprimé automatiquement après WELCOME_DELETE_AFTER_HOURS heures (24 par défaut).
+# Même format qu'un message permanent : {{#cle}} = lien vers un salon de config/server.toml,
+# {{nom_du_lien}} = lien de config/links.toml, {{membre}} = mention du nouveau membre.
+# Ce fichier n'est PAS un message permanent : il est relu à chaque arrivée.
+
+channel = "bienvenue"
+title = "👋 Bienvenue !"
+description = """
+Bienvenue {{membre}} sur le serveur de l'équipe ! Samae, l'assistant du serveur, vous guide pour bien démarrer.
+"""
+
+[[fields]]
+name = "Par où commencer"
+value = """
+1. Lisez le règlement de l'équipe : {{#regles}}.
+2. Choisissez vos domaines de travail avec le bouton ci-dessous (vous pourrez changer plus tard avec `/roles`).
+3. Présentez-vous dans {{#discussion}}.
+4. Tapez `/aide` pour découvrir les commandes de Samae.
+"""
+
+[[fields]]
+name = "Bon à savoir"
+value = "La présentation complète du serveur, ses salons et les liens utiles restent dans {{#bienvenue}}."
+
+[[actions]]
+label = "Choisir mes rôles"
+action = "roles"

@@ -445,7 +445,7 @@ class MeetingService:
         current = detail.current_step
         after = [s for s in detail.steps if s.status == "pending" and (current is None or s.position > current.position)]
         if current is None and not after:
-            raise MeetingError("Toutes les étapes sont traitées : ajoutez un point (`/reunion point`) ou terminez la réunion.")
+            raise MeetingError("Toutes les étapes sont traitées : ajoutez un point (`/reunion ajouter point`) ou terminez la réunion.")
 
         def body(change):
             if current is not None:

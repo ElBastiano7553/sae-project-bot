@@ -19,7 +19,7 @@ manque, garde les éléments personnalisés et ne supprime rien sans confirmatio
 | Pas de vraie réorganisation | Le plan partait bien d'une cible complète, mais n'agissait que sur les éléments reconnus : permissions, sujets et positions existants n'étaient jamais touchés ; les catégories existantes n'étaient pas réordonnées. |
 | Éléments inconnus | Simplement listés, sans distinguer personnalisés, doublons et inconnus. |
 | Retour arrière | Aucune commande : procédure manuelle d'après le journal. |
-| `/setup` | Lit la même configuration (noms et alias) : il ne crée, ne renomme et ne supprime rien. Ce n'a pas changé. |
+| `/admin installer` | Lit la même configuration (noms et alias) : il ne crée, ne renomme et ne supprime rien. Ce n'a pas changé. |
 
 Limites Discord prises en compte : 100 caractères par nom (vérifié au chargement de la
 configuration), 500 salons et 250 rôles (point bloquant), 50 salons par catégorie (signalé dans les risques),
@@ -223,11 +223,11 @@ Le retour arrière n'est donc **pas** une restauration complète. Pour la config
 du bot seule, vous pouvez aussi arrêter Samae et remplacer `data/sae_bot.sqlite3` par
 la sauvegarde `avantrefonte`.
 
-Chaque refonte, suppression ou retour apparaît dans `/admin history`.
+Chaque refonte, suppression ou retour apparaît dans `/admin historique`.
 
 ## 9. Après une refonte
 
-- Lancez `/refresh` pour que les messages permanents citent les nouveaux noms.
+- Lancez `/admin actualiser` pour que les messages permanents citent les nouveaux noms.
 - Mettez `ALERTS_CHANNEL=logs` dans `.env` pour envoyer les alertes dans `#bot-logs`,
   puis redémarrez Samae.
 - Annonces, forums, médias et conférences demandent la fonction Communauté

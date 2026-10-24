@@ -8,7 +8,7 @@ import pytest
 
 from src.config import ConfigError
 from src.database import ManagedMessageRepository
-from src.services.content import MessagePayload, MessageTemplate, footer_for
+from src.services.content import MessagePayload, MessageTemplate, footer_for, footer_markers
 from src.services.permanent_messages import GatewayError, MessageNotFound, PermanentMessageService, SyncAction
 
 CHANNEL = 111
@@ -35,9 +35,9 @@ class FakeGateway:
     async def message_exists(self, channel_id, message_id):
         return message_id in self.messages and self.messages[message_id][0] == channel_id
 
-    async def find_managed_message(self, channel_id, key):
+    async def find_managed_message(self, channel_id, keys):
         for message_id, (chan, payload) in self.messages.items():
-            if chan == channel_id and payload.footer == footer_for(key):
+            if chan == channel_id and payload.footer in footer_markers(keys):
                 return message_id
         return None
 
@@ -312,3 +312,56 @@ async def test_find_deleted_managed_message(service, repo):
     message_id = repo.get("annonces").message_id
     assert service.find_by_message_id(message_id).key == "annonces"
     assert service.find_by_message_id(999_999) is None
+
+
+# --- Règlement : ancienne clé « annonces », salon facultatif avec repli --------------------------------
+
+RULES_CHANNEL = 333
+RULES = MessageTemplate(key="reglement", channel_key="regles", title="Règles", description="-", previous_keys=("annonces",))
+
+
+async def test_renamed_template_takes_over_the_published_message_without_duplicate(repo, gateway, renderer):
+    """Mise à jour d'un serveur existant : le message des règles publié sous « annonces » est repris."""
+    old = PermanentMessageService(repo, gateway, TEMPLATES, renderer)
+    await old.sync(BINDINGS)
+    published = repo.get("annonces").message_id
+    new = PermanentMessageService(repo, gateway, [TEMPLATES[0], RULES], renderer, fallbacks={"regles": "annonces"})
+    plan = await new.plan(BINDINGS)
+    # Le pied de page change (nouvelle clé) : simple modification sur place, jamais un nouveau message.
+    assert actions(plan)["reglement"] is SyncAction.UPDATE and repo.get("annonces") is not None  # l'aperçu ne modifie rien
+    results = await new.sync(BINDINGS)  # #règlement n'existe pas : repli sur #annonces, même message
+    assert actions(results)["reglement"] is SyncAction.UPDATE
+    assert repo.get("annonces") is None and repo.get("reglement").message_id == published
+    assert gateway.sent == 2
+
+    # #règlement est créé puis associé : le message y est déplacé, l'ancien est supprimé.
+    moved = await new.sync({**BINDINGS, "regles": RULES_CHANNEL})
+    assert actions(moved)["reglement"] is SyncAction.MOVE
+    assert repo.get("reglement").channel_id == RULES_CHANNEL
+    assert published in gateway.deleted
+    assert [chan for chan, _ in gateway.messages.values()].count(BINDINGS["annonces"]) == 0
+
+
+async def test_fallback_is_used_only_while_the_channel_is_missing(repo, gateway, renderer):
+    service = PermanentMessageService(repo, gateway, [RULES], renderer, fallbacks={"regles": "annonces"})
+    assert service.channel_for(RULES, {"annonces": 1}) == 1
+    assert service.channel_for(RULES, {"annonces": 1, "regles": 2}) == 2
+    assert service.channel_for(RULES, {}) is None
+    statuses = service.status({"annonces": 1})
+    assert statuses[0].channel_id == 1
+
+
+async def test_lost_database_adopts_message_with_old_key_and_old_footer(repo, gateway, renderer):
+    """Base perdue : un message publié avant le renommage (« SAE Project Bot », clé « annonces ») est repris."""
+    legacy = MessagePayload("Règles", "ancien", 0, "Message géré par SAE Project Bot · réf. annonces")
+    gateway.messages[50] = (BINDINGS["annonces"], legacy)
+    service = PermanentMessageService(repo, gateway, [RULES], renderer, fallbacks={"regles": "annonces"})
+    results = await service.sync(BINDINGS)
+    assert actions(results)["reglement"] is SyncAction.ADOPT
+    assert repo.get("reglement").message_id == 50 and gateway.sent == 0
+    assert gateway.messages[50][1].footer == footer_for("reglement")
+
+
+def test_footer_uses_the_bot_name():
+    assert footer_for("bienvenue") == "Message géré par Samae · réf. bienvenue"
+    assert footer_markers(["x"]) == {"Message géré par Samae · réf. x", "Message géré par SAE Project Bot · réf. x"}

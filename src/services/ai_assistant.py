@@ -1,4 +1,4 @@
-"""Assistant IA de l'équipe : /ask, /summary, /review (logique sans Discord).
+"""Assistant IA de l'équipe : /ia question, /ia bilan, /ia relecture (logique sans Discord).
 
 Garanties :
 

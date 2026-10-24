@@ -40,13 +40,14 @@ from src.logging_setup import setup_logging
 from src.services.backup import BackupError
 from src.services.content import load_message_templates
 from src.services.monitoring import RecentErrors
+from src.services.welcome import load_welcome_template
 
 log = logging.getLogger("sae_bot")
 
 EXIT_OK, EXIT_RETRY, EXIT_CONFIG, EXIT_ALREADY_RUNNING = 0, 1, 2, 3
 
 
-def check_content_files(*, gitlab_enabled: bool = False) -> None:
+def check_content_files(*, gitlab_enabled: bool = False, welcome_enabled: bool = False) -> None:
     """Vérifie les fichiers de config/ et content/ avant de se connecter (erreurs claires au démarrage).
 
     Une erreur dans config/gitlab.toml est seulement signalée : elle désactive la V2, pas le bot.
@@ -59,11 +60,13 @@ def check_content_files(*, gitlab_enabled: bool = False) -> None:
             log.error("Webhooks GitLab désactivés : %s", exc)
     load_link_catalog()
     load_planning()
-    for template in load_message_templates():
+    templates = load_message_templates()
+    if welcome_enabled:
+        templates.append(load_welcome_template())
+    for template in templates:
         if template.channel_key not in layout.channels:
             raise ConfigError(
-                f"content/messages/{template.key}.toml cible le salon « {template.channel_key} », "
-                "absent de config/server.toml."
+                f"{template.key}.toml cible le salon « {template.channel_key} », absent de config/server.toml."
             )
 
 
@@ -82,7 +85,7 @@ def main() -> int:
     if settings.github_config_error:
         log.error("Webhooks GitHub désactivés, configuration invalide : %s", settings.github_config_error)
     try:
-        check_content_files(gitlab_enabled=settings.gitlab_webhooks_enabled)
+        check_content_files(gitlab_enabled=settings.gitlab_webhooks_enabled, welcome_enabled=settings.welcome_on_join)
     except ConfigError as exc:
         log.error("%s", exc)
         return EXIT_CONFIG
@@ -123,7 +126,13 @@ def _run(settings: Settings, errors: RecentErrors) -> int:
         log.error("Connexion refusée : DISCORD_BOT_TOKEN est invalide. Régénérez le token dans le portail développeur.")
         return EXIT_CONFIG
     except discord.PrivilegedIntentsRequired:
-        log.error("Discord refuse un intent privilégié : ce bot n'en a normalement pas besoin, vérifiez le code.")
+        if settings.welcome_on_join:
+            log.error(
+                "Discord refuse l'intent « Server Members », nécessaire à WELCOME_ON_JOIN=true. Activez-le dans le portail "
+                "développeur (Bot > Privileged Gateway Intents > Server Members Intent) ou mettez WELCOME_ON_JOIN=false."
+            )
+        else:
+            log.error("Discord refuse un intent privilégié : ce bot n'en a normalement pas besoin, vérifiez le code.")
         return EXIT_CONFIG
     except aiohttp.ClientConnectorError as exc:
         log.error("Impossible de joindre Discord (%s). Vérifiez votre connexion Internet ou votre pare-feu.", exc)

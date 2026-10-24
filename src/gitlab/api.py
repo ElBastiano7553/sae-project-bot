@@ -1,4 +1,4 @@
-"""Client minimal de l'API GitLab, en lecture seule (utilisé par /review).
+"""Client minimal de l'API GitLab, en lecture seule (utilisé par /ia relecture).
 
 Il suffit d'un token avec le seul scope ``read_api`` (*Project access token* de rôle
 Reporter de préférence) : le bot ne modifie jamais rien sur GitLab. Le token est

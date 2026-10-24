@@ -7,7 +7,7 @@ import logging
 import discord
 
 from src.discord_bot.embeds import payload_to_embed, payload_to_view
-from src.services.content import MessagePayload, footer_for
+from src.services.content import MessagePayload, footer_markers
 from src.services.permanent_messages import GatewayError, MessageNotFound
 
 log = logging.getLogger(__name__)
@@ -38,13 +38,13 @@ class DiscordMessageGateway:
             raise GatewayError(f"erreur Discord ({exc.status}) en lisant #{channel.name}") from exc
         return True
 
-    async def find_managed_message(self, channel_id: int, key: str) -> int | None:
+    async def find_managed_message(self, channel_id: int, keys: tuple[str, ...]) -> int | None:
         channel = await self._text_channel(channel_id)
         me = self._client.user
-        marker = footer_for(key)
+        markers = footer_markers(keys)
         try:
             async for message in channel.history(limit=HISTORY_SCAN_LIMIT):
-                if me and message.author.id == me.id and any(e.footer.text == marker for e in message.embeds):
+                if me and message.author.id == me.id and any(e.footer.text in markers for e in message.embeds):
                     return message.id
         except discord.Forbidden as exc:
             raise GatewayError(f"accès refusé à l'historique de #{channel.name}") from exc
@@ -82,7 +82,7 @@ class DiscordMessageGateway:
     async def pin(self, channel_id: int, message_id: int) -> None:
         channel = await self._text_channel(channel_id)
         try:
-            await channel.get_partial_message(message_id).pin(reason="Message permanent du SAE Project Bot")
+            await channel.get_partial_message(message_id).pin(reason="Message permanent de Samae")
         except discord.HTTPException as exc:
             raise GatewayError(f"épinglage refusé dans #{channel.name}") from exc
 
@@ -106,7 +106,7 @@ class DiscordMessageGateway:
             try:
                 channel = await self._client.fetch_channel(channel_id)
             except discord.NotFound as exc:
-                raise _ChannelNotFound(f"le salon {channel_id} n'existe plus : relancez /setup") from exc
+                raise _ChannelNotFound(f"le salon {channel_id} n'existe plus : relancez /admin installer") from exc
             except discord.HTTPException as exc:
                 raise GatewayError(f"salon {channel_id} inaccessible ({exc.status})") from exc
         if not isinstance(channel, discord.TextChannel):

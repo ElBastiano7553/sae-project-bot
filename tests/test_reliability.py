@@ -47,7 +47,7 @@ async def test_commands_are_synced_only_when_they_change(bot, monkeypatch):
     assert await bot.sync_commands() == 0  # redémarrage sans changement : aucun appel à Discord
     assert len(calls) == 1
 
-    bot.tree.get_command("status").description = "Nouvelle description"
+    bot.tree.get_command("etat").description = "Nouvelle description"
     assert await bot.sync_commands() == 3  # une description modifiée suffit à resynchroniser
     assert await bot.sync_commands(force=True) == 3
     assert len(calls) == 3
@@ -172,13 +172,13 @@ async def test_confirm_failure_is_never_shown_as_success(caplog):
     async def explode(interaction):
         raise RuntimeError("panne")
 
-    view = ConfirmView(7, explode, command="/setup")
+    view = ConfirmView(7, explode, command="/admin installer")
     interaction = FakeInteraction()
     await view.confirm.callback(interaction)
     assert interaction.response.edits[0]["content"] == "Application en cours…"
     final = interaction.original_edits[-1]["content"]
-    assert final.startswith("**Échec**") and "/status" in final and "panne" not in final
-    assert "Erreur pendant la confirmation de /setup" in caplog.text
+    assert final.startswith("**Échec**") and "/etat" in final and "panne" not in final
+    assert "Erreur pendant la confirmation de /admin installer" in caplog.text
 
 
 async def test_confirm_configuration_error_is_explained():

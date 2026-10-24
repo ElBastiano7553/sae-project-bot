@@ -33,9 +33,9 @@ nouvelle valeur conserve **plus** de données, rien n'est supprimé en plus.
 
 | Commande | Options | Réponse |
 |---|---|---|
-| `/events` | `type` (pushs, MR, pipelines, déploiements, erreurs), `periode` (24 h, 7 j, 30 j, 90 j, tout ; 7 j par défaut), `recherche` (titre, branche ou auteur) | 15 événements au plus, les plus récents d'abord. *Non notifié* = conservé sans notification. Le type « erreurs » est réservé aux admins du bot. |
-| `/stats` | `periode` (7 j par défaut) | Commits, pushs, MR ouvertes et fusionnées, pipelines terminés et taux de réussite, déploiements. Écart avec la période précédente **uniquement si** l'historique la couvre entièrement. Détail par semaine pour 30 j et plus. |
-| `/leaderboard` | `periode` (30 j par défaut), `details` | Contributions par membre (voir ci-dessous). |
+| `/activite evenements` | `type` (pushs, MR, pipelines, déploiements, erreurs), `periode` (24 h, 7 j, 30 j, 90 j, tout ; 7 j par défaut), `recherche` (titre, branche ou auteur) | 15 événements au plus, les plus récents d'abord. *Non notifié* = conservé sans notification. Le type « erreurs » est réservé aux admins du bot. |
+| `/activite stats` | `periode` (7 j par défaut) | Commits, pushs, MR ouvertes et fusionnées, pipelines terminés et taux de réussite, déploiements. Écart avec la période précédente **uniquement si** l'historique la couvre entièrement. Détail par semaine pour 30 j et plus. |
+| `/activite contributions` | `periode` (30 j par défaut), `details` | Contributions par membre (voir ci-dessous). |
 
 ## 3. Comment les chiffres sont calculés
 
@@ -45,7 +45,7 @@ nouvelle valeur conserve **plus** de données, rien n'est supprimé en plus.
   plusieurs fois la même action.
 - **Commits** : nombre indiqué par GitLab dans chaque push (`total_commits_count`).
 
-### Classement (`/leaderboard`)
+### Classement (`/activite contributions`)
 
 Ordre de tri, du plus important au moins important :
 
@@ -74,7 +74,7 @@ GitLab n'indique pas l'auteur est signalée « non attribuée ».
 ## 4. Tableau de bord permanent (`#gitlab-activite`)
 
 Le message « 📊 Tableau de bord du projet » (fichier
-`content/messages/tableau-de-bord.toml`) est publié par `/setup` comme les autres
+`content/messages/tableau-de-bord.toml`) est publié par `/admin installer` comme les autres
 messages permanents. Il affiche :
 
 - la branche principale et le statut de son dernier pipeline ;
@@ -86,7 +86,7 @@ messages permanents. Il affiche :
 
 Il est **modifié sur place** 15 secondes après un nouvel événement (une rafale
 d'événements ne produit qu'une modification), et vérifié toutes les 30 minutes.
-Il n'est modifié que si son contenu change. `/refresh message:tableau-de-bord`
+Il n'est modifié que si son contenu change. `/admin actualiser message:tableau-de-bord`
 force une vérification.
 
 ## 5. Alertes d'erreurs répétées
@@ -94,15 +94,15 @@ force une vérification.
 Toute erreur du bot (niveau ERROR des journaux) est enregistrée dans la base,
 regroupée par source et message (les nombres sont ignorés : « salon 12 introuvable »
 et « salon 34 introuvable » sont la même erreur). Les admins la consultent avec
-`/events type:Erreurs du bot`.
+`/activite evenements type:Erreurs du bot`.
 
 Si `ALERTS_CHANNEL` est défini, une alerte est publiée dans ce salon quand **une même
 erreur survient 3 fois en 10 minutes**, avec au plus **une alerte par erreur et par
 heure** et **5 alertes par heure** au total. Une alerte ne mentionne personne.
 
 `ALERTS_CHANNEL` est une **clé** de `config/server.toml` (par exemple `bilan_ia` ou
-`bugs`), pas un nom de salon : le salon doit avoir été reconnu par `/setup`.
-`/status` indique si les alertes sont actives.
+`bugs`), pas un nom de salon : le salon doit avoir été reconnu par `/admin installer`.
+`/etat` indique si les alertes sont actives.
 
 Le bot a besoin, dans ce salon, des permissions Voir le salon, Envoyer des messages
 et Intégrer des liens.

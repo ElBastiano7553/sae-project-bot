@@ -1,6 +1,11 @@
-# Message permanent du salon #annonces : règles de fonctionnement de l'équipe.
+# Message permanent « Règlement » : règles de fonctionnement de l'équipe.
+# Publié dans #règlement (clé « regles » de config/server.toml). Tant que ce salon facultatif
+# n'existe pas, il est publié dans #annonces (salon de repli), puis déplacé automatiquement
+# dès que #règlement est associé (/admin installer) : jamais de doublon.
+# Ce fichier s'appelait annonces.toml : « previous_keys » permet de reprendre le message déjà publié.
 
-channel = "annonces"
+channel = "regles"
+previous_keys = ["annonces"]
 title = "Règles de fonctionnement de l'équipe"
 description = """
 Ces règles s'appliquent à tous les membres. Elles nous évitent les oublis, les conflits de code et les mauvaises surprises lors des revues.

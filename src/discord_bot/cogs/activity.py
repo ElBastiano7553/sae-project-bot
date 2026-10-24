@@ -1,4 +1,4 @@
-"""Historique GitLab, statistiques et contributions : /events, /stats, /leaderboard.
+"""Groupe /activite : résumé du projet, historique GitLab, statistiques et contributions.
 
 Ouvertes à tous les membres, réponses éphémères. Tout est calculé à partir des
 événements enregistrés par le bot (voir services.history) : rien n'est estimé.
@@ -13,8 +13,10 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.discord_bot.bot import SaeBot, send_error
-from src.discord_bot.embeds import errors_embed, events_embed, leaderboard_embed, stats_embed
+from src.config import load_link_catalog
+from src.discord_bot.embeds import errors_embed, events_embed, leaderboard_embed, project_embed, stats_embed
 from src.discord_bot.permissions import is_bot_admin
+from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY
 from src.services.history import (
     PERIOD_LABELS,
     compute_leaderboard,
@@ -25,6 +27,7 @@ from src.services.history import (
 )
 
 EVENT_LIMIT = 15
+RECENT_EVENTS = 5
 SEARCH_MAX = 100
 ERRORS_TYPE = "errors"
 EVENT_TYPES = {
@@ -39,6 +42,10 @@ TYPE_CHOICES = [app_commands.Choice(name=label, value=key) for key, label in EVE
 
 
 class ActivityCog(commands.Cog):
+    activite = app_commands.Group(
+        name="activite", description="Activité des dépôts : résumé, événements reçus, statistiques, contributions", guild_only=True
+    )
+
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
 
@@ -46,10 +53,24 @@ class ActivityCog(commands.Cog):
         member = interaction.user
         return isinstance(member, discord.Member) and is_bot_admin(member, self.bot.settings.admin_role_name)
 
-    @app_commands.command(name="events", description="Historique des événements GitLab reçus (filtrable)")
+    @activite.command(name="resume", description="Résumé du projet : liens, branche principale, derniers événements GitLab")
+    async def project(self, interaction: discord.Interaction) -> None:
+        repo = self.bot.gitlab_events_repo
+        default_branch = self.bot.state_repo.get(DEFAULT_BRANCH_KEY)
+        embed = project_embed(
+            catalog=load_link_catalog(),
+            default_branch=default_branch,
+            latest_pipeline=repo.latest_pipeline(default_branch) if default_branch else None,
+            merge_requests=repo.recent(("merge_request",), RECENT_EVENTS),
+            pipelines=repo.recent(("pipeline",), RECENT_EVENTS),
+            pushes=repo.recent(("push",), RECENT_EVENTS),
+            gitlab_enabled=self.bot.settings.gitlab_webhooks_enabled,
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @activite.command(name="evenements", description="Historique des événements GitLab reçus (filtrable)")
     @app_commands.describe(type="Type d'événement", periode="Période (7 jours par défaut)", recherche="Texte cherché dans le titre, la branche ou l'auteur")
     @app_commands.choices(type=TYPE_CHOICES, periode=PERIOD_CHOICES)
-    @app_commands.guild_only()
     async def events(
         self,
         interaction: discord.Interaction,
@@ -78,10 +99,9 @@ class ActivityCog(commands.Cog):
         embed = events_embed(records, filters=filters, coverage=repo.coverage(), limit=EVENT_LIMIT)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="stats", description="Statistiques GitLab : commits, merge requests, pipelines, déploiements")
+    @activite.command(name="stats", description="Statistiques GitLab : commits, merge requests, pipelines, déploiements")
     @app_commands.describe(periode="Période (7 jours par défaut)")
     @app_commands.choices(periode=PERIOD_CHOICES)
-    @app_commands.guild_only()
     async def stats(self, interaction: discord.Interaction, periode: app_commands.Choice[str] | None = None) -> None:
         period = periode.value if periode else "7j"
         now = dt.datetime.now(dt.UTC)
@@ -102,10 +122,9 @@ class ActivityCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="leaderboard", description="Contributions de l'équipe (MR fusionnées, approbations, jours actifs)")
+    @activite.command(name="contributions", description="Contributions de l'équipe (MR fusionnées, approbations, jours actifs)")
     @app_commands.describe(periode="Période (30 jours par défaut)", details="Afficher aussi les MR ouvertes et les commits")
     @app_commands.choices(periode=PERIOD_CHOICES)
-    @app_commands.guild_only()
     async def leaderboard(
         self, interaction: discord.Interaction, periode: app_commands.Choice[str] | None = None, details: bool = False
     ) -> None:

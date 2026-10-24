@@ -125,14 +125,14 @@ class Notification:
     fields: tuple[EmbedField, ...] = ()
     footer: str = ""
     # Données structurées (texte brut, déjà nettoyé) : horodatage de l'embed, historique,
-    # /project et déduplication des événements identiques reçus sous des identifiants différents.
+    # /activite resume et déduplication des événements identiques reçus sous des identifiants différents.
     timestamp: str | None = None  # ISO 8601 UTC de l'événement d'après GitLab, si fourni
     dedup_key: str | None = None
     action: str = ""  # push, branch_created, open, merge, success, failed…
     ref: str = ""  # branche concernée
     author: str = ""
     default_branch: str = ""  # branche principale du projet, si GitLab l'indique
-    # Lot 2 : identifiants utilisés par l'historique, /stats et /leaderboard.
+    # Lot 2 : identifiants utilisés par l'historique, /activite stats et /activite contributions.
     user_id: int | None = None  # auteur de l'action d'après GitLab
     user_username: str = ""
     subject_id: int | None = None  # numéro de MR, identifiant de pipeline ou de déploiement

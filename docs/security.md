@@ -7,7 +7,7 @@ Ce document décrit le code tel qu'il est, pas une certification.
 
 | Secret | Où il vit | Protections |
 |---|---|---|
-| `DISCORD_BOT_TOKEN` | `.env` sur la machine du bot (`chmod 600`) | jamais affiché (`/config` dit seulement « défini ») ; masqué `***` dans tous les journaux ; absent de `repr(Settings)` |
+| `DISCORD_BOT_TOKEN` | `.env` sur la machine du bot (`chmod 600`) | jamais affiché (`/admin config` dit seulement « défini ») ; masqué `***` dans tous les journaux ; absent de `repr(Settings)` |
 | `GITLAB_WEBHOOK_SECRET` | `.env` | comparé à temps constant avant toute lecture de la requête ; masqué dans les journaux |
 | `GITLAB_ACCESS_TOKEN` | `.env` | scope `read_api` uniquement ; envoyé seulement dans l'en-tête `PRIVATE-TOKEN`, en HTTPS (une adresse `http://` désactive l'API) ; redirections refusées |
 | `AI_API_KEY` | `.env` | utilisée seulement par le SDK Anthropic ; jamais journalisée |
@@ -25,7 +25,7 @@ Ce document décrit le code tel qu'il est, pas une certification.
   peuvent jamais être notifiés.
 - Commandes d'administration : masquées par défaut aux membres sans « Gérer le serveur »,
   et droits **revérifiés par le bot** à chaque appel. Les actions sont journalisées
-  (`/admin history`).
+  (`/admin historique`).
 - Actions destructives (reconstruction d'un message) : avertissement et confirmation
   explicite.
 - Les réponses des commandes sont éphémères. Les erreurs affichées ne contiennent ni

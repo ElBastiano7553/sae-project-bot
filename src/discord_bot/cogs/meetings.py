@@ -69,6 +69,12 @@ LIST_CHOICES = [
 ]
 LIST_STATUSES = {"ouvertes": OPEN_STATUSES, "terminees": (FINISHED,), "annulees": (CANCELLED,), "toutes": ()}
 HELP_TOPICS = [app_commands.Choice(name=page.title, value=page.key) for page in MEETING_PAGES]
+STEP_START, STEP_NEXT, STEP_PREVIOUS = "demarrer", "suivante", "precedente"
+STEP_CHOICES = [
+    app_commands.Choice(name="Démarrer", value=STEP_START),
+    app_commands.Choice(name="Étape suivante", value=STEP_NEXT),
+    app_commands.Choice(name="Étape précédente", value=STEP_PREVIOUS),
+]
 NOTE_CHOICES = [
     app_commands.Choice(name="Réserve", value=RESERVE),
     app_commands.Choice(name="Désaccord", value=DISAGREEMENT),
@@ -91,6 +97,10 @@ def _member_name(member: discord.abc.User) -> str:
 class MeetingsCog(commands.Cog):
     reunion = app_commands.Group(
         name="reunion", description="Réunions : ordre du jour, décisions, actions et compte rendu", guild_only=True
+    )
+    # Ce qu'on note pendant la réunion : /reunion ajouter point|decision|reserve|action.
+    ajouter = app_commands.Group(
+        name="ajouter", description="Ajouter un point, une décision, une réserve ou une action", parent=reunion
     )
 
     def __init__(self, bot: SaeBot) -> None:
@@ -216,7 +226,7 @@ class MeetingsCog(commands.Cog):
         channel_id = next((bindings[key] for key in REPORT_CHANNEL_KEYS if key in bindings), None) or m.channel_id
         channel = await self._channel(channel_id) if channel_id else None
         if channel is None:
-            return None, "aucun salon disponible (associez #comptes-rendus avec /setup ou /refonte)"
+            return None, "aucun salon disponible (associez #comptes-rendus avec /admin installer ou /refonte)"
         pages = report_embeds(self.service.report(m.id))
         ids: list[int] = []
         try:
@@ -456,25 +466,19 @@ class MeetingsCog(commands.Cog):
             f"{membre.mention} ajouté(e)",
         )
 
-    @reunion.command(name="demarrer", description="Démarrer la réunion (responsable ou admin)")
+    @reunion.command(name="animer", description="Démarrer la réunion ou changer d'étape (responsable ou admin)")
+    @app_commands.describe(etape="Démarrer, étape suivante ou étape précédente", reunion="Réunion (par défaut : celle de ce salon)")
+    @app_commands.choices(etape=STEP_CHOICES)
     @app_commands.autocomplete(reunion=meeting_autocomplete)
-    async def demarrer(self, interaction: discord.Interaction, reunion: int | None = None) -> None:
+    async def animer(self, interaction: discord.Interaction, etape: app_commands.Choice[str], reunion: int | None = None) -> None:
         actor = self._actor(interaction)
-        await self._apply(interaction, lambda: self.service.start(self._resolve(interaction, reunion).meeting.id, actor), "Réunion démarrée")
-
-    @reunion.command(name="suivante", description="Passer à l'étape suivante (responsable ou admin)")
-    @app_commands.autocomplete(reunion=meeting_autocomplete)
-    async def suivante(self, interaction: discord.Interaction, reunion: int | None = None) -> None:
-        actor = self._actor(interaction)
-        await self._apply(interaction, lambda: self.service.next_step(self._resolve(interaction, reunion).meeting.id, actor), "Étape suivante")
-
-    @reunion.command(name="precedente", description="Revenir à l'étape précédente (responsable ou admin)")
-    @app_commands.autocomplete(reunion=meeting_autocomplete)
-    async def precedente(self, interaction: discord.Interaction, reunion: int | None = None) -> None:
-        actor = self._actor(interaction)
-        await self._apply(
-            interaction, lambda: self.service.previous_step(self._resolve(interaction, reunion).meeting.id, actor), "Retour à l'étape précédente"
-        )
+        operations = {
+            STEP_START: (self.service.start, "Réunion démarrée"),
+            STEP_NEXT: (self.service.next_step, "Étape suivante"),
+            STEP_PREVIOUS: (self.service.previous_step, "Retour à l'étape précédente"),
+        }
+        operation, label = operations[etape.value]
+        await self._apply(interaction, lambda: operation(self._resolve(interaction, reunion).meeting.id, actor), label)
 
     @reunion.command(name="progression", description="Progression de la réunion : étapes, temps écoulé")
     @app_commands.autocomplete(reunion=meeting_autocomplete)
@@ -486,14 +490,14 @@ class MeetingsCog(commands.Cog):
             return
         await interaction.response.send_message(embed=progress_embed(detail), ephemeral=True)
 
-    @reunion.command(name="point", description="Ajouter un point à l'ordre du jour (participants)")
+    @ajouter.command(name="point", description="Ajouter un point à l'ordre du jour (participants)")
     @app_commands.describe(texte="Intitulé du point")
     @app_commands.autocomplete(reunion=meeting_autocomplete)
     async def point(self, interaction: discord.Interaction, texte: app_commands.Range[str, 2, 100], reunion: int | None = None) -> None:
         actor = self._actor(interaction)
         await self._apply(interaction, lambda: self.service.add_step(self._resolve(interaction, reunion).meeting.id, actor, texte), "Point ajouté")
 
-    @reunion.command(name="decision", description="Enregistrer une décision (responsable ou admin, réunion en cours)")
+    @ajouter.command(name="decision", description="Enregistrer une décision (responsable ou admin, réunion en cours)")
     @app_commands.describe(texte="La décision adoptée", motif="Motif de la décision (facultatif)")
     @app_commands.autocomplete(reunion=meeting_autocomplete)
     async def decision(
@@ -510,7 +514,7 @@ class MeetingsCog(commands.Cog):
             "Décision enregistrée",
         )
 
-    @reunion.command(name="reserve", description="Enregistrer une réserve ou un désaccord (participants, réunion en cours)")
+    @ajouter.command(name="reserve", description="Enregistrer une réserve ou un désaccord (participants, réunion en cours)")
     @app_commands.describe(texte="Votre réserve ou votre désaccord", type="Réserve (par défaut) ou désaccord")
     @app_commands.choices(type=NOTE_CHOICES)
     @app_commands.autocomplete(reunion=meeting_autocomplete)
@@ -529,7 +533,7 @@ class MeetingsCog(commands.Cog):
             "Désaccord enregistré" if kind == DISAGREEMENT else "Réserve enregistrée",
         )
 
-    @reunion.command(name="action", description="Ajouter une action à effectuer, avec son responsable (réunion en cours)")
+    @ajouter.command(name="action", description="Ajouter une action à effectuer, avec son responsable (réunion en cours)")
     @app_commands.describe(description="Ce qu'il faut faire", responsable="Qui s'en charge", echeance="Échéance (ex. : 2026-11-05 ou 05/11)")
     @app_commands.autocomplete(reunion=meeting_autocomplete)
     async def action(
@@ -564,7 +568,7 @@ class MeetingsCog(commands.Cog):
         except MeetingError as exc:
             await self._fail(interaction, exc)
 
-    @reunion.command(name="help", description="Guide des réunions : créer, participer, animer, décisions, compte rendu")
+    @reunion.command(name="aide", description="Guide des réunions : créer, participer, animer, décisions, compte rendu")
     @app_commands.describe(sujet="Ouvrir directement un sujet (Créer une réunion par défaut)")
     @app_commands.choices(sujet=HELP_TOPICS)
     async def aide(self, interaction: discord.Interaction, sujet: app_commands.Choice[str] | None = None) -> None:

@@ -2,7 +2,7 @@
 
 Ce module ne modifie rien : il compare la structure attendue
 (``config/server.toml``) avec un *instantané* du serveur et produit un rapport.
-``/setup`` s'en sert tel quel ; ``/refonte`` (``services.server_redesign``) en
+``/admin installer`` s'en sert tel quel ; ``/refonte`` (``services.server_redesign``) en
 déduit un plan de modifications.
 Cet instantané est construit à partir de Discord par ``discord_bot.snapshot``,
 ce qui permet de tester toute la logique ici sans connexion à Discord.
@@ -76,7 +76,7 @@ class GuildRole:
 
 @dataclass(frozen=True)
 class GuildSnapshot:
-    """Instantané neutre du serveur : tout ce que /setup et /refonte analysent."""
+    """Instantané neutre du serveur : tout ce que /admin installer et /refonte analysent."""
 
     categories: tuple[GuildCategory, ...] = ()
     channels: tuple[GuildChannel, ...] = ()
