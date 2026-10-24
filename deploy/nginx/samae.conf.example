@@ -7,6 +7,10 @@
 # Remplacer samae.exemple.fr par le sous-domaine choisi (2 occurrences + chemins du certificat).
 # Samae écoute sur 127.0.0.1:8090 (PROJECTS_HTTP_PORT) : seul Nginx y accède.
 
+# Journal sans les paramètres d'adresse : les pages /github/setup et /github/callback reçoivent
+# des jetons à usage unique (state, code) qui n'ont rien à faire dans un fichier de journal.
+log_format samae_sans_parametres '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent';
+
 # 1) HTTP : seulement le défi Let's Encrypt (certbot --webroot), le reste part en HTTPS.
 server {
     listen 80;
@@ -31,7 +35,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/samae.exemple.fr/privkey.pem;
 
     client_max_body_size 2m;   # même limite que Samae
-    access_log /var/log/nginx/samae.access.log;
+    access_log /var/log/nginx/samae.access.log samae_sans_parametres;
     error_log  /var/log/nginx/samae.error.log;
     server_tokens off;
 
@@ -55,8 +59,18 @@ server {
         proxy_read_timeout 15s;
     }
 
-    # Tout le reste : rien. (Les pages /github/setup, /gitlab/connect et /gitlab/callback
-    # seront ajoutées ici aux étapes B4 et B5, après relecture.)
+    # Pages de retour de la connexion GitHub (étape B4) : lecture seule, GET uniquement.
+    location ~ ^/github/(setup|callback)$ {
+        limit_except GET { deny all; }
+        proxy_pass http://127.0.0.1:8090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 30s;   # Samae interroge GitHub avant de répondre
+    }
+
+    # Tout le reste : rien. (Les pages /gitlab/connect et /gitlab/callback seront ajoutées
+    # ici à l'étape B5, après relecture.)
     location / {
         return 404;
     }

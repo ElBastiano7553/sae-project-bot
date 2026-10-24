@@ -687,7 +687,7 @@ def project_route_embed(
     embed = make_embed(f"{label} : enregistré", f"Projet **{design.escape_markdown(project.name)}**.", tone=Tone.SUCCESS)
     add_field(embed, "Avant", line(previous))
     add_field(embed, "Maintenant", line(route))
-    embed.set_footer(text=design.footer(f"référence {project.ref}", "appliqué à la réception des événements (prochaine étape)"))
+    embed.set_footer(text=design.footer(f"référence {project.ref}", "appliqué à la réception des événements"))
     return fit_embed(embed)
 
 
@@ -699,6 +699,7 @@ CONNECTION_NOT_READY = (
     "aucune notification ne sera publiée pour ce projet tant qu'elle n'est pas en place. "
     "Aucun token ni mot de passe ne vous sera demandé dans Discord."
 )
+CONNECTION_GITHUB_NEXT = "\n**Connexion :** ensuite, `/projet configurer` relie le dépôt à la GitHub App de Samae."
 
 
 def project_add_preview_embed(parsed: ParsedRepository, name: str, guild_name: str, *, warning: str = "") -> discord.Embed:
@@ -710,7 +711,8 @@ def project_add_preview_embed(parsed: ParsedRepository, name: str, guild_name: s
     add_field(embed, "Nom du projet", design.escape_markdown(name), inline=True)
     add_field(embed, "Serveur concerné", design.escape_markdown(guild_name), inline=True)
     add_field(embed, "Dépôt", f"`{design.escape_markdown(target)}`")
-    add_field(embed, "À ce stade", CONNECTION_NOT_READY.format(provider=provider))
+    next_step = CONNECTION_GITHUB_NEXT if parsed.provider == "github" else ""
+    add_field(embed, "À ce stade", CONNECTION_NOT_READY.format(provider=provider) + next_step)
     if warning:
         add_field(embed, "À vérifier", warning)
     embed.set_footer(text=design.footer("expiration : 2 minutes"))
@@ -725,4 +727,79 @@ def project_added_embed(project: ProjectView) -> discord.Embed:
         tone=Tone.SUCCESS,
     )
     embed.set_footer(text=design.footer(f"référence {project.ref}"))
+    return fit_embed(embed)
+
+
+# --- Connexion des projets GitHub (/projet configurer, étape B4) ---------------------------------
+
+
+def github_connect_embed(installations, *, expires_minutes: int) -> discord.Embed:
+    """Lien d'installation de la GitHub App et étapes à suivre. ``installations`` : déjà vérifiées pour ce serveur."""
+    embed = make_embed(
+        "Connecter un dépôt GitHub",
+        "1. **Installer sur GitHub** : choisissez le compte puis le ou les dépôts, et validez.\n"
+        "2. GitHub vous demande ensuite d'autoriser Samae : cela permet de vérifier que vous gérez bien "
+        "cette installation. Samae n'obtient aucun droit d'écriture et oublie cette autorisation aussitôt.\n"
+        "3. Revenez ici et cliquez sur **Choisir le dépôt**.",
+        tone=Tone.INFO,
+    )
+    add_field(
+        embed,
+        "Sécurité",
+        f"Le lien est personnel, valable {expires_minutes} minutes et utilisable une seule fois. "
+        "Aucun token ni mot de passe ne vous sera demandé dans Discord.",
+    )
+    if installations:
+        lines = [
+            f"• {design.escape_markdown(i.account)} : {len(i.repositories)} dépôt(s), vérifiée le {i.authorized_at[:10]}"
+            for i in installations[:10]
+        ]
+        add_field(embed, "Installations déjà vérifiées pour ce serveur", "\n".join(lines) + "\nVous pouvez directement choisir le dépôt.")
+    embed.set_footer(text=design.footer("réservé aux administrateurs"))
+    return fit_embed(embed)
+
+
+def github_connect_preview_embed(repository: str, account: str, guild_name: str, *, existing_ref: str | None, name: str) -> discord.Embed:
+    """Récapitulatif avant de relier un dépôt à la GitHub App."""
+    embed = make_embed("Connecter ce dépôt ?", "Rien n'est encore relié. Vérifiez puis confirmez.", tone=Tone.INFO)
+    add_field(embed, "Dépôt", f"`{design.escape_markdown(repository)}`", inline=True)
+    add_field(embed, "Installation", design.escape_markdown(account), inline=True)
+    add_field(embed, "Serveur concerné", design.escape_markdown(guild_name), inline=True)
+    if existing_ref:
+        add_field(embed, "Projet", f"le projet déjà enregistré `{existing_ref}` ({design.escape_markdown(name)}) sera relié")
+    else:
+        add_field(embed, "Projet", f"un nouveau projet « {design.escape_markdown(name)} » sera enregistré et relié")
+    add_field(
+        embed,
+        "Ensuite",
+        "Les événements de ce dépôt seront publiés dans les salons choisis avec `/projet modifier`, "
+        "et seulement sur ce serveur.",
+    )
+    embed.set_footer(text=design.footer("expiration : 2 minutes"))
+    return fit_embed(embed)
+
+
+def github_connected_embed(project: ProjectView) -> discord.Embed:
+    if project.routes:
+        next_step = "Vous pouvez envoyer un message de test dans ses salons avec le bouton ci-dessous."
+    else:
+        next_step = f"Étape suivante : choisir ses salons avec `/projet modifier projet:{project.ref}`, puis tester."
+    embed = make_embed(
+        f"Projet connecté : {design.escape_markdown(project.name)}",
+        f"Référence `{project.ref}`. État : {project.status_label}.\n{next_step}",
+        tone=Tone.SUCCESS,
+    )
+    embed.set_footer(text=design.footer(f"référence {project.ref}"))
+    return fit_embed(embed)
+
+
+def project_test_embed(project_name: str, categories) -> discord.Embed:
+    """Message de test publié dans un salon de notifications d'un projet."""
+    labels = ", ".join(PROJECT_CATEGORIES[c] for c in categories)
+    embed = make_embed(
+        f"Message de test : {design.escape_markdown(project_name)}",
+        f"Samae publiera ici les notifications de ce projet : {labels}.",
+        tone=Tone.INFO,
+    )
+    embed.set_footer(text=design.footer("message de test, aucune action nécessaire"))
     return fit_embed(embed)

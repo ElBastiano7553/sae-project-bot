@@ -42,6 +42,7 @@ Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste 
 | 1.4.0 | Commandes regroupées, choix des rôles (`/roles`), accueil des nouveaux membres, règlement dans `#règlement` ; pas de migration | ✅ livré, non déployé ([détails](accueil-et-roles.md)) |
 | 1.5.0 (multi-projets B1) | Socle multi-projets : `services/projects.py` (modèle commun GitHub/GitLab, projets historiques du `.env`), `database/projects.py` (isolation par serveur), `cogs/projects.py` (`/projet liste`, `/projet details`), migration v9 | ✅ livré, non déployé ([détails](projets.md)) |
 | 1.8.0 (multi-projets B3) | Réception commune : `providers/translate.py` (vocabulaire commun), `providers/dispatcher.py` (filtres, anti-doublons par projet, salon revérifié dans le serveur du projet), `providers/server.py` (127.0.0.1:8090), `database/project_deliveries.py`, liens dans `database/projects.py`, migration v10 | ✅ livré, non déployé ([détails](projets-reception.md)) |
+| 1.9.0 (multi-projets B4) | Connexion GitHub : `providers/github_app.py` (jetons `state` signés à usage unique, pages `/github/setup` et `/github/callback`, vérification OAuth puis révocation), `database/github_setup.py`, `discord_bot/project_views.py`, `/projet configurer`, `providers/check.py` (contrôle local), migration v11 | ✅ livré, non déployé ([détails](github-app.md)) |
 | Samae 2.0 · 2 à 4 | Idées et tier lists, débat et communauté, finitions : voir [samae-2-plan.md](samae-2-plan.md) | ⏳ à faire |
 
 Principes ajoutés au lot 1 :

@@ -277,6 +277,8 @@ class ProjectsReceptionSummary:
     address: str = ""
     github_app: bool = False  # chemin /github/webhook ouvert (GITHUB_APP_WEBHOOK_SECRET défini)
     last_event_at: str | None = None
+    github_connect: bool = False  # connexion des dépôts GitHub (étape B4) active
+    github_connect_error: str | None = None  # configuration de la connexion GitHub refusée
 
 
 def _projects_check(summary: ProjectsReceptionSummary) -> HealthCheck:
@@ -289,10 +291,15 @@ def _projects_check(summary: ProjectsReceptionSummary) -> HealthCheck:
         return HealthCheck(name, HealthStatus.ERROR, "serveur arrêté")
     github = "GitHub App ouverte" if summary.github_app else "GitHub App fermée (GITHUB_APP_WEBHOOK_SECRET vide)"
     last = f"dernier événement : {summary.last_event_at} UTC" if summary.last_event_at else "aucun événement reçu"
+    if summary.github_connect_error:
+        connect, status = f"connexion GitHub refusée ({summary.github_connect_error})", HealthStatus.WARNING
+    else:
+        connect = "connexion GitHub active" if summary.github_connect else "connexion GitHub non configurée"
+        status = HealthStatus.OK
     return HealthCheck(
-        name, HealthStatus.OK,
+        name, status,
         # Aucun nombre de projets ici : /etat est ouvert à tous, et un projet peut être masqué à un membre.
-        f"écoute locale sur {summary.address}, {github}, {last} (accès depuis Internet non vérifié)",
+        f"écoute locale sur {summary.address}, {github}, {connect}, {last} (accès depuis Internet non vérifié)",
     )
 
 

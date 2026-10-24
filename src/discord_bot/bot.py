@@ -36,6 +36,7 @@ from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
 from src.database.github import GitHubDeliveryRepository
 from src.database.project_deliveries import ProjectDeliveryRepository
+from src.database.github_setup import GithubSetupRepository
 from src.database.projects import ProjectRepository
 from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
@@ -44,6 +45,7 @@ from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY, NotificationDispatcher
 from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
 from src.providers.dispatcher import ProjectDispatcher
+from src.providers.github_app import GitHubSetupFlow, build_flow
 from src.providers.server import ProjectsHttpServer, create_projects_app
 from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
@@ -148,6 +150,11 @@ class SaeBot(commands.Bot):
         self.projects_server: ProjectsHttpServer | None = None
         self.projects_error: str | None = None
         self._projects_task: asyncio.Task | None = None
+        # Connexion des projets GitHub (étape B4) : None tant que la GitHub App n'est pas configurée.
+        self.github_setup_repo = GithubSetupRepository(database)
+        self.github_setup: GitHubSetupFlow | None = (
+            build_flow(settings, self.github_setup_repo) if settings.github_app_enabled else None
+        )
         self._github_task: asyncio.Task | None = None
         self.errors = errors or RecentErrors()
         self.errors.add_listener(self._on_error)
@@ -327,7 +334,10 @@ class SaeBot(commands.Bot):
                 wait_until_ready=self.wait_until_ready,
             )
             app = create_projects_app(
-                github_secret=self.settings.github_app_webhook_secret, projects=self.projects_repo, dispatcher=dispatcher
+                github_secret=self.settings.github_app_webhook_secret,
+                projects=self.projects_repo,
+                dispatcher=dispatcher,
+                github_setup=self.github_setup,
             )
             self.projects_server = ProjectsHttpServer(app, self.settings.projects_http_host, self.settings.projects_http_port)
             if not await self.projects_server.start():

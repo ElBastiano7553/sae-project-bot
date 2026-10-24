@@ -2,7 +2,7 @@
 
 Il n'écoute que sur l'interface locale (``PROJECTS_HTTP_HOST``, 127.0.0.1 par défaut) : rien
 n'est visible depuis Internet tant que le propriétaire du serveur n'a pas ajouté, de lui-même,
-un site Nginx qui y mène (voir docs/projets-reception.md). Seuls deux chemins existent :
+un site Nginx qui y mène (voir docs/projets-reception.md). Seuls ces chemins existent :
 
 ``POST /github/webhook`` (GitHub App, actif seulement si ``GITHUB_APP_WEBHOOK_SECRET`` est défini)
     1. signature ``X-Hub-Signature-256`` présente (sinon 401, sans lire le corps), corps d'au
@@ -18,6 +18,10 @@ un site Nginx qui y mène (voir docs/projets-reception.md). Seuls deux chemins e
        sans lire le corps) ;
     2. JSON d'au plus ``MAX_BODY_BYTES`` (sinon 415 / 413 / 400) ; événement non géré → 200 ``ignored`` ;
     3. le projet de l'événement doit être celui relié à ce webhook (sinon 403).
+
+``GET /github/setup`` et ``GET /github/callback`` (connexion des projets GitHub, étape B4)
+    pages de retour après l'installation de la GitHub App et la vérification OAuth, actives
+    seulement si la connexion est configurée (voir ``src/providers/github_app.py``).
 
 Tout autre chemin répond 404, une autre méthode 405. Aucun secret n'apparaît dans les réponses
 ni dans les journaux.
@@ -38,6 +42,7 @@ from src.gitlab.dispatcher import SubmitStatus
 from src.gitlab.events import InvalidPayload, project_id_of
 from src.gitlab.webhook import delivery_key as gitlab_delivery_key
 from src.providers.dispatcher import ProjectDispatcher
+from src.providers.github_app import GitHubSetupFlow, add_setup_routes
 from src.providers.translate import GITHUB_EVENTS, GITLAB_EVENTS, translate_github, translate_gitlab
 from src.services.projects import secret_matches
 
@@ -56,14 +61,21 @@ PROJECTS_KEY = web.AppKey("projects_repository", ProjectRepository)
 DISPATCHER_KEY = web.AppKey("projects_dispatcher", ProjectDispatcher)
 
 
-def create_projects_app(*, github_secret: str, projects: ProjectRepository, dispatcher: ProjectDispatcher) -> web.Application:
-    """``github_secret`` vide : le chemin GitHub n'existe pas (404), GitLab reste disponible."""
+def create_projects_app(
+    *, github_secret: str, projects: ProjectRepository, dispatcher: ProjectDispatcher, github_setup: GitHubSetupFlow | None = None
+) -> web.Application:
+    """``github_secret`` vide : le chemin GitHub n'existe pas (404), GitLab reste disponible.
+
+    ``github_setup`` absent : pas de pages de connexion GitHub (404).
+    """
     app = web.Application(client_max_size=MAX_BODY_BYTES)
     app[GITHUB_SECRET_KEY] = github_secret
     app[PROJECTS_KEY] = projects
     app[DISPATCHER_KEY] = dispatcher
     if github_secret:
         app.router.add_post(GITHUB_PATH, handle_github)
+        if github_setup is not None:
+            add_setup_routes(app, github_setup)
     app.router.add_post(GITLAB_PATH, handle_gitlab)
     return app
 

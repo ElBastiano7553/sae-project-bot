@@ -84,6 +84,8 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             address=bot.projects_server.local_url if bot.projects_server is not None else "",
             github_app=bool(bot.settings.github_app_webhook_secret),
             last_event_at=bot.project_deliveries_repo.last_received_at(),
+            github_connect=bot.github_setup is not None,
+            github_connect_error=bot.settings.github_app_error,
         ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at

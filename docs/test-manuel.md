@@ -193,3 +193,29 @@ Guide : [projets-reception.md](projets-reception.md). Faire d'abord une copie de
 - [ ] Depuis un autre ordinateur, `http://<adresse du VPS>:8090/` ne répond pas (le port n'écoute qu'en local).
 - [ ] `PROJECTS_HTTP_HOST=0.0.0.0` : `/etat` affiche une erreur « adresse locale », le reste du bot fonctionne.
 - [ ] `/projet liste` : les projets ajoutés restent « enregistré, pas encore connecté : aucune notification » (la connexion arrive en B4/B5).
+
+## 1.9.0 : connexion des projets GitHub (`/projet configurer`, étape B4)
+
+Guide : [github-app.md](github-app.md). Sauvegarde `…-avantv11.sqlite3` créée au démarrage.
+
+Sans configuration (rien à faire sur le VPS) :
+
+- [ ] Au démarrage : « Migration de la base de données vers la version 11 » ; `/etat` affiche « schéma v11 ».
+- [ ] `/projet configurer` (admin) : « connexion GitHub n'est pas encore activée », rien n'est créé.
+- [ ] Compte membre : `/projet configurer` n'apparaît pas, ou est refusée ; l'option `depot` ne propose rien.
+- [ ] Les notifications des webhooks du `.env` (8080, 8081) arrivent comme avant.
+
+Avec la GitHub App de test (après accord du propriétaire du VPS : DNS, certificat, site Nginx) :
+
+- [ ] `/etat` : « connexion GitHub active ».
+- [ ] `/projet configurer` : réponse visible par vous seul, boutons « Installer sur GitHub » et « Choisir le dépôt », aucun secret affiché.
+- [ ] Installation sur le **seul dépôt de test**, autorisation demandée par GitHub, page « Installation vérifiée ».
+- [ ] Le même lien ouvert une seconde fois : page « Lien expiré » (usage unique).
+- [ ] « Choisir le dépôt » : seul le dépôt de test est proposé ; confirmation ; état « connecté : notifications actives ».
+- [ ] `/projet modifier` : salon pour Code (`branches:main`), Revues et Tickets ; « Envoyer un message de test » (si le bouton a expiré, `/projet configurer depot:<dépôt>` le propose à nouveau) ou `python -m src.providers.check … --filtre` : tout ✅, un seul message.
+- [ ] Push sur `main` du dépôt de test : notification dans le salon Code. Push sur une autre branche : rien.
+- [ ] Pull request ouverte, ticket ouvert : notifications dans leurs salons.
+- [ ] GitHub > App > Advanced > Recent Deliveries > Redeliver d'une livraison déjà reçue : réponse `duplicate`, aucun second message.
+- [ ] Un compte GitHub sans accès au dépôt de test suit un lien de `/projet configurer` : page « Accès refusé », rien de relié.
+- [ ] Journal `logs/bot.log` et journal Nginx du site : aucun `code=`, `state=`, token ni secret.
+

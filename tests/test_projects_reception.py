@@ -152,14 +152,14 @@ def test_v9_database_is_upgraded_to_v10_without_losing_projects(tmp_path):
 
     db = Database(path)
     try:
-        assert db.schema_version == len(MIGRATIONS) == 10
+        assert db.schema_version == len(MIGRATIONS) >= 10
         repo = ProjectRepository(db)
         assert repo.routes(42, 1) == (Route("code", 5, {}),)
         assert repo.link(42, 1) is None  # aucun projet existant n'est relié par la migration
         assert db.conn.execute("SELECT COUNT(*) FROM project_deliveries").fetchone()[0] == 0
     finally:
         db.close()
-    assert len(list((tmp_path / "backups").glob("*-avantv10.sqlite3"))) == 1
+    assert len(list((tmp_path / "backups").glob(f"*-avantv{len(MIGRATIONS)}.sqlite3"))) == 1
 
 
 def test_link_table_refuses_inconsistent_rows(db, projects):
