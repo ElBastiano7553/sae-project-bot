@@ -88,6 +88,13 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         "Détails d'un projet : dépôt suivi, état, salons des notifications (seulement ceux que vous pouvez voir).",
         "/projet details projet:env-github",
     ),
+    HelpEntry(
+        "projet modifier",
+        "projets",
+        "Salon et filtres (branches, actions, statuts) d'une catégorie de notifications d'un projet enregistré.",
+        "/projet modifier projet:1 categorie:Code (commits) branches:main, develop",
+        admin=True,
+    ),
     HelpEntry("ia question", "ia", "Question sur le projet : l'IA répond à partir des documents de l'équipe et cite ses sources.", "/ia question question:Quand est la prochaine soutenance ?"),
     HelpEntry("ia bilan", "ia", "Bilan de l'activité GitLab de la période, rédigé par l'IA à partir des événements reçus.", "/ia bilan periode:7 derniers jours"),
     HelpEntry("ia relecture", "ia", "Relecture d'une merge request par l'IA : bugs probables, tests, sécurité (une aide, pas une validation).", "/ia relecture mr:12"),

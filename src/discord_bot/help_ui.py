@@ -47,8 +47,9 @@ def collect_commands(tree: app_commands.CommandTree) -> list[CommandInfo]:
 
 
 def _is_admin(command) -> bool:
+    """Groupe masqué par défaut (« Gérer le serveur »), ou sous-commande d'administration d'un groupe public."""
     perms = getattr(command, "default_permissions", None)
-    return bool(perms and perms.manage_guild)
+    return bool(perms and perms.manage_guild) or bool(getattr(command, "extras", {}).get("admin"))
 
 
 def _info(command: app_commands.Command, admin: bool) -> CommandInfo:
