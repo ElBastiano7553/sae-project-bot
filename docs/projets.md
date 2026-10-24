@@ -13,8 +13,17 @@ ce qui existe aujourd'hui (étape **B1**, version 1.5.0) et ce qui suit.
 
 * Un **membre** ne voit que les salons auxquels il a accès ; les autres sont comptés
   (« 1 salon(s) masqué(s) ») sans être nommés.
+* **Projets masqués (1.7.1)** : un membre ne voit un projet que s'il a accès à **au moins un** de ses
+  salons de notifications. Un projet sans salon, dont tous les salons lui sont fermés, ou dont le salon
+  a été supprimé, n'apparaît pas pour lui :
+  * absent de `/projet liste` (le nombre de projets ne compte que ceux qu'il voit ; s'il n'en voit
+    aucun, il reçoit la même page qu'un serveur sans projet) ;
+  * `/projet details` répond « Projet introuvable », exactement comme pour une référence qui n'existe pas ;
+  * absent de l'autocomplétion de `/projet details` ; celle de `/projet modifier` ne répond rien aux membres.
+  La règle s'applique aussi aux projets historiques du `.env` et est vérifiée par le bot à chaque
+  appel (pas seulement par Discord).
 * Un **administrateur** (permission « Gérer le serveur » ou rôle `ADMIN_ROLE_NAME`) voit tous les
-  salons, y compris ceux qui ne sont pas associés, qui a ajouté le projet et où se trouve sa configuration.
+  projets et tous les salons, y compris ceux qui ne sont pas associés, qui a ajouté le projet et où se trouve sa configuration.
 * Toutes les réponses sont éphémères. Aucune commande n'affiche de secret, de token ni de valeur du `.env`.
 
 Les projets s'enregistrent avec `/projet ajouter` (ci-dessous) ; leur connexion à GitHub ou GitLab

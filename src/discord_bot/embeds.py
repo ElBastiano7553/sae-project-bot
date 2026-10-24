@@ -608,15 +608,19 @@ def _project_line(project: ProjectView) -> str:
 PROJECTS_PER_PAGE = 10
 
 
-def projects_list_pages(projects: list[ProjectView]) -> list[discord.Embed]:
-    """Une page par tranche de ``PROJECTS_PER_PAGE`` projets : aucun projet n'est jamais coupé."""
+def projects_list_pages(projects: list[ProjectView], *, admin: bool = True) -> list[discord.Embed]:
+    """Une page par tranche de ``PROJECTS_PER_PAGE`` projets : aucun projet n'est jamais coupé.
+
+    ``projects`` est déjà filtré pour un membre : la page vide ne dit pas si des projets lui sont masqués.
+    """
     if not projects:
-        return [make_embed(
-            "📦 Projets suivis",
-            "Aucun projet n'est suivi sur ce serveur. L'ajout de projets GitHub et GitLab depuis Discord arrive "
-            "dans une prochaine version ; les webhooks configurés dans `.env` apparaîtront ici dès qu'ils sont activés.",
-            tone=Tone.NEUTRAL,
-        )]
+        text = (
+            "Aucun projet n'est suivi sur ce serveur. Ajoutez-en avec `/projet ajouter` ; les webhooks configurés "
+            "dans `.env` apparaissent ici dès qu'ils sont activés."
+            if admin
+            else "Aucun projet à afficher pour vous sur ce serveur."
+        )
+        return [make_embed("📦 Projets suivis", text, tone=Tone.NEUTRAL)]
     chunks = [projects[i : i + PROJECTS_PER_PAGE] for i in range(0, len(projects), PROJECTS_PER_PAGE)]
     pages = []
     for number, chunk in enumerate(chunks, start=1):
