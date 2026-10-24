@@ -77,7 +77,7 @@ def test_gitlab_project_does_not_need_the_github_secret():
     ("changes", "status", "expected"),
     [
         ({"linked": False}, HealthStatus.ERROR, "/projet configurer"),
-        ({"linked": False, "provider": "gitlab"}, HealthStatus.ERROR, "B5"),
+        ({"linked": False, "provider": "gitlab"}, HealthStatus.ERROR, "/projet configurer projet:"),
         ({"status": "suspended"}, HealthStatus.ERROR, "ignorés"),
         ({"installation_known": False}, HealthStatus.WARNING, "plus vérifiée"),
         ({"legacy_duplicate": True}, HealthStatus.WARNING, "double"),

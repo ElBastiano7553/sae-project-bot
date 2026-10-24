@@ -86,6 +86,8 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             last_event_at=bot.project_deliveries_repo.last_received_at(),
             github_connect=bot.github_setup is not None,
             github_connect_error=bot.settings.github_app_error,
+            gitlab_connect=bot.gitlab_setup is not None,
+            gitlab_connect_error=bot.settings.gitlab_app_error,
         ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at

@@ -69,23 +69,25 @@ class SetupStates:
 
     La base ne garde que leur empreinte : la lire ne permet pas de fabriquer un lien valide.
     La clé de signature est dérivée du secret OAuth de l'App (jamais affiché).
+
+    ``purpose`` sépare les clés de deux parcours (GitHub, GitLab) ; ``repository`` peut être tout
+    dépôt qui offre ``save_state`` et ``consume_state`` (``GithubSetupRepository``, ``GitlabSetupRepository``).
     """
 
-    def __init__(self, repository: GithubSetupRepository, client_secret: str, *, clock=utcnow) -> None:
+    def __init__(self, repository: GithubSetupRepository, client_secret: str, *, clock=utcnow, purpose: bytes = b"samae:github-setup-state") -> None:
         self._repo = repository
-        self._key = hmac.new(client_secret.encode("utf-8"), b"samae:github-setup-state", hashlib.sha256).digest()
+        self._key = hmac.new(client_secret.encode("utf-8"), purpose, hashlib.sha256).digest()
         self._clock = clock
 
     def _signature(self, step: str, nonce: str) -> str:
         digest = hmac.new(self._key, f"{step}:{nonce}".encode("ascii"), hashlib.sha256).digest()
         return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
-    def issue(self, step: str, guild_id: int, user_id: int, *, installation_id: int | None = None) -> str:
+    def issue(self, step: str, guild_id: int, user_id: int, **bound) -> str:
+        """``bound`` : ce que le jeton lie en plus (``installation_id`` pour GitHub, ``project_id`` pour GitLab)."""
         nonce = secrets.token_urlsafe(24)
         token = f"{nonce}.{self._signature(step, nonce)}"
-        self._repo.save_state(
-            _hash(token), step, guild_id, user_id, expires_at=self._clock() + STATE_TTL, installation_id=installation_id
-        )
+        self._repo.save_state(_hash(token), step, guild_id, user_id, expires_at=self._clock() + STATE_TTL, **bound)
         return token
 
     def consume(self, step: str, token: str | None) -> StateClaim | None:

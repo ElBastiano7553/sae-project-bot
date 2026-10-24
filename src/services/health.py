@@ -279,6 +279,8 @@ class ProjectsReceptionSummary:
     last_event_at: str | None = None
     github_connect: bool = False  # connexion des dépôts GitHub (étape B4) active
     github_connect_error: str | None = None  # configuration de la connexion GitHub refusée
+    gitlab_connect: bool = False  # connexion des projets GitLab (étape B5) active
+    gitlab_connect_error: str | None = None  # configuration de la connexion GitLab refusée
 
 
 def _projects_check(summary: ProjectsReceptionSummary) -> HealthCheck:
@@ -291,11 +293,18 @@ def _projects_check(summary: ProjectsReceptionSummary) -> HealthCheck:
         return HealthCheck(name, HealthStatus.ERROR, "serveur arrêté")
     github = "GitHub App ouverte" if summary.github_app else "GitHub App fermée (GITHUB_APP_WEBHOOK_SECRET vide)"
     last = f"dernier événement : {summary.last_event_at} UTC" if summary.last_event_at else "aucun événement reçu"
-    if summary.github_connect_error:
-        connect, status = f"connexion GitHub refusée ({summary.github_connect_error})", HealthStatus.WARNING
-    else:
-        connect = "connexion GitHub active" if summary.github_connect else "connexion GitHub non configurée"
-        status = HealthStatus.OK
+    status = HealthStatus.OK
+    connections = []
+    for label, active, error in (
+        ("GitHub", summary.github_connect, summary.github_connect_error),
+        ("GitLab", summary.gitlab_connect, summary.gitlab_connect_error),
+    ):
+        if error:
+            connections.append(f"connexion {label} refusée ({error})")
+            status = HealthStatus.WARNING
+        else:
+            connections.append(f"connexion {label} active" if active else f"connexion {label} non configurée")
+    connect = ", ".join(connections)
     return HealthCheck(
         name, status,
         # Aucun nombre de projets ici : /etat est ouvert à tous, et un projet peut être masqué à un membre.

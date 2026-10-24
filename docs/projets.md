@@ -173,7 +173,7 @@ compteurs. Aucun secret, jeton ni contenu d'événement n'est affiché.
 | ✅ B2 | salons et filtres par projet, `/projet modifier` (admins) | non |
 | ✅ B3 | réception commune des événements (serveur 127.0.0.1:8090, modules GitHub et GitLab), guide Nginx/DNS/certificat ([projets-reception.md](projets-reception.md)) | non (tests locaux) |
 | ✅ B4 | connexion GitHub par GitHub App en lecture seule (`/projet configurer`), vérification OAuth, message de test ([github-app.md](github-app.md)) | App de test + adresse HTTPS (à mettre en place par le propriétaire du VPS) |
-| B5 | connexion GitLab par application OAuth en lecture seule, secret de webhook affiché une seule fois dans le navigateur | application OAuth + adresse HTTPS |
+| ✅ B5 | connexion GitLab par application OAuth en lecture seule (`/projet configurer projet:`), rôle Maintainer vérifié, secret de webhook affiché une seule fois dans le navigateur ([gitlab-app.md](gitlab-app.md)) | application OAuth + adresse HTTPS |
 | B6 | `/projet deconnecter` avec confirmation, masquage des secrets dans les journaux | non |
 | B7 | autres serveurs Discord (liste autorisée) | un serveur de test |
 

@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.9.0 (multi-projets : `/projet`, réception commune, connexion GitHub)
+## État actuel : version 1.10.0 (multi-projets : `/projet`, réception commune, connexion GitHub et GitLab)
 
 | Fonction | État |
 |---|---|
@@ -33,7 +33,8 @@ et bilans assistés par IA.
 | Projets masqués aux membres qui ne voient aucun de leurs salons (liste, détails, autocomplétion) ; les administrateurs voient tout | ✅ 1.7.1 ([guide](docs/projets.md)) |
 | Multi-projets, étape B3 : réception commune des événements GitHub et GitLab des projets enregistrés (127.0.0.1:8090, désactivée par défaut), filtres et anti-doublons par projet, guide Nginx/DNS/certificat ; aucun projet n'est encore relié (B4/B5) | ✅ 1.8.0 ([guide](docs/projets-reception.md)) |
 | Multi-projets, étape B4 : `/projet configurer` (admins) relie un dépôt GitHub par la GitHub App de Samae (lien d'installation personnel et à usage unique, vérification OAuth puis révocation, aucune clé privée ni token gardé), message de test ; désactivée sans configuration | ✅ 1.9.0 ([guide](docs/github-app.md)) |
-| Multi-projets, étapes B5 à B7 : connexion GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
+| Multi-projets, étape B5 : `/projet configurer projet:` (admins) relie un projet GitLab par une application OAuth en lecture seule (rôle Maintainer vérifié puis accès révoqué, secret du webhook affiché une seule fois et gardé seulement sous forme d'empreinte) ; désactivée sans configuration | ✅ 1.10.0 ([guide](docs/gitlab-app.md)) |
+| Multi-projets, étapes B6 et B7 : déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
 `/aide` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :

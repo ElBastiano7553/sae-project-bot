@@ -132,7 +132,8 @@ les commandes et ne me transmet jamais de secret.
 
 5. **Nginx, partie HTTPS** : décommenter le second bloc, puis `sudo nginx -t && sudo systemctl reload nginx`.
    Seuls `POST /github/webhook`, `POST /gitlab/webhook/<identifiant>` et, depuis la 1.9.0, `GET /github/setup`
-   et `GET /github/callback` (connexion GitHub, [github-app.md](github-app.md)) passent ; tout le reste répond 404.
+   et `GET /github/callback` (connexion GitHub, [github-app.md](github-app.md)) et, depuis la 1.10.0, `GET /gitlab/callback`
+   (connexion GitLab, [gitlab-app.md](gitlab-app.md)) passent ; tout le reste répond 404.
    Le journal Nginx de ce site n'enregistre pas les paramètres d'adresse (jetons à usage unique).
 
 6. **Samae** : dans `.env`, `PROJECTS_HTTP_ENABLED=true` (et, pour la GitHub App, les variables de [github-app.md](github-app.md)),

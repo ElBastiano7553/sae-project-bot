@@ -11,7 +11,9 @@ un projet à partir de l'adresse de son dépôt, après un récapitulatif et une
 ``modifier`` choisit ensuite le salon et les filtres de chaque catégorie de notifications ;
 ``configurer`` relie un dépôt GitHub à la GitHub App de Samae (étape B4) : lien d'installation
 personnel et à usage unique, vérification auprès de GitHub, choix du dépôt, confirmation,
-message de test. Aucun token ni mot de passe n'est demandé dans Discord ;
+message de test ; avec ``projet:``, relie un projet GitLab déjà enregistré (étape B5) : lien
+d'autorisation GitLab personnel, rôle Maintainer vérifié, secret du webhook affiché une seule
+fois dans le navigateur (``providers/gitlab_oauth.py``). Aucun token ni mot de passe n'est demandé dans Discord ;
 ``diagnostic`` explique pourquoi un projet ne reçoit pas ses notifications
 (``services/project_diagnosis.py``), sans rien modifier.
 
@@ -32,6 +34,7 @@ from src.discord_bot.embeds import (
     github_connect_embed,
     github_connect_preview_embed,
     github_connected_embed,
+    gitlab_connect_embed,
     project_test_embed,
     project_add_preview_embed,
     project_added_embed,
@@ -41,7 +44,7 @@ from src.discord_bot.embeds import (
     projects_list_pages,
 )
 from src.discord_bot.meeting_ui import PagesView
-from src.discord_bot.project_views import MAX_OPTIONS, GithubConnectView, RepositorySelectView, TestMessageView
+from src.discord_bot.project_views import MAX_OPTIONS, GithubConnectView, GitlabConnectView, RepositorySelectView, TestMessageView
 from src.discord_bot.views import ConfirmView
 from src.discord_bot.permissions import is_bot_admin
 from src.github.dispatcher import CHANNEL_KEY as GITHUB_CHANNEL_KEY
@@ -348,14 +351,25 @@ class ProjectsCog(commands.Cog):
 
     @projet.command(
         name="configurer",
-        description="Admins : connecter un dépôt GitHub à Samae (GitHub App, sans aucun token dans Discord)",
+        description="Admins : connecter un dépôt GitHub ou un projet GitLab à Samae, sans aucun token dans Discord",
         extras={"admin": True},
     )
-    @app_commands.describe(depot="Dépôt déjà autorisé à connecter directement (sinon : lien d'installation, puis menu)")
+    @app_commands.describe(
+        depot="GitHub : dépôt déjà autorisé à connecter directement (sinon : lien d'installation, puis menu)",
+        projet="GitLab : projet enregistré avec /projet ajouter (référence affichée par /projet liste)",
+    )
     @admin_only()
-    async def configure(self, interaction: discord.Interaction, depot: app_commands.Range[str, 1, REPOSITORY_MAX] | None = None) -> None:
+    async def configure(
+        self,
+        interaction: discord.Interaction,
+        depot: app_commands.Range[str, 1, REPOSITORY_MAX] | None = None,
+        projet: app_commands.Range[str, 1, REF_MAX] | None = None,
+    ) -> None:
         guild = await self._guild_or_error(interaction)
         if guild is None:
+            return
+        if projet is not None:
+            await self._configure_gitlab(interaction, guild, projet.strip())
             return
         problem = self._github_connection_unavailable()
         if problem:
@@ -371,6 +385,55 @@ class ProjectsCog(commands.Cog):
         view.original = interaction
         embed = github_connect_embed(installations, expires_minutes=int(STATE_TTL.total_seconds() // 60))
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    async def _configure_gitlab(self, interaction: discord.Interaction, guild: discord.Guild, ref: str) -> None:
+        repo, flow = self.bot.projects_repo, self.bot.gitlab_setup
+        record = repo.get(guild.id, int(ref)) if ref.isdigit() else None
+        if record is None:
+            await send_error(interaction, "Projet enregistré introuvable sur ce serveur. Les références sont affichées par `/projet liste`.", title="Projet introuvable")
+            return
+        if record.provider != "gitlab":
+            await send_error(
+                interaction, f"Ce projet est sur GitHub : utilisez `/projet configurer depot:{record.external_id}`.", title="Projet GitHub", tone="warning"
+            )
+            return
+        problem = self._gitlab_connection_problem(record)
+        if problem:
+            await send_error(interaction, problem, title="Connexion GitLab indisponible", tone="warning")
+            return
+        linked = repo.link(guild.id, record.id) is not None
+        routes = repo.routes(guild.id, record.id)
+        on_test = (lambda inter: self._send_test(inter, record.id)) if linked and routes else None
+        view = GitlabConnectView(interaction.user.id, flow.authorize_url(guild.id, interaction.user.id, record.id), on_test)
+        view.original = interaction
+        embed = gitlab_connect_embed(
+            registered_view(record, routes, connected=linked), expires_minutes=int(STATE_TTL.total_seconds() // 60), replacing=linked
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    def _gitlab_connection_problem(self, record) -> str:
+        settings, flow = self.bot.settings, self.bot.gitlab_setup
+        if flow is None:
+            reason = f" Configuration refusée : {settings.gitlab_app_error}" if settings.gitlab_app_error else ""
+            return (
+                "La connexion GitLab n'est pas encore activée par l'hébergeur de Samae (application OAuth GitLab, adresse HTTPS : "
+                f"voir `docs/gitlab-app.md`).{reason}"
+            )
+        server = self.bot.projects_server
+        if server is None or not server.listening:
+            return "La réception des événements des projets est arrêtée : voir `/etat`. Rien n'a été relié."
+        if not flow.accepts(record.instance_url):
+            return (
+                f"Ce projet est sur {record.instance_url}, mais l'application OAuth de Samae est sur {flow.instance_url} : "
+                "il ne peut pas être relié pour l'instant."
+            )
+        legacy = settings.gitlab_project_id if (record.guild_id == settings.guild_id and settings.gitlab_webhooks_enabled) else None
+        if legacy is not None and record.external_id == str(legacy):
+            return (
+                "Ce projet est déjà suivi par la configuration `.env` (projet historique `env-gitlab`). Le relier aussi doublerait "
+                "ses notifications : videz d'abord `GITLAB_WEBHOOK_SECRET` sur le serveur qui héberge Samae. Rien n'a été relié."
+            )
+        return ""
 
     def _github_connection_unavailable(self) -> str:
         settings = self.bot.settings
@@ -600,6 +663,19 @@ class ProjectsCog(commands.Cog):
             return []
         needle = current.casefold()
         return [app_commands.Choice(name=n[:100], value=n[:100]) for n in self._github_candidates(guild.id) if needle in n.casefold()][:25]
+
+    @configure.autocomplete("projet")
+    async def _gitlab_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        # Administrateurs seulement, et seulement les projets GitLab enregistrés sur CE serveur.
+        guild = interaction.guild
+        if guild is None or guild.id not in self.project_guilds() or not self._is_admin(interaction):
+            return []
+        needle = current.casefold()
+        return [
+            app_commands.Choice(name=f"{p.name} ({p.external_id})"[:100], value=str(p.id))
+            for p in self.bot.projects_repo.list_for_guild(guild.id)
+            if p.provider == "gitlab" and (needle in p.name.casefold() or needle in str(p.id) or needle in p.external_id)
+        ][:25]
 
     @diagnostic.autocomplete("projet")
     @modify.autocomplete("projet")

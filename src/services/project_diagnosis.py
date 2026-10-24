@@ -46,7 +46,7 @@ class DeliveryFacts:
 class ProjectFacts:
     provider: str  # github ou gitlab
     status: str  # projects.status (active, suspended…)
-    linked: bool  # lien créé par /projet configurer (B4) ou B5
+    linked: bool  # lien créé par /projet configurer (GitHub, ou GitLab avec projet:)
     installation_known: bool  # GitHub : l'installation reliée est vérifiée pour CE serveur
     legacy_duplicate: bool  # même dépôt que le webhook historique du .env encore actif
     routes: Sequence[tuple[str, str]]  # (catégorie, problème du salon ou "")
@@ -80,7 +80,7 @@ def _link(project: ProjectFacts) -> HealthCheck:
     if project.status != "active":
         return HealthCheck(name, HealthStatus.ERROR, f"projet « {project.status} » : ses événements sont ignorés")
     if not project.linked:
-        how = "`/projet configurer`" if project.provider == "github" else "la connexion GitLab (étape B5)"
+        how = "`/projet configurer`" if project.provider == "github" else "`/projet configurer projet:`"
         return HealthCheck(name, HealthStatus.ERROR, f"projet enregistré mais jamais connecté : utilisez {how}")
     if project.provider == "github" and not project.installation_known:
         return HealthCheck(

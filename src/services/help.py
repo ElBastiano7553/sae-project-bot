@@ -105,7 +105,8 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
     HelpEntry(
         "projet configurer",
         "projets",
-        "Connecter un dépôt GitHub par la GitHub App de Samae : lien d'installation, vérification sur GitHub, choix du dépôt. Aucun token dans Discord.",
+        "Connecter un dépôt GitHub (GitHub App : installation, vérification, choix du dépôt) ou, avec projet:, un projet GitLab "
+        "(autorisation GitLab, rôle Maintainer, secret du webhook affiché une fois). Aucun token dans Discord.",
         "/projet configurer",
         admin=True,
     ),

@@ -23,6 +23,10 @@ un site Nginx qui y mène (voir docs/projets-reception.md). Seuls ces chemins ex
     pages de retour après l'installation de la GitHub App et la vérification OAuth, actives
     seulement si la connexion est configurée (voir ``src/providers/github_app.py``).
 
+``GET /gitlab/callback`` (connexion des projets GitLab, étape B5)
+    page de retour après l'autorisation OAuth GitLab, qui affiche une seule fois l'adresse et le
+    secret du webhook ; active seulement si la connexion est configurée (``src/providers/gitlab_oauth.py``).
+
 Tout autre chemin répond 404, une autre méthode 405. Aucun secret n'apparaît dans les réponses
 ni dans les journaux.
 """
@@ -43,6 +47,7 @@ from src.gitlab.events import InvalidPayload, project_id_of
 from src.gitlab.webhook import delivery_key as gitlab_delivery_key
 from src.providers.dispatcher import ProjectDispatcher
 from src.providers.github_app import GitHubSetupFlow, add_setup_routes
+from src.providers.gitlab_oauth import GitLabSetupFlow, add_gitlab_setup_routes
 from src.providers.translate import GITHUB_EVENTS, GITLAB_EVENTS, translate_github, translate_gitlab
 from src.services.projects import secret_matches
 
@@ -62,11 +67,16 @@ DISPATCHER_KEY = web.AppKey("projects_dispatcher", ProjectDispatcher)
 
 
 def create_projects_app(
-    *, github_secret: str, projects: ProjectRepository, dispatcher: ProjectDispatcher, github_setup: GitHubSetupFlow | None = None
+    *,
+    github_secret: str,
+    projects: ProjectRepository,
+    dispatcher: ProjectDispatcher,
+    github_setup: GitHubSetupFlow | None = None,
+    gitlab_setup: GitLabSetupFlow | None = None,
 ) -> web.Application:
     """``github_secret`` vide : le chemin GitHub n'existe pas (404), GitLab reste disponible.
 
-    ``github_setup`` absent : pas de pages de connexion GitHub (404).
+    ``github_setup`` / ``gitlab_setup`` absents : pas de pages de connexion GitHub / GitLab (404).
     """
     app = web.Application(client_max_size=MAX_BODY_BYTES)
     app[GITHUB_SECRET_KEY] = github_secret
@@ -77,6 +87,8 @@ def create_projects_app(
         if github_setup is not None:
             add_setup_routes(app, github_setup)
     app.router.add_post(GITLAB_PATH, handle_gitlab)
+    if gitlab_setup is not None:
+        add_gitlab_setup_routes(app, gitlab_setup)
     return app
 
 

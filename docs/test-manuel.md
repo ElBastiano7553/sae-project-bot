@@ -229,3 +229,25 @@ Avec la GitHub App de test (après accord du propriétaire du VPS : DNS, certifi
 - [ ] Après un push : « 1 publiée(s) ». Avec un filtre de branche qui l'écarte : « écartée(s) par les filtres ».
 - [ ] `/projet diagnostic projet:env-github` : « introuvable », renvoi vers `/admin diagnostic`. Aucun secret affiché nulle part.
 
+## 1.10.0 : connexion des projets GitLab (`/projet configurer projet:`, étape B5)
+
+Guide : [gitlab-app.md](gitlab-app.md). Sauvegarde `…-avantv12.sqlite3` créée au démarrage.
+
+Sans configuration :
+
+- [ ] `/etat` : « connexion GitLab non configurée » ; webhook GitLab historique inchangé (un push du `.env` arrive comme avant).
+- [ ] `/projet configurer projet:<projet GitLab>` (admin) : « connexion GitLab n'est pas encore activée », rien n'est créé.
+
+Avec l'application OAuth de test (section 3 du guide) et l'adresse HTTPS :
+
+- [ ] `/etat` : « connexion GitLab active ». Une variable fausse : « connexion GitLab refusée (raison) », le reste démarre.
+- [ ] Compte membre : l'option `projet` ne propose rien, la commande est refusée.
+- [ ] `/projet ajouter url:<projet GitLab de test>`, `/projet modifier` (salon Code), puis `/projet configurer projet:<réf>` : réponse visible par vous seul, bouton « Se connecter avec GitLab ».
+- [ ] Autoriser avec un compte Maintainer : page « Projet relié » avec l'URL et le jeton secret. Recharger : « Lien expiré », le secret n'apparaît plus.
+- [ ] Créer le webhook dans GitLab (Push, MR, Pipeline, Deployment, SSL activé) → « Tester » → « Événements de poussée » : une notification dans le salon Code. « Tester » une seconde fois avec le même événement : une notification de plus seulement si GitLab envoie un nouvel identifiant de livraison.
+- [ ] Compte Developer du projet : page « Droits insuffisants », rien de relié. Compte sans accès : « Accès refusé ».
+- [ ] Annuler sur GitLab : « Autorisation annulée ». Lien de plus de 15 minutes : « Lien expiré ».
+- [ ] Relancer la connexion d'un projet relié : avertissement « nouveau secret » dans Discord ; l'ancien secret donne 401 dans « Événements récents », le nouveau fonctionne.
+- [ ] `logs/bot.log`, journal Nginx, `sqlite3 data/sae_bot.sqlite3 .dump` : ni le secret du webhook, ni token, ni `code=`/`state=`.
+- [ ] Projet du `.env` (`GITLAB_PROJECT_ID`) : refusé avec « env-gitlab ».
+

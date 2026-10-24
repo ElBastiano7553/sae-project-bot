@@ -45,7 +45,7 @@ MAX_WELCOME_DELETE_HOURS = 168
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
 SECRET_ENV_VARS = (
     "DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET",
-    "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_CLIENT_SECRET",
+    "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_CLIENT_SECRET", "GITLAB_APP_CLIENT_SECRET",
 )
 # Webhooks GitHub : seul ce dépôt est accepté par défaut (dépôt privé du jeu).
 DEFAULT_GITHUB_REPOSITORY = "ElBastiano7553/game-project"
@@ -57,6 +57,9 @@ LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 _GITHUB_APP_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62})$")
 _GITHUB_CLIENT_ID = re.compile(r"^[A-Za-z0-9.]{8,64}$")
 _PUBLIC_URL = re.compile(r"^https://[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?$")
+# Connexion des projets GitLab (étape B5) : identifiant (public) de l'application OAuth GitLab.
+_GITLAB_CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_GITLAB_URL = re.compile(r"^https://[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?(?:/[a-z0-9._~-]+)*$")
 _GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 
 
@@ -127,6 +130,12 @@ class Settings:
     github_app_client_secret: str = field(default="", repr=False)
     # Erreur dans PROJECTS_PUBLIC_URL / GITHUB_APP_SLUG / GITHUB_APP_CLIENT_*: seule la connexion est désactivée.
     github_app_error: str | None = None
+    # Connexion des projets GitLab (étape B5) : application OAuth en lecture seule. Tout vide : désactivée.
+    gitlab_app_url: str = ""  # instance GitLab de l'application OAuth : https://gitlab.com par défaut
+    gitlab_app_client_id: str = ""
+    gitlab_app_client_secret: str = field(default="", repr=False)
+    # Erreur dans GITLAB_APP_* (ou PROJECTS_PUBLIC_URL) : seule la connexion GitLab est désactivée.
+    gitlab_app_error: str | None = None
 
     @property
     def ai_enabled(self) -> bool:
@@ -156,6 +165,11 @@ class Settings:
     def github_app_enabled(self) -> bool:
         """Connexion des projets GitHub (/projet configurer, pages /github/setup et /github/callback)."""
         return bool(self.github_app_client_secret)
+
+    @property
+    def gitlab_app_enabled(self) -> bool:
+        """Connexion des projets GitLab (/projet configurer projet:, page /gitlab/callback)."""
+        return bool(self.gitlab_app_client_secret)
 
     @property
     def gitlab_requested(self) -> bool:
@@ -256,6 +270,9 @@ class Settings:
             used_ports[github["github_webhook_port"]] = "GITHUB_WEBHOOK_PORT"
         projects_http = _parse_projects_http(env, used_ports=used_ports, legacy_github_secret=github["github_webhook_secret"])
         github_app = _parse_github_app(env, projects_http)
+        gitlab_app = _parse_gitlab_app(env, projects_http)
+        if gitlab_app.pop("public_url"):
+            github_app["projects_public_url"] = gitlab_app_public_url(env)
         gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
         gitlab_api_error = None
         if not gitlab_base_url.startswith("https://") or "@" in gitlab_base_url:
@@ -297,6 +314,7 @@ class Settings:
             **github,
             **projects_http,
             **github_app,
+            **gitlab_app,
         )
 
 
@@ -410,8 +428,8 @@ def _parse_github_app(env: Mapping[str, str], projects_http: Mapping[str, object
         "github_app_client_secret": "",
         "github_app_error": None,
     }
-    if not any(values.values()):
-        return disabled  # connexion non demandée
+    if not any(values[var] for var in GITHUB_APP_VARS[1:]):
+        return disabled  # connexion non demandée (PROJECTS_PUBLIC_URL peut servir à la seule connexion GitLab)
     problems: list[str] = []
     missing = [var for var, value in values.items() if not value]
     if missing:
@@ -443,6 +461,63 @@ def _parse_github_app(env: Mapping[str, str], projects_http: Mapping[str, object
         "github_app_client_id": client_id,
         "github_app_client_secret": secret,
         "github_app_error": None,
+    }
+
+
+GITLAB_APP_VARS = ("GITLAB_APP_URL", "GITLAB_APP_CLIENT_ID", "GITLAB_APP_CLIENT_SECRET")
+
+
+def gitlab_app_public_url(env: Mapping[str, str]) -> str:
+    return env.get("PROJECTS_PUBLIC_URL", "").strip().rstrip("/").lower()
+
+
+def _parse_gitlab_app(env: Mapping[str, str], projects_http: Mapping[str, object]) -> dict:
+    """Connexion des projets GitLab (étape B5). Une erreur la désactive (``gitlab_app_error``) sans rien bloquer d'autre.
+
+    Il faut la réception des projets (B3), l'adresse HTTPS publique ``PROJECTS_PUBLIC_URL`` (la même
+    que pour GitHub) et une application OAuth GitLab (``GITLAB_APP_CLIENT_ID`` et son secret
+    ``GITLAB_APP_CLIENT_SECRET``, masqué dans les journaux), sur l'instance ``GITLAB_APP_URL``
+    (https://gitlab.com par défaut). Le webhook historique (``GITLAB_WEBHOOK_SECRET``) n'en dépend pas.
+    ``public_url`` (retiré par l'appelant) : vrai si ``PROJECTS_PUBLIC_URL`` a été validée ici.
+    """
+    values = {var: env.get(var, "").strip() for var in GITLAB_APP_VARS}
+    disabled = {"gitlab_app_url": "", "gitlab_app_client_id": "", "gitlab_app_client_secret": "", "gitlab_app_error": None, "public_url": False}
+    if not values["GITLAB_APP_CLIENT_ID"] and not values["GITLAB_APP_CLIENT_SECRET"]:
+        return disabled  # connexion non demandée (GITLAB_APP_URL seule ne suffit pas à la demander)
+    problems: list[str] = []
+    missing = [var for var in GITLAB_APP_VARS[1:] if not values[var]]
+    if missing:
+        problems.append(f"{', '.join(missing)} manquant(s) (voir docs/gitlab-app.md).")
+    instance = (values["GITLAB_APP_URL"] or "https://gitlab.com").rstrip("/").lower()
+    if not _GITLAB_URL.match(instance):
+        problems.append(f"GITLAB_APP_URL doit être l'adresse https:// de l'instance GitLab, sans identifiants (valeur actuelle : {instance!r}).")
+    public = gitlab_app_public_url(env)
+    if not public:
+        problems.append("PROJECTS_PUBLIC_URL manquante : GitLab doit pouvoir renvoyer la personne vers Samae (voir docs/gitlab-app.md).")
+    elif not _PUBLIC_URL.match(public):
+        problems.append(
+            f"PROJECTS_PUBLIC_URL doit être une adresse https:// sans chemin ni identifiants, par exemple "
+            f"https://samae.exemple.fr (valeur actuelle : {public!r})."
+        )
+    client_id = values["GITLAB_APP_CLIENT_ID"]
+    if client_id and not _GITLAB_CLIENT_ID.match(client_id):
+        problems.append(f"GITLAB_APP_CLIENT_ID n'a pas le format d'un « Application ID » GitLab (valeur actuelle : {client_id!r}).")
+    secret = values["GITLAB_APP_CLIENT_SECRET"]
+    if secret and len(secret) < MIN_WEBHOOK_SECRET_LENGTH:
+        problems.append(f"GITLAB_APP_CLIENT_SECRET est trop court (minimum {MIN_WEBHOOK_SECRET_LENGTH} caractères).")
+    others = {env.get(var, "").strip() for var in SECRET_ENV_VARS if var != "GITLAB_APP_CLIENT_SECRET"} - {""}
+    if secret and secret in others:
+        problems.append("GITLAB_APP_CLIENT_SECRET doit être différent des autres secrets du .env.")
+    if not projects_http["projects_http_enabled"]:
+        problems.append("la réception des projets doit être active (PROJECTS_HTTP_ENABLED=true, voir docs/projets-reception.md).")
+    if problems:
+        return {**disabled, "gitlab_app_error": " ; ".join(problems)}
+    return {
+        "gitlab_app_url": instance,
+        "gitlab_app_client_id": client_id,
+        "gitlab_app_client_secret": secret,
+        "gitlab_app_error": None,
+        "public_url": True,
     }
 
 

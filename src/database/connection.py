@@ -343,6 +343,22 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, installation_id)
     );
     """,
+    # v12 : connexion des projets GitLab par une application OAuth (multi-projets, étape B5).
+    # gitlab_setup_states : liens d'autorisation en attente, à usage unique et limités dans le temps,
+    # chacun lié à un serveur Discord, une personne et UN projet GitLab de ce serveur ; seule
+    # l'empreinte SHA-256 du jeton est gardée, la ligne est supprimée dès son utilisation. Aucun token
+    # GitLab n'est enregistré ; le secret du webhook n'est gardé que sous forme d'empreinte, dans
+    # provider_links (v10). Uniquement une création de table.
+    """
+    CREATE TABLE gitlab_setup_states (
+        token_hash TEXT    PRIMARY KEY CHECK (length(token_hash) = 64),
+        guild_id   INTEGER NOT NULL,
+        user_id    INTEGER NOT NULL,
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        expires_at TEXT    NOT NULL
+    );
+    CREATE INDEX gitlab_setup_states_expires_at ON gitlab_setup_states (expires_at);
+    """,
 ]
 
 
