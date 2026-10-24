@@ -148,3 +148,15 @@ Guide : [projets.md](projets.md). Faire d'abord une copie de la base, ou vérifi
 - [ ] Même commande avec un compte membre qui ne voit pas l'un des salons : ce salon n'est pas nommé, « salon(s) masqué(s) » est indiqué ; pas de ligne « Configuration ».
 - [ ] `/projet details projet:999` : « Projet introuvable sur ce serveur ».
 - [ ] Les notifications GitHub et GitLab existantes arrivent comme avant (rien n'a changé dans leur configuration).
+
+## 1.6.0 : salons et filtres par projet (`/projet modifier`, étape B2)
+
+Les projets enregistrés ne peuvent pas encore être créés depuis Discord (étape B4) : ces tests se
+font après B4, ou sur une base de test où un projet a été ajouté (voir [projets.md](projets.md)).
+
+- [ ] Compte membre : `/projet modifier` est refusé (« réservée aux administrateurs ») et n'apparaît pas dans `/aide` > Commandes.
+- [ ] `/projet modifier projet:env-github …` : « Projet historique », rien n'est changé ; les notifications GitHub arrivent comme avant.
+- [ ] `/projet modifier projet:<n> categorie:Code (commits) salon:#activité-git` puis `branches:main, develop` : la réponse montre « Avant » / « Maintenant » ; `/projet details` affiche le filtre.
+- [ ] Un salon où Samae ne peut pas écrire est refusé avec la permission manquante ; un salon vocal est refusé.
+- [ ] `filtre:explose` : message listant les valeurs possibles, rien n'est modifié.
+- [ ] `retirer:True` : la catégorie disparaît de `/projet details` ; `/admin historique` montre chaque modification.

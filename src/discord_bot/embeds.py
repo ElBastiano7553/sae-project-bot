@@ -25,7 +25,7 @@ from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
 from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
-from src.services.projects import CATEGORIES as PROJECT_CATEGORIES, ProjectView, visible_routes
+from src.services.projects import CATEGORIES as PROJECT_CATEGORIES, ProjectView, Route as ProjectRoute, describe_filters, visible_routes
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
 from src.services.self_roles import SelfRoleCatalog
 from src.services.server_structure import ChannelStatus, StructureReport
@@ -639,12 +639,16 @@ def project_detail_embed(project: ProjectView, *, can_view, admin: bool) -> disc
     if admin:
         lines = [
             f"{PROJECT_CATEGORIES[r.category]} → " + (f"<#{r.channel_id}>" if r.channel_id is not None else "*salon non associé*")
+            + (f" ({describe_filters(r.filters)})" if r.filters else "")
             for r in project.routes
         ]
         add_field(embed, "Salons des notifications", design.bullet_list(lines, "Aucun salon choisi."))
     else:
         shown, hidden = visible_routes(project.routes, can_view)
-        lines = [f"{PROJECT_CATEGORIES[r.category]} → <#{r.channel_id}>" for r in shown]
+        lines = [
+            f"{PROJECT_CATEGORIES[r.category]} → <#{r.channel_id}>" + (f" ({describe_filters(r.filters)})" if r.filters else "")
+            for r in shown
+        ]
         text = design.bullet_list(lines, "Aucun salon visible pour vous.")
         if hidden:
             text += f"\n*{hidden} salon(s) masqué(s) : vous n'y avez pas accès.*"
@@ -655,4 +659,29 @@ def project_detail_embed(project: ProjectView, *, can_view, admin: bool) -> disc
     if admin and project.note:
         add_field(embed, "Configuration", project.note)
     embed.set_footer(text=design.footer(f"référence {project.ref}"))
+    return fit_embed(embed)
+
+
+def project_route_embed(
+    project: ProjectView,
+    category: str,
+    route: ProjectRoute | None,
+    *,
+    previous: ProjectRoute | None = None,
+    removed: bool = False,
+) -> discord.Embed:
+    """Résultat de /projet modifier : la catégorie avant et après le changement."""
+    label = PROJECT_CATEGORIES[category]
+    if removed:
+        embed = make_embed(f"{label} : plus publiée", f"Projet **{design.escape_markdown(project.name)}**.", tone=Tone.SUCCESS)
+        embed.set_footer(text=design.footer(f"référence {project.ref}"))
+        return fit_embed(embed)
+
+    def line(r: ProjectRoute | None) -> str:
+        return f"<#{r.channel_id}> · filtres : {describe_filters(r.filters)}" if r is not None else "*non publiée*"
+
+    embed = make_embed(f"{label} : enregistré", f"Projet **{design.escape_markdown(project.name)}**.", tone=Tone.SUCCESS)
+    add_field(embed, "Avant", line(previous))
+    add_field(embed, "Maintenant", line(route))
+    embed.set_footer(text=design.footer(f"référence {project.ref}", "appliqué à la réception des événements (prochaine étape)"))
     return fit_embed(embed)

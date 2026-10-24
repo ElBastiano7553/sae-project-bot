@@ -52,6 +52,22 @@ LEGACY_GITHUB_CATEGORIES = ("code", "revues", "tickets", "ci")
 GITLAB_KIND_CATEGORIES = {"push": "code", "merge_request": "revues", "pipeline": "ci", "deployment": "deploiements"}
 
 
+# Filtres possibles par catégorie, avec un vocabulaire commun à GitHub et GitLab (traduit par
+# chaque fournisseur à la réception des événements, étape B3). Une catégorie sans filtre
+# enregistré reçoit tout ce que le fournisseur envoie pour elle.
+FILTER_CHOICES = {
+    "revues": ("actions", ("ouverture", "reouverture", "modification", "fusion", "fermeture", "approbation")),
+    "tickets": ("actions", ("ouverture", "fermeture", "reouverture")),
+    "ci": ("statuts", ("reussi", "echoue", "annule")),
+    "deploiements": ("statuts", ("reussi", "echoue", "annule", "en_cours")),
+}
+BRANCH_CATEGORIES = ("code", "ci")
+BRANCH_PATTERN = re.compile(r"^[A-Za-z0-9._/*-]{1,100}$")
+BRANCHES_MAX = 20
+# Valeur d'une option de filtre qui efface le filtre (retour à « tout »).
+CLEAR_FILTER = "toutes"
+
+
 class ProjectError(ValueError):
     """Donnée de projet refusée ; le message est affichable tel quel."""
 
@@ -130,6 +146,52 @@ def normalize_name(value: str) -> str:
     if not 1 <= len(name) <= NAME_MAX:
         raise ProjectError(f"Le nom du projet doit faire entre 1 et {NAME_MAX} caractères.")
     return name
+
+
+def _split(text: str) -> list[str]:
+    return [part.strip() for part in text.replace(";", ",").split(",") if part.strip()]
+
+
+def update_filters(category: str, current: Mapping[str, object], *, branches: str | None = None, values: str | None = None) -> dict:
+    """Nouveaux filtres d'une catégorie. ``None`` = option non donnée (filtre inchangé),
+    « toutes » = filtre effacé. Lève ``ProjectError`` avec un message affichable."""
+    check_category(category)
+    filters = dict(current)
+    if branches is not None:
+        if category not in BRANCH_CATEGORIES:
+            raise ProjectError(f"La catégorie « {CATEGORIES[category]} » ne se filtre pas par branche.")
+        if branches.strip().casefold() == CLEAR_FILTER:
+            filters.pop("branches", None)
+        else:
+            patterns = list(dict.fromkeys(_split(branches)))
+            if not patterns or len(patterns) > BRANCHES_MAX or not all(BRANCH_PATTERN.match(p) for p in patterns):
+                raise ProjectError(
+                    f"Branches attendues séparées par des virgules (au plus {BRANCHES_MAX}), par exemple « main, develop, feature/* »."
+                )
+            filters["branches"] = patterns
+    if values is not None:
+        if category not in FILTER_CHOICES:
+            raise ProjectError(f"La catégorie « {CATEGORIES[category]} » n'a pas de filtre d'actions ou de statuts.")
+        key, allowed = FILTER_CHOICES[category]
+        if values.strip().casefold() == CLEAR_FILTER:
+            filters.pop(key, None)
+        else:
+            chosen = list(dict.fromkeys(v.casefold() for v in _split(values)))
+            unknown = [v for v in chosen if v not in allowed]
+            if not chosen or unknown:
+                raise ProjectError(f"Valeurs possibles pour « {CATEGORIES[category]} » : {', '.join(allowed)} (ou « {CLEAR_FILTER} »).")
+            filters[key] = [v for v in allowed if v in chosen]  # ordre stable
+    return filters
+
+
+def describe_filters(filters: Mapping[str, object]) -> str:
+    parts = []
+    if filters.get("branches"):
+        parts.append("branches : " + ", ".join(f"`{b}`" for b in filters["branches"]))
+    for key in ("actions", "statuts"):
+        if filters.get(key):
+            parts.append(f"{key} : " + ", ".join(filters[key]))
+    return " · ".join(parts) or "tout"
 
 
 def registered_view(record, routes: tuple[Route, ...]) -> ProjectView:

@@ -53,10 +53,23 @@ async def test_admin_commands_require_manage_guild_by_default(bot):
         assert commands[name].default_permissions is None
 
 
+# Sous-commandes d'administration dans un groupe ouvert à tous (vérifiées par le bot à chaque appel).
+ADMIN_SUBCOMMANDS = {"projet modifier"}
+
+
+async def test_admin_subcommands_of_public_groups_are_checked_by_the_bot(bot):
+    commands = all_commands(bot)
+    marked = {name for name, command in commands.items() if command.extras.get("admin")}
+    assert marked == ADMIN_SUBCOMMANDS
+    for name in marked:
+        assert commands[name].checks, f"/{name} doit avoir une vérification côté bot"
+
+
 async def test_help_lists_exactly_the_registered_commands(bot):
     assert {entry.command for entry in HELP_ENTRIES} == set(all_commands(bot))
     for entry in HELP_ENTRIES:
-        assert entry.admin == (entry.command.split()[0] in ADMIN_COMMANDS), entry.command
+        expected = entry.command.split()[0] in ADMIN_COMMANDS or entry.command in ADMIN_SUBCOMMANDS
+        assert entry.admin == expected, entry.command
 
 
 async def test_bot_uses_no_privileged_intents(bot):
