@@ -236,6 +236,8 @@ GitLab ──HTTPS──► tunnel (Cloudflare / ngrok) ──► aiohttp 127.0.
                                                      ▼
    tâche de fond ──► channel_bindings (salon associé au /admin installer) ──► Discord
                      3 essais (0, 2, 10 s) ; statut enregistré : sent / failed / skipped
+                     refus définitif (salon supprimé, permission manquante) : failed dès le
+                     1er essai (gitlab.dispatcher.send_with_retries, commun aux trois files)
                      au démarrage : notifications « queued » de moins de 24 h remises en file
 ```
 

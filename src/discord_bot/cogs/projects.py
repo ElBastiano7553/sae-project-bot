@@ -13,7 +13,9 @@ un projet à partir de l'adresse de son dépôt, après un récapitulatif et une
 personnel et à usage unique, vérification auprès de GitHub, choix du dépôt, confirmation,
 message de test ; avec ``projet:``, relie un projet GitLab déjà enregistré (étape B5) : lien
 d'autorisation GitLab personnel, rôle Maintainer vérifié, secret du webhook affiché une seule
-fois dans le navigateur (``providers/gitlab_oauth.py``). Aucun token ni mot de passe n'est demandé dans Discord.
+fois dans le navigateur (``providers/gitlab_oauth.py``). Aucun token ni mot de passe n'est demandé dans Discord ;
+``diagnostic`` explique pourquoi un projet ne reçoit pas ses notifications
+(``services/project_diagnosis.py``), sans rien modifier.
 
 Chaque serveur ne voit que ses propres projets. Les projets configurés dans
 ``.env`` apparaissent comme « historiques », en lecture seule.
@@ -37,6 +39,7 @@ from src.discord_bot.embeds import (
     project_add_preview_embed,
     project_added_embed,
     project_detail_embed,
+    project_diagnosis_embed,
     project_route_embed,
     projects_list_pages,
 )
@@ -47,6 +50,7 @@ from src.discord_bot.permissions import is_bot_admin
 from src.github.dispatcher import CHANNEL_KEY as GITHUB_CHANNEL_KEY
 from src.gitlab.rules import load_gitlab_rules
 from src.providers.github_app import STATE_TTL
+from src.services.project_diagnosis import DIAGNOSIS_DAYS, DeliveryFacts, ProjectFacts, ReceptionFacts, diagnose
 from src.services.projects import (
     CATEGORIES,
     CLEAR_FILTER,
@@ -598,6 +602,59 @@ class ProjectsCog(commands.Cog):
             lines.append(f"Impossible de publier dans : {', '.join(refused)} (vérifiez le salon et les permissions de Samae).")
         await interaction.followup.send("\n".join(lines), ephemeral=True)
 
+    @projet.command(
+        name="diagnostic",
+        description="Admins : pourquoi un projet ne reçoit pas ses notifications (aucune modification)",
+        extras={"admin": True},
+    )
+    @app_commands.describe(projet="Projet enregistré (référence affichée par /projet liste)")
+    @admin_only()
+    async def diagnostic(self, interaction: discord.Interaction, projet: app_commands.Range[str, 1, REF_MAX]) -> None:
+        guild = await self._guild_or_error(interaction)
+        if guild is None:
+            return
+        ref = projet.strip()
+        record = self.bot.projects_repo.get(guild.id, int(ref)) if ref.isdigit() else None
+        if record is None:
+            legacy = " Les projets historiques du `.env` se vérifient avec `/admin diagnostic` et `/etat`." if not ref.isdigit() else ""
+            await send_error(interaction, f"Projet enregistré introuvable sur ce serveur.{legacy}", title="Projet introuvable")
+            return
+        diagnosis = diagnose(self._project_facts(guild, record), self._reception_facts(), self._delivery_facts(record.id))
+        view = registered_view(record, self.bot.projects_repo.routes(guild.id, record.id), connected=record.id in self.bot.projects_repo.linked_ids(guild.id))
+        await interaction.response.send_message(embed=project_diagnosis_embed(view, diagnosis), ephemeral=True)
+
+    def _reception_facts(self) -> ReceptionFacts:
+        settings, server = self.bot.settings, self.bot.projects_server
+        return ReceptionFacts(
+            enabled=settings.projects_http_enabled,
+            error=self.bot.projects_error,
+            listening=server is not None and server.listening,
+            github_open=bool(settings.github_app_webhook_secret),
+        )
+
+    def _project_facts(self, guild: discord.Guild, record) -> ProjectFacts:
+        repo, settings = self.bot.projects_repo, self.bot.settings
+        link = repo.link(guild.id, record.id)
+        installation_known = link is not None and any(
+            i.installation_id == link.installation_id for i in self.bot.github_setup_repo.installations(guild.id)
+        )
+        legacy_duplicate = guild.id == settings.guild_id and (
+            (record.provider == "github" and settings.github_requested and settings.github_repository.casefold() == record.external_id)
+            or (record.provider == "gitlab" and settings.gitlab_requested and str(settings.gitlab_project_id) == record.external_id)
+        )
+        return ProjectFacts(
+            provider=record.provider,
+            status=record.status,
+            linked=link is not None,
+            installation_known=installation_known,
+            legacy_duplicate=legacy_duplicate,
+            routes=[(route.category, self._channel_problem(guild, route.channel_id)) for route in repo.routes(guild.id, record.id)],
+        )
+
+    def _delivery_facts(self, project_id: int) -> DeliveryFacts:
+        counts, last = self.bot.project_deliveries_repo.project_summary(project_id, DIAGNOSIS_DAYS)
+        return DeliveryFacts(counts, last)
+
     @configure.autocomplete("depot")
     async def _repository_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         # Autocomplétion appelée sans les vérifications de la commande : administrateurs seulement.
@@ -620,6 +677,7 @@ class ProjectsCog(commands.Cog):
             if p.provider == "gitlab" and (needle in p.name.casefold() or needle in str(p.id) or needle in p.external_id)
         ][:25]
 
+    @diagnostic.autocomplete("projet")
     @modify.autocomplete("projet")
     async def _registered_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         # Discord appelle l'autocomplétion sans passer par les vérifications de la commande : on refuse ici aussi.

@@ -100,7 +100,7 @@ instance est refusé avec un message clair.
 - `/etat` : « connexion GitLab active ».
 - `/projet configurer projet:<référence>` → connexion → page avec URL et secret → webhook dans GitLab →
   **Tester** : notification dans le salon « Code ».
-- `/projet diagnostic projet:<référence>` (si la PR de diagnostic est fusionnée) : chaque étape au vert.
+- `/projet diagnostic projet:<référence>` : chaque étape au vert.
 - En cas d'échec côté GitLab : **Paramètres → Webhooks → Modifier → Événements récents** montre le code
   HTTP reçu (401 : mauvais secret ; 403 : projet différent ; 404 : Nginx ; 502 : Samae arrêté). GitLab
   désactive un webhook qui échoue plusieurs fois de suite : réactivez-le après correction.

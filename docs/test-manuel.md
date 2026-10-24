@@ -221,6 +221,14 @@ Avec la GitHub App de test (après accord du propriétaire du VPS : DNS, certifi
 - [ ] Ouvrir le même lien d'installation dans deux onglets en même temps : un seul aboutit, l'autre affiche « Lien expiré ».
 - [ ] Journal `logs/bot.log` et journal Nginx du site : aucun `code=`, `state=`, token ni secret.
 
+### `/projet diagnostic` (audit d'avant B5)
+
+- [ ] Compte membre : `/projet diagnostic` n'apparaît pas, ou est refusée.
+- [ ] Projet connecté qui n'a encore rien reçu : quatre lignes, la dernière en ⚠️, piste « Recent deliveries ».
+- [ ] Retirer à Samae « Envoyer des messages » dans le salon Code : ligne « Salons » en ❌ qui nomme la permission.
+- [ ] Après un push : « 1 publiée(s) ». Avec un filtre de branche qui l'écarte : « écartée(s) par les filtres ».
+- [ ] `/projet diagnostic projet:env-github` : « introuvable », renvoi vers `/admin diagnostic`. Aucun secret affiché nulle part.
+
 ## 1.10.0 : connexion des projets GitLab (`/projet configurer projet:`, étape B5)
 
 Guide : [gitlab-app.md](gitlab-app.md). Sauvegarde `…-avantv12.sqlite3` créée au démarrage.

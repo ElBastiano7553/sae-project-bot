@@ -25,6 +25,7 @@ from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
 from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
+from src.services.project_diagnosis import Diagnosis
 from src.services.projects import CATEGORIES as PROJECT_CATEGORIES, PROVIDERS, ParsedRepository, ProjectView, Route as ProjectRoute, describe_filters, visible_routes
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
 from src.services.self_roles import SelfRoleCatalog
@@ -834,4 +835,15 @@ def project_test_embed(project_name: str, categories) -> discord.Embed:
         tone=Tone.INFO,
     )
     embed.set_footer(text=design.footer("message de test, aucune action nécessaire"))
+    return fit_embed(embed)
+
+
+def project_diagnosis_embed(project: ProjectView, diagnosis: Diagnosis) -> discord.Embed:
+    """Résultat de /projet diagnostic : contrôles dans l'ordre du trajet d'un événement, puis la piste à suivre."""
+    status = diagnosis.status
+    embed = make_embed(f"{HEALTH_ICONS[status]} Diagnostic : {design.escape_markdown(project.name)}", tone=HEALTH_TONES[status])
+    for check in diagnosis.checks:
+        add_field(embed, f"{HEALTH_ICONS[check.status]} {check.name}", check.detail)
+    add_field(embed, "Piste", diagnosis.hint)
+    embed.set_footer(text=design.footer(f"référence {project.ref}", "état vu par Samae à l'instant ; Nginx et le fournisseur ne sont pas vérifiés"))
     return fit_embed(embed)
