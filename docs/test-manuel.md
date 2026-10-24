@@ -181,3 +181,15 @@ Préparer deux projets : « Public » avec un salon que tout le monde voit, « P
 - [ ] Compte membre : en tapant `/projet details projet:`, l'autocomplétion ne propose que « Public » ; `/projet modifier projet:` ne propose rien.
 - [ ] Compte administrateur : les trois projets apparaissent dans la liste, les détails et l'autocomplétion.
 - [ ] Donner au membre l'accès au salon de « Privé » : le projet apparaît pour lui sans redémarrage.
+
+## 1.8.0 : réception commune des événements (étape B3)
+
+Guide : [projets-reception.md](projets-reception.md). Faire d'abord une copie de la base, ou vérifier que la sauvegarde `…-avantv10.sqlite3` est créée au démarrage. Aucune manipulation Nginx n'est nécessaire.
+
+- [ ] Sans rien changer au `.env` : au démarrage, le journal indique « Migration de la base de données vers la version 10 » puis « Réception des projets désactivée » ; `/etat` affiche « schéma v10 » et « Réception des projets : désactivée ».
+- [ ] Les notifications GitHub (8081) et GitLab (8080) du `.env` arrivent comme avant.
+- [ ] `PROJECTS_HTTP_ENABLED=true` puis redémarrage : `/etat` affiche « écoute locale sur http://127.0.0.1:8090, GitHub App fermée ».
+- [ ] Sur le serveur qui héberge Samae : `curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8090/gitlab/webhook/essai-0000000000000` affiche `401` ; `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8090/` affiche `404`.
+- [ ] Depuis un autre ordinateur, `http://<adresse du VPS>:8090/` ne répond pas (le port n'écoute qu'en local).
+- [ ] `PROJECTS_HTTP_HOST=0.0.0.0` : `/etat` affiche une erreur « adresse locale », le reste du bot fonctionne.
+- [ ] `/projet liste` : les projets ajoutés restent « enregistré, pas encore connecté : aucune notification » (la connexion arrive en B4/B5).

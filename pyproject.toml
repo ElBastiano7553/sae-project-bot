@@ -1,6 +1,6 @@
 [project]
 name = "sae-project-bot"
-version = "1.7.1"
+version = "1.8.0"
 description = "Bot Discord de l'équipe SAE EPITA : messages permanents, notifications GitLab et bilans assistés par IA."
 requires-python = ">=3.11"
 

@@ -84,7 +84,10 @@ class ProjectsCog(commands.Cog):
         """Projets historiques (.env) puis projets enregistrés, uniquement ceux de ce serveur."""
         repo = self.bot.projects_repo
         bindings = self.bot.bindings_repo.get_all()
-        registered = [registered_view(record, repo.routes(guild_id, record.id)) for record in repo.list_for_guild(guild_id)]
+        linked = repo.linked_ids(guild_id)
+        registered = [
+            registered_view(record, repo.routes(guild_id, record.id), connected=record.id in linked) for record in repo.list_for_guild(guild_id)
+        ]
         legacy = legacy_projects(
             self.bot.settings,
             guild_id,

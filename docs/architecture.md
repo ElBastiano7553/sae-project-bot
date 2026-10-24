@@ -41,6 +41,7 @@ Les lots 1 à 4 sont implémentés ; le déploiement réel sur le serveur reste 
 | 1.3.0 | Refonte complète de `/refonte` : `services/redesign_target.py` (profils, styles, accès), `services/server_redesign.py` réécrit (inventaire, actions explicites, permissions, ordre, doublons, suppressions séparées), `services/redesign_rollback.py`, `discord_bot/snapshot.py` complet ; commandes `/refonte lancer`, `retour`, `journal` ; pas de migration | ✅ livré, non déployé ([détails](refonte.md)) |
 | 1.4.0 | Commandes regroupées, choix des rôles (`/roles`), accueil des nouveaux membres, règlement dans `#règlement` ; pas de migration | ✅ livré, non déployé ([détails](accueil-et-roles.md)) |
 | 1.5.0 (multi-projets B1) | Socle multi-projets : `services/projects.py` (modèle commun GitHub/GitLab, projets historiques du `.env`), `database/projects.py` (isolation par serveur), `cogs/projects.py` (`/projet liste`, `/projet details`), migration v9 | ✅ livré, non déployé ([détails](projets.md)) |
+| 1.8.0 (multi-projets B3) | Réception commune : `providers/translate.py` (vocabulaire commun), `providers/dispatcher.py` (filtres, anti-doublons par projet, salon revérifié dans le serveur du projet), `providers/server.py` (127.0.0.1:8090), `database/project_deliveries.py`, liens dans `database/projects.py`, migration v10 | ✅ livré, non déployé ([détails](projets-reception.md)) |
 | Samae 2.0 · 2 à 4 | Idées et tier lists, débat et communauté, finitions : voir [samae-2-plan.md](samae-2-plan.md) | ⏳ à faire |
 
 Principes ajoutés au lot 1 :
@@ -310,6 +311,7 @@ liste et de nouveaux cogs.
 | `meetings`, `meeting_participants`, `meeting_steps`, `meeting_notes`, `meeting_actions`, `meeting_log` | (v7, Samae 2.0) réunions, participants, ordre du jour, décisions et réserves, actions, historique ; détail dans [meetings.md](meetings.md) |
 | `github_deliveries` | (v8) livraisons des webhooks GitHub du projet historique : clé, type, statut, empreinte anti-doublon, notification en JSON |
 | `projects`, `project_routes` | (v9, multi-projets) projets suivis : serveur Discord, fournisseur, dépôt, nom, état, auteur ; salon et filtres par catégorie. Aucun token ni secret ; détail dans [projets.md](projets.md) |
+| `provider_links`, `project_deliveries` | (v10, multi-projets B3) lien d'un projet avec son fournisseur (installation GitHub App, ou identifiant de webhook GitLab + empreinte SHA-256 du secret, jamais le secret) ; livraisons reçues par projet (statut, anti-doublon, notification). Détail dans [projets-reception.md](projets-reception.md) |
 | `bot_errors` | (v5) erreurs regroupées par empreinte : source, dernier message, première et dernière occurrence, nombre, date de la dernière alerte |
 
 Migrations : chaque migration est exécutée dans **une seule transaction** avec la
@@ -319,7 +321,7 @@ migration 4 n'ajoute que des colonnes, un index et une table : aucune donnée
 existante n'est modifiée ni supprimée (le titre et le lien des événements V2 sont
 recopiés depuis leur notification JSON). La migration 5 ajoute des colonnes, des
 index et deux tables, et remplit seulement la nouvelle colonne `event_at` à partir
-des dates existantes. Les migrations 7, 8 et 9 ne créent que des tables. Une base plus récente que le code est
+des dates existantes. Les migrations 7, 8, 9 et 10 ne créent que des tables. Une base plus récente que le code est
 refusée au démarrage plutôt qu'utilisée à l'aveugle.
 
 La version du schéma est stockée dans `PRAGMA user_version` ; les migrations sont

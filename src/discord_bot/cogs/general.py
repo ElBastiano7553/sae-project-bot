@@ -21,6 +21,7 @@ from src.services.health import (
     AlertsSummary,
     BackupSummary,
     GitHubSummary,
+    ProjectsReceptionSummary,
     HistorySummary,
     MessagesSummary,
     build_health_checks,
@@ -75,6 +76,14 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             error=bot.github_error,
             last_event_at=bot.github_deliveries_repo.last_received_at(),
             repository=bot.settings.github_repository,
+        ),
+        projects=ProjectsReceptionSummary(
+            enabled=bot.settings.projects_http_enabled,
+            listening=bot.projects_server is not None and bot.projects_server.listening,
+            error=bot.projects_error,
+            address=bot.projects_server.local_url if bot.projects_server is not None else "",
+            github_app=bool(bot.settings.github_app_webhook_secret),
+            last_event_at=bot.project_deliveries_repo.last_received_at(),
         ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at
