@@ -6,6 +6,7 @@ import discord
 import pytest
 
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
+from src.gitlab.dispatcher import PermanentSendError
 from src.gitlab.events import format_push
 from src.gitlab.rules import GitLabRules
 from src.gitlab.samples import push_payload
@@ -44,6 +45,42 @@ async def test_forbidden_channel_raises_gateway_error():
 
 async def test_voice_channel_is_refused():
     with pytest.raises(GatewayError, match="textuel"):
+        await DiscordNotificationSender(fake_client(MagicMock(spec=discord.VoiceChannel))).send_notification(
+            1, format_push(push_payload(), RULES)
+        )
+
+
+def _http_error(cls, status):
+    return cls(MagicMock(status=status, reason="?"), "erreur")
+
+
+@pytest.mark.parametrize("error", [discord.Forbidden, discord.NotFound])
+async def test_definitive_refusals_are_not_worth_retrying(error):
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.name = "gitlab-activite"
+    channel.send = AsyncMock(side_effect=_http_error(error, 403 if error is discord.Forbidden else 404))
+    with pytest.raises(PermanentSendError):
+        await DiscordNotificationSender(fake_client(channel)).send_notification(1, format_push(push_payload(), RULES))
+
+
+async def test_deleted_uncached_channel_is_a_definitive_refusal():
+    client = fake_client(None)
+    client.fetch_channel = AsyncMock(side_effect=_http_error(discord.NotFound, 404))
+    with pytest.raises(PermanentSendError, match="inaccessible"):
+        await DiscordNotificationSender(client).send_notification(1, format_push(push_payload(), RULES))
+
+
+async def test_discord_outage_stays_retryable():
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.name = "gitlab-activite"
+    channel.send = AsyncMock(side_effect=_http_error(discord.DiscordServerError, 503))
+    with pytest.raises(GatewayError) as caught:
+        await DiscordNotificationSender(fake_client(channel)).send_notification(1, format_push(push_payload(), RULES))
+    assert not isinstance(caught.value, PermanentSendError)
+
+
+async def test_voice_channel_is_a_definitive_refusal():
+    with pytest.raises(PermanentSendError):
         await DiscordNotificationSender(fake_client(MagicMock(spec=discord.VoiceChannel))).send_notification(
             1, format_push(push_payload(), RULES)
         )

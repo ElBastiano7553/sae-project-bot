@@ -36,6 +36,7 @@ from src.gitlab.dispatcher import (
     SubmitStatus,
     notification_from_json,
     notification_to_json,
+    send_with_retries,
 )
 from src.gitlab.events import Notification
 from src.providers.translate import ProjectEvent
@@ -163,23 +164,11 @@ class ProjectDispatcher:
             )
             status = EventStatus.SKIPPED
         else:
-            status = await self._send_with_retries(job)
+            status = await send_with_retries(
+                self.sender, job.channel_id, job.notification, self._retry_delays, f"{job.delivery_key} du projet {job.project_id}"
+            )
         self.deliveries.set_status(job.project_id, job.delivery_key, status)
         return status
-
-    async def _send_with_retries(self, job: _Job) -> EventStatus:
-        for attempt, delay in enumerate((*self._retry_delays, None), start=1):
-            try:
-                await self.sender.send_notification(job.channel_id, job.notification)
-            except Exception as exc:
-                if delay is None:
-                    log.error("Notification %s du projet %d abandonnée après %d essai(s) : %s", job.delivery_key, job.project_id, attempt, exc)
-                    return EventStatus.FAILED
-                log.warning("Envoi de la notification %s impossible (%s), nouvel essai dans %g s", job.delivery_key, exc, delay)
-                await asyncio.sleep(delay)
-            else:
-                return EventStatus.SENT
-        return EventStatus.FAILED  # inatteignable, pour les vérificateurs de types
 
     async def drain(self) -> None:
         """Traite immédiatement les notifications en attente (utilisé par les tests)."""

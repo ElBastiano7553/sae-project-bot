@@ -10,7 +10,8 @@ Garanties :
   en file ; sinon elle est oubliée pour que GitHub puisse la renvoyer ;
 * la notification est enregistrée avec la livraison : si le bot s'arrête avant
   l'envoi, elle est renvoyée au redémarrage (``restore_pending``) ;
-* un envoi Discord en échec est retenté (``RETRY_DELAYS``), puis marqué ``failed`` ;
+* un envoi Discord en échec est retenté (``RETRY_DELAYS``), puis marqué ``failed``
+  (tout de suite si le refus est définitif) ;
 * aucune erreur ne peut arrêter la tâche de fond.
 """
 
@@ -32,6 +33,7 @@ from src.gitlab.dispatcher import (
     SubmitStatus,
     notification_from_json,
     notification_to_json,
+    send_with_retries,
 )
 from src.gitlab.events import Notification
 
@@ -149,23 +151,9 @@ class GitHubDispatcher:
             )
             status = EventStatus.SKIPPED
         else:
-            status = await self._send_with_retries(channel_id, job)
+            status = await send_with_retries(self.sender, channel_id, job.notification, self._retry_delays, f"GitHub {job.key}")
         self.repository.set_status(job.key, status)
         return status
-
-    async def _send_with_retries(self, channel_id: int, job: _Job) -> EventStatus:
-        for attempt, delay in enumerate((*self._retry_delays, None), start=1):
-            try:
-                await self.sender.send_notification(channel_id, job.notification)
-            except Exception as exc:
-                if delay is None:
-                    log.error("Notification GitHub %s abandonnée après %d essai(s) : %s", job.key, attempt, exc)
-                    return EventStatus.FAILED
-                log.warning("Envoi de la notification GitHub %s impossible (%s), nouvel essai dans %g s", job.key, exc, delay)
-                await asyncio.sleep(delay)
-            else:
-                return EventStatus.SENT
-        return EventStatus.FAILED  # inatteignable, pour les vérificateurs de types
 
     async def drain(self) -> None:
         """Traite immédiatement les notifications en attente (utilisé par les tests)."""

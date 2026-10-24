@@ -11,6 +11,8 @@ Garanties :
 * la notification est enregistrée avec l'événement : si le bot s'arrête avant
   l'envoi, elle est renvoyée au redémarrage (``restore_pending``) ;
 * un envoi Discord en échec est retenté (``RETRY_DELAYS``), puis marqué ``failed`` ;
+  un refus définitif (``PermanentSendError`` : salon supprimé, permission manquante)
+  est marqué ``failed`` tout de suite, sans bloquer la file pendant les nouveaux essais ;
 * aucune erreur ne peut arrêter la tâche de fond.
 """
 
@@ -42,7 +44,37 @@ DEFAULT_BRANCH_KEY = "gitlab:default_branch"
 
 class NotificationSender(Protocol):
     async def send_notification(self, channel_id: int, notification: Notification) -> None:
-        """Publie la notification ; lève une exception en cas d'échec."""
+        """Publie la notification ; lève une exception en cas d'échec (``PermanentSendError`` s'il est inutile de réessayer)."""
+
+
+class PermanentSendError(Exception):
+    """Envoi refusé pour une raison qu'un nouvel essai ne changera pas (salon supprimé, permission manquante…)."""
+
+
+async def send_with_retries(
+    sender: NotificationSender, channel_id: int, notification: Notification, retry_delays: Sequence[float], label: str
+) -> EventStatus:
+    """Envoie la notification, avec un nouvel essai après chaque attente de ``retry_delays``.
+
+    Commun aux trois files (GitLab, GitHub, projets). Un refus définitif n'est pas retenté :
+    la file étant traitée une notification à la fois, chaque essai inutile retarderait toutes
+    les autres (12 secondes par notification avec les délais par défaut).
+    """
+    for attempt, delay in enumerate((*retry_delays, None), start=1):
+        try:
+            await sender.send_notification(channel_id, notification)
+        except PermanentSendError as exc:
+            log.error("Notification %s abandonnée sans nouvel essai : %s", label, exc)
+            return EventStatus.FAILED
+        except Exception as exc:
+            if delay is None:
+                log.error("Notification %s abandonnée après %d essai(s) : %s", label, attempt, exc)
+                return EventStatus.FAILED
+            log.warning("Envoi de la notification %s impossible (%s), nouvel essai dans %g s", label, exc, delay)
+            await asyncio.sleep(delay)
+        else:
+            return EventStatus.SENT
+    return EventStatus.FAILED  # inatteignable, pour les vérificateurs de types
 
 
 class SubmitStatus(StrEnum):
@@ -194,23 +226,9 @@ class NotificationDispatcher:
             )
             status = EventStatus.SKIPPED
         else:
-            status = await self._send_with_retries(channel_id, job)
+            status = await send_with_retries(self.sender, channel_id, job.notification, self._retry_delays, f"GitLab {job.event_key}")
         self.repository.set_status(job.event_key, status)
         return status
-
-    async def _send_with_retries(self, channel_id: int, job: _Job) -> EventStatus:
-        for attempt, delay in enumerate((*self._retry_delays, None), start=1):
-            try:
-                await self.sender.send_notification(channel_id, job.notification)
-            except Exception as exc:
-                if delay is None:
-                    log.error("Notification GitLab %s abandonnée après %d essai(s) : %s", job.event_key, attempt, exc)
-                    return EventStatus.FAILED
-                log.warning("Envoi de la notification GitLab %s impossible (%s), nouvel essai dans %g s", job.event_key, exc, delay)
-                await asyncio.sleep(delay)
-            else:
-                return EventStatus.SENT
-        return EventStatus.FAILED  # inatteignable, pour les vérificateurs de types
 
     async def drain(self) -> None:
         """Traite immédiatement les notifications en attente (utilisé par les tests)."""
