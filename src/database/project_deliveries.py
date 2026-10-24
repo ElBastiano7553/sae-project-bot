@@ -91,6 +91,18 @@ class ProjectDeliveryRepository:
         row = self._conn.execute("SELECT MAX(received_at) AS last FROM project_deliveries").fetchone()
         return row["last"] if row else None
 
+    def project_summary(self, project_id: int, days: int) -> tuple[dict[str, int], str | None]:
+        """Livraisons de CE projet par statut sur ``days`` jours, et date de la dernière (``/projet diagnostic``)."""
+        rows = self._conn.execute(
+            """
+            SELECT status, COUNT(*) AS n FROM project_deliveries
+            WHERE project_id = ? AND received_at >= datetime('now', ?) GROUP BY status
+            """,
+            (project_id, f"-{int(days)} days"),
+        ).fetchall()
+        last = self._conn.execute("SELECT MAX(received_at) AS last FROM project_deliveries WHERE project_id = ?", (project_id,)).fetchone()
+        return {row["status"]: row["n"] for row in rows}, last["last"]
+
     def purge_older_than(self, days: int) -> int:
         with self._conn:
             cursor = self._conn.execute("DELETE FROM project_deliveries WHERE received_at < datetime('now', ?)", (f"-{int(days)} days",))

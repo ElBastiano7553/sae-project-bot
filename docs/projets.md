@@ -141,6 +141,30 @@ restaurer cette sauvegarde avec l'ancienne version (voir [deployment-vps.md](dep
 Les serveurs où `/projet` est ouvert sont donnés par `ProjectsCog.project_guilds()` : pour
 l'instant, seulement `DISCORD_GUILD_ID`. L'ouverture à d'autres serveurs est l'étape B7.
 
+## 2 bis. Un projet ne reçoit pas ses notifications (`/projet diagnostic`)
+
+`/projet diagnostic projet:<référence>` (administrateurs, réponse visible par vous seul) suit le
+trajet d'un événement et s'arrête sur le premier problème trouvé. Il ne modifie rien.
+
+| Ligne | Ce que Samae vérifie lui-même | Si c'est rouge |
+|---|---|---|
+| Réception de Samae | `PROJECTS_HTTP_ENABLED`, serveur local en écoute, `GITHUB_APP_WEBHOOK_SECRET` (GitHub) | corriger le `.env` du serveur qui héberge Samae, voir `/etat` |
+| Connexion au fournisseur | projet actif, lien créé par `/projet configurer`, installation encore vérifiée pour ce serveur, pas de doublon avec le webhook historique du `.env` | relancer `/projet configurer` |
+| Salons | au moins un salon choisi ; chaque salon existe, est dans ce serveur, et Samae peut y voir, écrire et intégrer des liens | `/projet modifier`, permissions du salon |
+| Reçu ces 7 derniers jours | livraisons enregistrées pour **ce** projet : publiées, écartées par les filtres, salon refusé, envoi impossible | voir la « Piste » |
+
+Ce que Samae **ne peut pas voir** est donné comme une piste, jamais comme un fait : Nginx, le DNS, le
+certificat, et l'historique des livraisons chez le fournisseur. Si rien n'a été reçu :
+
+- **GitHub** : réglages de la GitHub App → *Advanced* → *Recent deliveries*. Une livraison en échec
+  (502, délai dépassé) montre que GitHub n'atteint pas Samae. GitHub ne renvoie **jamais** une
+  livraison échouée de lui-même : bouton *Redeliver* (Samae écarte les doublons).
+- **GitLab** : *Paramètres* → *Webhooks* → *Modifier* → *Événements récents*. GitLab désactive un
+  webhook qui échoue plusieurs fois de suite.
+
+Un événement d'une catégorie sans salon n'est pas enregistré du tout : il n'apparaît pas dans les
+compteurs. Aucun secret, jeton ni contenu d'événement n'est affiché.
+
 ## 3. Suite
 
 | Étape | Contenu | Besoin côté VPS ou fournisseur |

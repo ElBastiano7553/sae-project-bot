@@ -109,6 +109,13 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         "/projet configurer",
         admin=True,
     ),
+    HelpEntry(
+        "projet diagnostic",
+        "projets",
+        "Pourquoi un projet ne reçoit pas ses notifications : réception, connexion, salons, livraisons des 7 derniers jours, et la piste à suivre.",
+        "/projet diagnostic projet:1",
+        admin=True,
+    ),
     HelpEntry("ia question", "ia", "Question sur le projet : l'IA répond à partir des documents de l'équipe et cite ses sources.", "/ia question question:Quand est la prochaine soutenance ?"),
     HelpEntry("ia bilan", "ia", "Bilan de l'activité GitLab de la période, rédigé par l'IA à partir des événements reçus.", "/ia bilan periode:7 derniers jours"),
     HelpEntry("ia relecture", "ia", "Relecture d'une merge request par l'IA : bugs probables, tests, sécurité (une aide, pas une validation).", "/ia relecture mr:12"),

@@ -54,7 +54,7 @@ async def test_admin_commands_require_manage_guild_by_default(bot):
 
 
 # Sous-commandes d'administration dans un groupe ouvert à tous (vérifiées par le bot à chaque appel).
-ADMIN_SUBCOMMANDS = {"projet ajouter", "projet modifier", "projet configurer"}
+ADMIN_SUBCOMMANDS = {"projet ajouter", "projet modifier", "projet configurer", "projet diagnostic"}
 
 
 async def test_admin_subcommands_of_public_groups_are_checked_by_the_bot(bot):
