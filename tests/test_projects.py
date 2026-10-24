@@ -74,7 +74,10 @@ def test_schema_refuses_unknown_provider_category_and_status(db):
 def test_create_validates_and_normalizes(db):
     repo = ProjectRepository(db)
     github = repo.create(GUILD, "github", " ElBastiano7553/game-project ", "  Jeu   du  projet ", created_by=7)
-    assert (github.provider, github.external_id, github.instance_url, github.name) == ("github", "ElBastiano7553/game-project", "", "Jeu du projet")
+    # Identifiants en minuscules : GitHub et GitLab ignorent la casse (pas de doublon « Equipe/Jeu » / « equipe/jeu »).
+    assert (github.provider, github.external_id, github.instance_url, github.name) == ("github", "elbastiano7553/game-project", "", "Jeu du projet")
+    with pytest.raises(ProjectError, match="déjà suivi"):
+        repo.create(GUILD, "github", "elbastiano7553/GAME-project", "Doublon", created_by=7)
     gitlab = repo.create(GUILD, "gitlab", "0042", "Outils", created_by=7, instance_url="https://gitlab.exemple.fr/")
     assert (gitlab.external_id, gitlab.instance_url, gitlab.status) == ("42", "https://gitlab.exemple.fr", "active")
     assert repo.create(GUILD, "gitlab", "43", "Défaut", created_by=7).instance_url == "https://gitlab.com"

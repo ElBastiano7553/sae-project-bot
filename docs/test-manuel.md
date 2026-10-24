@@ -151,8 +151,7 @@ Guide : [projets.md](projets.md). Faire d'abord une copie de la base, ou vérifi
 
 ## 1.6.0 : salons et filtres par projet (`/projet modifier`, étape B2)
 
-Les projets enregistrés ne peuvent pas encore être créés depuis Discord (étape B4) : ces tests se
-font après B4, ou sur une base de test où un projet a été ajouté (voir [projets.md](projets.md)).
+Ajouter d'abord un projet avec `/projet ajouter` (section 1.7.0 ci-dessous).
 
 - [ ] Compte membre : `/projet modifier` est refusé (« réservée aux administrateurs ») et n'apparaît pas dans `/aide` > Commandes.
 - [ ] `/projet modifier projet:env-github …` : « Projet historique », rien n'est changé ; les notifications GitHub arrivent comme avant.
@@ -160,3 +159,15 @@ font après B4, ou sur une base de test où un projet a été ajouté (voir [pro
 - [ ] Un salon où Samae ne peut pas écrire est refusé avec la permission manquante ; un salon vocal est refusé.
 - [ ] `filtre:explose` : message listant les valeurs possibles, rien n'est modifié.
 - [ ] `retirer:True` : la catégorie disparaît de `/projet details` ; `/admin historique` montre chaque modification.
+
+## 1.7.0 : ajouter un projet (`/projet ajouter`)
+
+- [ ] Compte membre : `/projet ajouter` est refusé.
+- [ ] `/projet ajouter url:https://github.com/<equipe>/<depot>` : récapitulatif privé (GitHub, nom, nom du serveur, « Surveillance : pas encore ») ; rien dans `/projet liste` avant confirmation.
+- [ ] « Annuler » ou attendre 2 minutes : rien n'est enregistré ; un autre compte qui clique est refusé.
+- [ ] « Confirmer » : le projet apparaît dans `/projet liste` avec « pas encore connecté : aucune notification » ; `/admin historique` montre l'ajout.
+- [ ] Relancer avec la même adresse en majuscules : « Projet déjà suivi ».
+- [ ] Adresse du dépôt du `.env` (`GITHUB_WEBHOOK_REPOSITORY`) : refusée (projet historique).
+- [ ] `url:http://…`, `url:https://bitbucket.org/a/b`, `url:https://nom:motdepasse@github.com/a/b` : message clair, l'adresse fautive n'est pas répétée.
+- [ ] Adresse GitLab (`https://gitlab.com/groupe/projet`) : fournisseur GitLab détecté.
+- [ ] Puis `/projet modifier` sur ce projet (section 1.6.0).
