@@ -35,6 +35,7 @@ from src.discord_bot.gateway import DiscordMessageGateway
 from src.discord_bot.gitlab_sender import DiscordNotificationSender
 from src.discord_bot.snapshot import snapshot_guild
 from src.database.github import GitHubDeliveryRepository
+from src.database.projects import ProjectRepository
 from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
 from src.gitlab.api import GitLabAPI
@@ -72,6 +73,7 @@ EXTENSIONS = (
     "src.discord_bot.cogs.admin",
     "src.discord_bot.cogs.redesign",
     "src.discord_bot.cogs.welcome",
+    "src.discord_bot.cogs.projects",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
@@ -136,6 +138,8 @@ class SaeBot(commands.Bot):
         self.github_deliveries_repo = GitHubDeliveryRepository(database)
         self.github_server: GitHubWebhookServer | None = None
         self.github_error: str | None = None
+        # Projets suivis (/projet) : un serveur Discord ne voit que les siens.
+        self.projects_repo = ProjectRepository(database)
         self._github_task: asyncio.Task | None = None
         self.errors = errors or RecentErrors()
         self.errors.add_listener(self._on_error)

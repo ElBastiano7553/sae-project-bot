@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.4.0 (commandes regroupées, accueil et choix des rôles)
+## État actuel : version 1.5.0 (début du multi-projets : `/projet liste` et `/projet details`)
 
 | Fonction | État |
 |---|---|
@@ -27,6 +27,8 @@ et bilans assistés par IA.
 | Commandes regroupées par système (8 commandes au premier niveau : `/aide`, `/etat`, `/roles`, `/activite`, `/ia`, `/reunion`, `/admin`, `/refonte`) | ✅ 1.4.0 |
 | Choix des rôles par les membres (`/roles`, bouton « Choisir mes rôles » persistant, menu à choix multiples, rôles de staff jamais attribuables) et message d'accueil des nouveaux membres supprimé après 24 h (facultatif) | ✅ 1.4.0 ([guide](docs/accueil-et-roles.md)) |
 | Règlement publié dans `#règlement` (et non plus dans `#annonces`), panneaux « Choix des rôles » et « Organiser une réunion », pied de page « Samae » | ✅ 1.4.0 |
+| Multi-projets, étape B1 : projets enregistrés par serveur Discord (GitHub et GitLab), projets du `.env` affichés comme « historiques », `/projet liste` et `/projet details` (un membre ne voit que les salons auxquels il a accès) | ✅ 1.5.0 ([guide](docs/projets.md)) |
+| Multi-projets, étapes B2 à B7 : salons et filtres par projet, connexion GitHub App et GitLab OAuth, déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
 `/aide` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :
@@ -83,6 +85,7 @@ Les commandes sont regroupées par système : tapez `/` puis le nom du groupe, D
 | `/etat` | tout le monde | état mesuré du bot, de la base, des salons, des messages, de GitLab, GitHub et de l'IA, dernière erreur |
 | `/roles` | tout le monde | choisir ses domaines de travail et ses notifications (menu privé, plusieurs choix, modifiable) |
 | `/activite resume` · `evenements` · `stats` · `contributions` | tout le monde (type « erreurs » : admins) | liens et activité récente, historique GitLab, statistiques, contributions |
+| `/projet liste` · `details` | tout le monde (détails complets : admins) | projets GitHub et GitLab suivis sur ce serveur, état et salons des notifications |
 | `/ia question` · `bilan` · `relecture` | tout le monde, si l'IA est activée | réponses de l'IA, éphémères, avec leurs sources |
 | `/reunion aide` · `creer` · `voir` · `liste` · `rejoindre` · `quitter` · `progression` · `compte-rendu` | tout le monde | réunions, panneau public mis à jour sur place ([guide](docs/meetings.md)) |
 | `/reunion ajouter point` · `reserve` · `action` | participants | ce qu'on note pendant la réunion |
@@ -142,6 +145,7 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Architecture, flux de données et plan des lots](docs/architecture.md)
 - [Commandes et permissions](docs/commands.md)
 - [Accueil des nouveaux membres et choix des rôles](docs/accueil-et-roles.md)
+- [Projets suivis et multi-projets](docs/projets.md)
 - [Guide d'installation Windows](docs/installation-windows.md)
 - [Configurer et tester les notifications GitLab (V2)](docs/gitlab-webhooks.md)
 - [Notifications GitHub du jeu](docs/github-webhooks.md) et [leur déploiement](docs/github-deploiement.md)

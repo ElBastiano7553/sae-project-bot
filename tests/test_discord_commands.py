@@ -8,7 +8,7 @@ from src.discord_bot.bot import EXTENSIONS, SaeBot
 from src.services.help import HELP_ENTRIES
 
 ADMIN_COMMANDS = {"admin", "refonte"}
-PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "ia", "reunion"}
+PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion"}
 
 
 @pytest.fixture
@@ -76,9 +76,9 @@ async def test_members_intent_only_when_welcome_is_enabled(db):
 
 
 async def test_command_tree_is_compact_and_fits_discord_limits(bot):
-    """8 commandes au premier niveau ; au plus 25 sous-commandes par groupe, descriptions ≤ 100 caractères."""
+    """9 commandes au premier niveau ; au plus 25 sous-commandes par groupe, descriptions ≤ 100 caractères."""
     top = bot.tree.get_commands()
-    assert len(top) <= 8
+    assert len(top) <= 9
 
     def check(command):
         assert 1 <= len(command.description) <= 100, command.qualified_name

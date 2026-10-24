@@ -16,10 +16,13 @@ les réunions, `/admin` tout ce qui concerne l'administration, etc.
 | `/etat` | tous | (commande simple) |
 | `/roles` | tous | (commande simple) |
 | `/activite` | tous | `resume`, `evenements`, `stats`, `contributions` |
+| `/projet` *(1.5.0)* | tous | `liste`, `details` (les commandes d'administration arrivent avec les étapes suivantes, voir [projets.md](projets.md)) |
 | `/ia` | tous | `question`, `bilan`, `relecture` |
 | `/reunion` | tous | `aide`, `creer`, `voir`, `liste`, `rejoindre`, `quitter`, `inviter`, `animer`, `progression`, `ajouter point·decision·reserve·action`, `terminer`, `annuler`, `compte-rendu` |
 | `/admin` | admins | `installer`, `actualiser`, `reconstruire`, `messages`, `annonce`, `config`, `diagnostic`, `historique`, `sauvegarde` |
 | `/refonte` | admins | `lancer`, `retour`, `journal` |
+
+La version 1.5.0 ajoute une 9ᵉ commande, `/projet`, demandée pour le suivi de plusieurs projets.
 
 Choix retenus :
 

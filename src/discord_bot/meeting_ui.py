@@ -295,13 +295,20 @@ def panel_view(detail: MeetingDetail) -> discord.ui.View:
 
 
 class PagesView(discord.ui.View):
-    """Pagination d'une réponse éphémère (réservée à la personne qui l'a demandée)."""
+    """Pagination d'une réponse éphémère (réservée à la personne qui l'a demandée).
+
+    Après ``timeout`` secondes sans clic, les boutons sont retirés du message (la page
+    affichée reste lisible) : jamais de bouton mort qui répond « Échec de l'interaction ».
+    Le délai reste sous les 15 minutes pendant lesquelles Discord autorise cette modification.
+    """
 
     def __init__(self, pages: list[discord.Embed], author_id: int, *, timeout: float = 600) -> None:
         super().__init__(timeout=timeout)
         self.pages = pages
         self.index = 0
         self._author_id = author_id
+        # Interaction de la commande d'origine : permet de retirer les boutons à l'expiration.
+        self.original: discord.Interaction | None = None
         self._sync()
 
     def _sync(self) -> None:
@@ -309,7 +316,20 @@ class PagesView(discord.ui.View):
         self.following.disabled = self.index >= len(self.pages) - 1
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self._author_id
+        if interaction.user.id != self._author_id:
+            await interaction.response.send_message(
+                "Ces pages ont été ouvertes par quelqu'un d'autre : relancez la commande pour avoir les vôtres.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        if self.original is None:
+            return
+        try:
+            await self.original.edit_original_response(view=None)
+        except discord.HTTPException:
+            log.debug("Impossible de retirer les boutons d'une pagination expirée", exc_info=True)
 
     @discord.ui.button(label="Précédente", style=discord.ButtonStyle.secondary)
     async def previous(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
