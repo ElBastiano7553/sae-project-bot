@@ -248,6 +248,36 @@ MIGRATIONS: list[str] = [
     CREATE UNIQUE INDEX github_deliveries_dedup ON github_deliveries (dedup_key) WHERE dedup_key IS NOT NULL;
     CREATE INDEX github_deliveries_received_at ON github_deliveries (received_at);
     """,
+    # v9 : projets suivis (multi-projets, étape B1). Chaque projet appartient à UN serveur Discord
+    # (guild_id) et à un fournisseur (github ou gitlab). Aucun token ni secret n'est stocké ici.
+    # Les projets configurés dans .env (« historiques ») ne sont pas copiés : ils restent lus du .env.
+    # Uniquement des créations de tables : rien d'existant n'est modifié.
+    """
+    CREATE TABLE projects (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id     INTEGER NOT NULL,
+        provider     TEXT    NOT NULL CHECK (provider IN ('github', 'gitlab')),
+        external_id  TEXT    NOT NULL,             -- « owner/depot » (GitHub) ou numéro du projet (GitLab)
+        instance_url TEXT    NOT NULL DEFAULT '',  -- adresse de l'instance GitLab ; vide pour GitHub
+        name         TEXT    NOT NULL,
+        status       TEXT    NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+        created_by   INTEGER NOT NULL,
+        created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    -- Un même dépôt ne peut être suivi qu'une fois par serveur (mais par plusieurs serveurs).
+    CREATE UNIQUE INDEX projects_unique ON projects (guild_id, provider, instance_url, external_id);
+    CREATE INDEX projects_lookup ON projects (provider, instance_url, external_id);
+
+    CREATE TABLE project_routes (
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        category   TEXT    NOT NULL CHECK (category IN ('code', 'revues', 'tickets', 'ci', 'versions', 'deploiements')),
+        channel_id INTEGER NOT NULL,
+        filters    TEXT    NOT NULL DEFAULT '{}',  -- JSON : branches suivies, actions notifiées…
+        updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (project_id, category)
+    );
+    """,
 ]
 
 

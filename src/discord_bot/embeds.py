@@ -25,6 +25,7 @@ from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
 from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
+from src.services.projects import CATEGORIES as PROJECT_CATEGORIES, ProjectView, visible_routes
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
 from src.services.self_roles import SelfRoleCatalog
 from src.services.server_structure import ChannelStatus, StructureReport
@@ -590,4 +591,57 @@ def backup_embed(info: BackupInfo, backups: list[BackupInfo], keep: int) -> disc
         "(procédure : docs/deployment-linux.md).",
     )
     embed.set_footer(text=design.footer("les fichiers restent sur le serveur du bot ; aucune copie n'est envoyée sur Discord"))
+    return fit_embed(embed)
+
+
+# --- Projets suivis (/projet) --------------------------------------------------------------
+
+PROJECT_STATUS_TONES = {"active": Tone.SUCCESS, "legacy_on": Tone.SUCCESS, "suspended": Tone.WARNING, "legacy_error": Tone.FAILURE}
+
+
+def _project_line(project: ProjectView) -> str:
+    return f"{project.provider_label} · `{design.escape_markdown(project.target)}` · {project.status_label}\nRéférence : `{project.ref}`"
+
+
+def projects_list_embed(projects: list[ProjectView]) -> discord.Embed:
+    if not projects:
+        return make_embed(
+            "📦 Projets suivis",
+            "Aucun projet n'est suivi sur ce serveur. L'ajout de projets GitHub et GitLab depuis Discord arrive "
+            "dans une prochaine version ; les webhooks configurés dans `.env` apparaîtront ici dès qu'ils sont activés.",
+            tone=Tone.NEUTRAL,
+        )
+    embed = make_embed("📦 Projets suivis", f"{design.plural(len(projects), 'projet')} sur ce serveur. Détails : `/projet details`.")
+    for project in projects:
+        add_field(embed, design.escape_markdown(project.name), _project_line(project))
+    if any(p.legacy for p in projects):
+        embed.set_footer(text=design.footer("historique = configuré dans .env, modifiable seulement sur le serveur qui héberge Samae"))
+    return fit_embed(embed)
+
+
+def project_detail_embed(project: ProjectView, *, can_view, admin: bool) -> discord.Embed:
+    """``can_view(channel_id)`` : le membre voit-il ce salon ? Un administrateur voit tout, y compris les manques."""
+    embed = make_embed(f"📦 {design.escape_markdown(project.name)}", tone=PROJECT_STATUS_TONES.get(project.status, Tone.INFO))
+    add_field(embed, "Fournisseur", project.provider_label, inline=True)
+    add_field(embed, "Suivi", f"`{design.escape_markdown(project.target)}`", inline=True)
+    add_field(embed, "État", project.status_label, inline=True)
+    if admin:
+        lines = [
+            f"{PROJECT_CATEGORIES[r.category]} → " + (f"<#{r.channel_id}>" if r.channel_id is not None else "*salon non associé*")
+            for r in project.routes
+        ]
+        add_field(embed, "Salons des notifications", design.bullet_list(lines, "Aucun salon choisi."))
+    else:
+        shown, hidden = visible_routes(project.routes, can_view)
+        lines = [f"{PROJECT_CATEGORIES[r.category]} → <#{r.channel_id}>" for r in shown]
+        text = design.bullet_list(lines, "Aucun salon visible pour vous.")
+        if hidden:
+            text += f"\n*{hidden} salon(s) masqué(s) : vous n'y avez pas accès.*"
+        add_field(embed, "Salons des notifications", text)
+    if admin and project.created_by is not None:
+        when = design.relative_time(project.created_at) if project.created_at else ""
+        add_field(embed, "Ajouté par", f"<@{project.created_by}> {when}".strip())
+    if admin and project.note:
+        add_field(embed, "Configuration", project.note)
+    embed.set_footer(text=design.footer(f"référence {project.ref}"))
     return fit_embed(embed)

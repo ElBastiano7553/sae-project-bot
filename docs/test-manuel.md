@@ -136,3 +136,15 @@ sur le vrai serveur, lisez attentivement l'aperçu de `/refonte lancer` avant de
 - [ ] Placer le rôle de Samae sous Développement : `/admin diagnostic` le signale ; remettre l'ordre.
 - [ ] Redémarrer le bot : le bouton **Choisir mes rôles** d'un ancien message fonctionne toujours.
 - [ ] (Si `WELCOME_ON_JOIN=true` et l'intent activé) un compte de test rejoint : message « Bienvenue @… » dans `#bienvenue`, avec le bouton ; il quitte : le message disparaît. Avec `WELCOME_DELETE_AFTER_HOURS=1`, le message disparaît après une heure (vérification toutes les 10 minutes) et aucun autre message du salon n'est touché.
+
+## 1.5.0 : projets suivis (`/projet`, multi-projets étape B1)
+
+Guide : [projets.md](projets.md). Faire d'abord une copie de la base, ou vérifier que la sauvegarde `…-avantv9.sqlite3` est créée au démarrage.
+
+- [ ] Au démarrage, le journal indique « Migration de la base de données vers la version 9 » ; `/etat` affiche « schéma v9 ».
+- [ ] `/projet liste` sans webhook configuré : « Aucun projet n'est suivi sur ce serveur ».
+- [ ] Avec `GITHUB_WEBHOOK_SECRET` (et/ou `GITLAB_WEBHOOK_SECRET`) dans `.env` : `/projet liste` montre le projet historique (`env-github`, `env-gitlab`) ; aucun secret n'apparaît.
+- [ ] `/projet details projet:env-github` en administrateur : salons des notifications et ligne « Configuration » (.env, port).
+- [ ] Même commande avec un compte membre qui ne voit pas l'un des salons : ce salon n'est pas nommé, « salon(s) masqué(s) » est indiqué ; pas de ligne « Configuration ».
+- [ ] `/projet details projet:999` : « Projet introuvable sur ce serveur ».
+- [ ] Les notifications GitHub et GitLab existantes arrivent comme avant (rien n'a changé dans leur configuration).
