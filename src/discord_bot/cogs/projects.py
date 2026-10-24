@@ -4,8 +4,10 @@
 un membre ne voit que les salons auxquels il a accès ; un administrateur voit
 tout (salons manquants, auteur, emplacement de la configuration).
 
-``modifier`` (administrateurs seulement, vérifié par le bot à chaque appel) choisit
-le salon et les filtres d'une catégorie de notifications d'un projet enregistré.
+Administrateurs seulement (vérifié par le bot à chaque appel) : ``ajouter`` enregistre
+un projet à partir de l'adresse de son dépôt, après un récapitulatif et une confirmation ;
+``modifier`` choisit ensuite le salon et les filtres de chaque catégorie de notifications.
+Les deux opérations restent distinctes.
 
 Chaque serveur ne voit que ses propres projets. Les projets configurés dans
 ``.env`` apparaissent comme « historiques », en lecture seule.
@@ -20,18 +22,30 @@ from discord.ext import commands
 from src.config import ConfigError, load_server_layout
 from src.discord_bot.bot import SaeBot, send_error
 from src.discord_bot.cogs.admin import admin_only
-from src.discord_bot.embeds import project_detail_embed, project_route_embed, projects_list_pages
+from src.discord_bot.embeds import (
+    project_add_preview_embed,
+    project_added_embed,
+    project_detail_embed,
+    project_route_embed,
+    projects_list_pages,
+)
 from src.discord_bot.meeting_ui import PagesView
+from src.discord_bot.views import ConfirmView
 from src.discord_bot.permissions import is_bot_admin
 from src.github.dispatcher import CHANNEL_KEY as GITHUB_CHANNEL_KEY
 from src.gitlab.rules import load_gitlab_rules
 from src.services.projects import (
     CATEGORIES,
     CLEAR_FILTER,
+    NAME_MAX,
+    URL_MAX,
+    ParsedRepository,
     ProjectError,
     ProjectView,
     Route,
     legacy_projects,
+    normalize_name,
+    parse_repository_url,
     registered_view,
     update_filters,
 )
@@ -126,6 +140,81 @@ class ProjectsCog(commands.Cog):
 
         embed = project_detail_embed(project, can_view=can_view, admin=self._is_admin(interaction))
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @projet.command(name="ajouter", description="Admins : enregistrer un projet GitHub ou GitLab à partir de son adresse", extras={"admin": True})
+    @app_commands.describe(
+        url="Adresse du dépôt, par exemple https://github.com/equipe/jeu ou https://gitlab.com/groupe/projet",
+        nom="Nom affiché dans Samae (par défaut : le nom du dépôt)",
+    )
+    @admin_only()
+    async def add(
+        self,
+        interaction: discord.Interaction,
+        url: app_commands.Range[str, 1, URL_MAX],
+        nom: app_commands.Range[str, 1, NAME_MAX] | None = None,
+    ) -> None:
+        guild = await self._guild_or_error(interaction)
+        if guild is None:
+            return
+        try:
+            parsed = parse_repository_url(url, gitlab_hosts=self._gitlab_hosts())
+            name = normalize_name(nom or parsed.default_name)
+        except ProjectError as exc:
+            await send_error(interaction, str(exc), title="Adresse refusée", tone="warning")
+            return
+        duplicate = self._duplicate(guild.id, parsed)
+        if duplicate:
+            await send_error(interaction, duplicate, title="Projet déjà suivi", tone="warning")
+            return
+
+        async def confirm(confirmation: discord.Interaction) -> None:
+            # Revérifié : un autre administrateur a pu ajouter le même projet pendant la confirmation.
+            again = self._duplicate(guild.id, parsed)
+            if again:
+                await confirmation.edit_original_response(content=again, embeds=[], view=None)
+                return
+            record = self.bot.projects_repo.create(
+                guild.id, parsed.provider, parsed.external_id, name, created_by=interaction.user.id, instance_url=parsed.instance_url
+            )
+            self.bot.record_admin_action(interaction, "projet ajouter", str(record.id), f"{parsed.provider} {parsed.external_id}")
+            view = registered_view(record, ())
+            await confirmation.edit_original_response(content=None, embed=project_added_embed(view), view=None)
+
+        view = ConfirmView(interaction.user.id, confirm, command="/projet ajouter")
+        view.original = interaction
+        embed = project_add_preview_embed(parsed, name, guild.name, warning=self._legacy_warning(parsed))
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    def _gitlab_hosts(self) -> tuple[str, ...]:
+        host = self.bot.settings.gitlab_base_url.removeprefix("https://").split("/")[0]
+        return (host,) if host else ()
+
+    def _duplicate(self, guild_id: int, parsed: ParsedRepository) -> str:
+        """Message d'erreur si ce serveur suit déjà ce projet (en base ou dans .env), sinon vide."""
+        existing = self.bot.projects_repo.find(guild_id, parsed.provider, parsed.external_id, parsed.instance_url)
+        if existing is not None:
+            return f"Ce projet est déjà suivi sur ce serveur sous le nom « {existing.name} » (référence `{existing.id}`). Voir `/projet details`."
+        settings = self.bot.settings
+        if (
+            parsed.provider == "github"
+            and guild_id == settings.guild_id
+            and settings.github_requested
+            and settings.github_repository.casefold() == parsed.external_id
+        ):
+            return (
+                "Ce dépôt est déjà suivi par la configuration `.env` (projet historique `env-github`). "
+                "L'ajouter une seconde fois doublerait ses notifications : rien n'a été enregistré."
+            )
+        return ""
+
+    def _legacy_warning(self, parsed: ParsedRepository) -> str:
+        settings = self.bot.settings
+        if parsed.provider == "gitlab" and settings.gitlab_requested and parsed.instance_url == settings.gitlab_base_url:
+            return (
+                "Un projet GitLab est déjà suivi par la configuration `.env` (`env-gitlab`, identifié par son numéro). "
+                "Vérifiez qu'il ne s'agit pas du même projet : sinon, ses notifications seraient doublées plus tard."
+            )
+        return ""
 
     @projet.command(
         name="modifier",

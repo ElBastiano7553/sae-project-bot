@@ -89,6 +89,13 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
         "/projet details projet:env-github",
     ),
     HelpEntry(
+        "projet ajouter",
+        "projets",
+        "Enregistrer un projet GitHub ou GitLab à partir de l'adresse de son dépôt (récapitulatif, puis confirmation).",
+        "/projet ajouter url:https://github.com/equipe/jeu",
+        admin=True,
+    ),
+    HelpEntry(
         "projet modifier",
         "projets",
         "Salon et filtres (branches, actions, statuts) d'une catégorie de notifications d'un projet enregistré.",

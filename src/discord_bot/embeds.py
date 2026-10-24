@@ -25,7 +25,7 @@ from src.services.diagnostics import ChannelDiagnostic
 from src.services.health import HEALTH_ICONS, HealthCheck, HealthStatus, overall_status
 from src.services.history import ActivityStats, Leaderboard
 from src.services.monitoring import ErrorRecord
-from src.services.projects import CATEGORIES as PROJECT_CATEGORIES, ProjectView, Route as ProjectRoute, describe_filters, visible_routes
+from src.services.projects import CATEGORIES as PROJECT_CATEGORIES, PROVIDERS, ParsedRepository, ProjectView, Route as ProjectRoute, describe_filters, visible_routes
 from src.services.permanent_messages import ACTION_LABELS, MessageStatus, SyncAction, SyncResult
 from src.services.self_roles import SelfRoleCatalog
 from src.services.server_structure import ChannelStatus, StructureReport
@@ -596,7 +596,7 @@ def backup_embed(info: BackupInfo, backups: list[BackupInfo], keep: int) -> disc
 
 # --- Projets suivis (/projet) --------------------------------------------------------------
 
-PROJECT_STATUS_TONES = {"active": Tone.SUCCESS, "legacy_on": Tone.SUCCESS, "suspended": Tone.WARNING, "legacy_error": Tone.FAILURE}
+PROJECT_STATUS_TONES = {"pending": Tone.WARNING, "active": Tone.SUCCESS, "legacy_on": Tone.SUCCESS, "suspended": Tone.WARNING, "legacy_error": Tone.FAILURE}
 
 
 def _project_line(project: ProjectView) -> str:
@@ -684,4 +684,41 @@ def project_route_embed(
     add_field(embed, "Avant", line(previous))
     add_field(embed, "Maintenant", line(route))
     embed.set_footer(text=design.footer(f"référence {project.ref}", "appliqué à la réception des événements (prochaine étape)"))
+    return fit_embed(embed)
+
+
+# Ce que l'ajout d'un projet permet à ce stade (aucune connexion GitHub App / OAuth GitLab avant B4 et B5).
+CONNECTION_NOT_READY = (
+    "**Ajout possible : oui.** Le projet sera enregistré sur ce serveur et vous pourrez choisir ses salons "
+    "et ses filtres avec `/projet modifier`.\n"
+    "**Surveillance : pas encore.** La connexion à {provider} n'est pas encore disponible dans Samae : "
+    "aucune notification ne sera publiée pour ce projet tant qu'elle n'est pas en place. "
+    "Aucun token ni mot de passe ne vous sera demandé dans Discord."
+)
+
+
+def project_add_preview_embed(parsed: ParsedRepository, name: str, guild_name: str, *, warning: str = "") -> discord.Embed:
+    """Récapitulatif de /projet ajouter, avant confirmation."""
+    provider = PROVIDERS[parsed.provider]
+    target = parsed.external_id + (f" · {parsed.instance_url}" if parsed.instance_url else "")
+    embed = make_embed("Ajouter ce projet ?", "Rien n'est encore enregistré. Vérifiez puis confirmez.", tone=Tone.INFO)
+    add_field(embed, "Fournisseur", provider, inline=True)
+    add_field(embed, "Nom du projet", design.escape_markdown(name), inline=True)
+    add_field(embed, "Serveur concerné", design.escape_markdown(guild_name), inline=True)
+    add_field(embed, "Dépôt", f"`{design.escape_markdown(target)}`")
+    add_field(embed, "À ce stade", CONNECTION_NOT_READY.format(provider=provider))
+    if warning:
+        add_field(embed, "À vérifier", warning)
+    embed.set_footer(text=design.footer("expiration : 2 minutes"))
+    return fit_embed(embed)
+
+
+def project_added_embed(project: ProjectView) -> discord.Embed:
+    embed = make_embed(
+        f"Projet ajouté : {design.escape_markdown(project.name)}",
+        f"Référence `{project.ref}`. État : {project.status_label}.\n"
+        f"Étape suivante : choisir ses salons avec `/projet modifier projet:{project.ref}`.",
+        tone=Tone.SUCCESS,
+    )
+    embed.set_footer(text=design.footer(f"référence {project.ref}"))
     return fit_embed(embed)
