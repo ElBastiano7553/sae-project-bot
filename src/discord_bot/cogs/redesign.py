@@ -29,7 +29,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.config import ConfigError, load_server_layout
-from src.discord_bot.bot import SaeBot, send_error
+from src.discord_bot.bot import SaeBot, require_team_space, send_error
 from src.discord_bot.cogs.admin import admin_only
 from src.discord_bot.embeds import diagnostic_embed, error_embed
 from src.discord_bot.permissions import is_bot_admin
@@ -122,6 +122,10 @@ class RedesignCog(commands.Cog):
         guild_only=True,
         default_permissions=discord.Permissions(manage_guild=True),
     )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Espace d'équipe : utilisable seulement sur le serveur principal (voir /setup serveur-principal)."""
+        return require_team_space(interaction)
 
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
@@ -585,8 +589,9 @@ class RedesignCog(commands.Cog):
         return embed
 
     def _guild(self, interaction: discord.Interaction) -> discord.Guild:
-        if interaction.guild is None or interaction.guild.id != self.bot.settings.guild_id:
-            raise ConfigError("Cette commande doit être utilisée sur le serveur configuré dans DISCORD_GUILD_ID.")
+        problem = self.bot.team_guild_error(interaction.guild_id)
+        if interaction.guild is None or problem:
+            raise ConfigError(problem or "Cette commande s'utilise sur le serveur principal du bot.")
         return interaction.guild
 
 

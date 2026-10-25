@@ -179,12 +179,17 @@ def test_restore_is_refused_while_the_bot_runs(settings, database, capsys):
 
 
 def test_resync_forgets_the_command_fingerprint(settings, database):
-    from src.discord_bot.bot import COMMANDS_SYNC_KEY
+    from src.discord_bot.bot import COMMANDS_SYNC_GLOBAL_KEY, COMMANDS_SYNC_HOME_KEY
 
+    keys = (COMMANDS_SYNC_GLOBAL_KEY, COMMANDS_SYNC_HOME_KEY, "commands_sync_hash")  # la dernière : avant 1.12
     with database.conn:
-        database.conn.execute("INSERT INTO kv_store (key, value) VALUES (?, 'abc')", (COMMANDS_SYNC_KEY,))
+        for key in keys:
+            database.conn.execute("INSERT INTO kv_store (key, value) VALUES (?, 'abc')", (key,))
+        database.conn.execute("INSERT INTO kv_store (key, value) VALUES ('setup_confirmed_at', 'x')")
     assert ops.cmd_resync(settings) == 0
-    assert database.conn.execute("SELECT 1 FROM kv_store WHERE key = ?", (COMMANDS_SYNC_KEY,)).fetchone() is None
+    for key in keys:
+        assert database.conn.execute("SELECT 1 FROM kv_store WHERE key = ?", (key,)).fetchone() is None
+    assert database.conn.execute("SELECT 1 FROM kv_store WHERE key = 'setup_confirmed_at'").fetchone()  # rien d'autre
 
 
 # --- Surveillance ----------------------------------------------------------------------------------

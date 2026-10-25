@@ -1,4 +1,4 @@
-"""Commandes /musique, boutons du panneau et événements, avec un faux Discord et un faux moteur audio."""
+"""Commandes de musique (/play, /skip, /loop…), boutons du panneau et événements, avec un faux Discord et un faux moteur audio."""
 
 from __future__ import annotations
 
@@ -204,6 +204,7 @@ async def env(db):
     members = {name: FakeMember(uid, name) for name, uid in (("Alice", ALICE), ("Bob", BOB), ("Chloé", CHLOE))}
     cog = bot.get_cog("MusicCog")
     cog.panel_delay = 0
+    cog.audio_check_delay = 0  # pas de vérification du son programmée (testée à part)
     yield SimpleNamespace(bot=bot, cog=cog, backend=backend, text=text, m=members)
     await bot.close()
 
@@ -242,7 +243,7 @@ async def test_disabled_music_answers_clearly(db):
         cog = bot.get_cog("MusicCog")
         interaction = FakeInteraction(GUILD, FakeMember(ALICE, "Alice"))
         await cog.play.callback(cog, interaction, "titre", None)
-        assert "MUSIC_ENABLED=false" in all_embeds(interaction) and interaction.response.sent[0]["ephemeral"]
+        assert "MUSIC_ENABLED=true" in all_embeds(interaction) and interaction.response.sent[0]["ephemeral"]
         interaction = FakeInteraction(GUILD, FakeMember(ALICE, "Alice"))
         await cog.queue.callback(cog, interaction)
         assert "pas activée" in all_embeds(interaction)
@@ -271,14 +272,30 @@ async def test_play_link_connects_plays_and_publishes_one_panel(env):
     assert env.backend.connected == {GUILD_ID: VOICE_ID}
     message = panel(env)
     assert "Un titre" in message.embed.title and f"<@{ALICE}>" in " ".join(f.value for f in message.embed.fields)
-    assert [cid.split(":")[-1] for cid in ids(message.view)] == ["pause", "skip", "stop", "queue", "favorite"]
+    assert [cid.split(":")[-1] for cid in ids(message.view)] == ["pause", "skip", "stop", "loop", "queue", "favorite"]
     assert all(cid.startswith(f"samae:music:{GUILD_ID}:") for cid in ids(message.view))
 
 
-async def test_text_search_offers_a_choice_reserved_to_the_requester(env):
-    env.backend.results["ytmsearch:daft punk"] = LoadResult([raw_track(f"Résultat {i}") for i in range(7)])
+async def test_play_with_text_plays_the_first_result(env):
+    env.backend.results["ytmsearch:daft punk"] = LoadResult([raw_track(f"Résultat {i}", identifier=f"r{i}") for i in range(7)])
     join(env.m["Alice"], VOICE)
     interaction = await run_play(env, env.m["Alice"], "daft punk")
+    assert "lancé maintenant" in all_embeds(interaction) and "Résultat 0" in panel(env).embed.title
+    assert env.backend.count("play") == 1 and env.bot.music.snapshot(GUILD_ID).upcoming == ()
+
+
+async def run_search(env, member, query, source=None):
+    interaction = FakeInteraction(GUILD, member)
+    await env.cog.search.callback(env.cog, interaction, query, source)
+    await flush(env.cog)
+    return interaction
+
+
+async def test_search_offers_a_choice_reserved_to_the_requester(env):
+    env.backend.results["ytmsearch:daft punk"] = LoadResult([raw_track(f"Résultat {i}") for i in range(7)])
+    join(env.m["Alice"], VOICE)
+    interaction = await run_search(env, env.m["Alice"], "daft punk")
+    assert interaction.response.deferred  # « réfléchit… » pendant la recherche
     sent = interaction.followup.sent[0]
     view = sent["view"]
     assert sent["ephemeral"] and len(view.select.options) == 5 and env.backend.count("play") == 0
@@ -294,6 +311,12 @@ async def test_text_search_offers_a_choice_reserved_to_the_requester(env):
     assert "Résultat 1" in panel(env).embed.title
     assert "lancé maintenant" in all_embeds(choice)
     assert await view.interaction_check(FakeInteraction(GUILD, env.m["Alice"])) is False  # second clic ignoré
+
+
+async def test_search_requires_voice_before_deferring(env):
+    interaction = await run_search(env, env.m["Alice"], "a")
+    assert "Rejoignez d'abord un salon vocal" in all_embeds(interaction)
+    assert not interaction.response.deferred and env.backend.count("load") == 0
 
 
 async def test_second_play_queues_instead_of_interrupting(env):
@@ -406,15 +429,16 @@ async def test_button_permissions_are_checked_at_each_click(env):
     # Bob n'est pas dans le salon vocal : refus, sans rien changer.
     interaction = await press(env, env.m["Bob"], click_ids(message)["skip"])
     assert "Rejoignez" in all_embeds(interaction)
-    # Avec un rôle DJ configuré, Bob (dans le salon, sans le rôle) ne peut pas passer le titre d'Alice.
-    env.bot.music.policy = type(env.bot.music.policy)(dj_role_configured=True)
+    # Sans rôle DJ, toute personne du salon peut passer le titre.
     join(env.m["Bob"], VOICE)
+    # Rôle DJ choisi pour CE serveur (/setup role-dj) : Bob, sans le rôle, ne peut plus passer le titre d'Alice.
+    env.bot.guild_settings_repo.set_dj_role(GUILD_ID, 777)
     interaction = await press(env, env.m["Bob"], click_ids(message)["skip"])
     assert "Seule la personne qui a demandé" in all_embeds(interaction)
-    env.bot.settings = env.bot.settings.__class__(**{**env.bot.settings.__dict__, "music_dj_role_name": "DJ"})
-    env.m["Bob"].roles = [SimpleNamespace(name="dj")]
+    env.m["Bob"].roles = [SimpleNamespace(name="autre nom", id=777)]  # reconnu par son identifiant, pas son nom
     interaction = await press(env, env.m["Bob"], click_ids(message)["skip"])
     assert "Passé" in all_embeds(interaction)
+    env.m["Bob"].roles = []
 
 
 async def test_queue_and_favorite_buttons(env, db):
@@ -469,9 +493,10 @@ async def test_control_commands(env):
     assert "35 %" in await call("volume", None)
     assert "🎵 b" in await call("now_playing")
     assert "File d'attente" in await call("queue")
-    assert "ajouté à vos favoris" in await call("favorite", None)
-    assert "Vos favoris" in await call("favorites")
-    assert "Retiré de vos favoris" in await call("favorite", 1)
+    assert "ajouté à vos favoris" in await call("favorite_add")
+    assert "déjà dans vos favoris" in await call("favorite_add")  # /favorite add n'enlève jamais
+    assert "Vos favoris" in await call("favorite_list")
+    assert "Retiré de vos favoris" in await call("favorite_remove", 1)
     assert "1 titre(s) retiré(s)" in await call("stop")
     assert "Historique musical" in await call("history")
     assert "quitté le salon vocal" in await call("leave")
@@ -496,7 +521,7 @@ async def test_favorites_replay_menu(env):
     uri = service.favorites(GUILD_ID, ALICE)[0].uri
     env.backend.results[uri] = LoadResult([raw_track("a", identifier="a")])
     interaction = FakeInteraction(GUILD, env.m["Alice"])
-    await env.cog.favorites.callback(env.cog, interaction)
+    await env.cog.favorite_list.callback(env.cog, interaction)
     view = interaction.followup.sent[-1]["view"]
     choice = FakeInteraction(GUILD, env.m["Alice"])
     view.select._values = ["0"]
@@ -574,3 +599,204 @@ def test_mentions_and_markdown_are_neutralised_in_titles():
     track = normalize_track(raw_track("**@everyone** `x`"))
     line = music_ui.track_line(track)
     assert "\\*\\*" in line and "\\`" in line
+
+
+# --- Nouvelles commandes (1.12) : file, répétition, /join, diagnostic ------------------------------
+
+
+async def call(env, member, command, *args, guild=GUILD):
+    interaction = FakeInteraction(guild, member)
+    await getattr(env.cog, command).callback(env.cog, interaction, *args)
+    await flush(env.cog)
+    return all_embeds(interaction)
+
+
+def choice(value):
+    return SimpleNamespace(value=value, name=value)
+
+
+async def test_queue_management_commands(env):
+    await start_session(env, "a", "b", "c", "d")
+    alice = env.m["Alice"]
+    assert [e.track.title for e in env.bot.music.snapshot(GUILD_ID).upcoming] == ["b", "c", "d"]
+    assert "Retiré de la file" in await call(env, alice, "remove", 2)
+    assert [e.track.title for e in env.bot.music.snapshot(GUILD_ID).upcoming] == ["b", "d"]
+    assert "Aucun titre en position 9" in await call(env, alice, "remove", 9)
+    assert "File mélangée (2 titres)" in await call(env, alice, "shuffle")
+    assert "2 titre(s) retiré(s)" in await call(env, alice, "clear")
+    assert env.bot.music.snapshot(GUILD_ID).current.track.title == "a"  # le titre en cours continue
+    assert "déjà vide" in await call(env, alice, "clear")
+    assert "au moins deux titres" in await call(env, alice, "shuffle")
+
+
+async def test_remove_autocomplete_lists_this_guilds_queue(env):
+    await start_session(env, "a", "b", "c")
+    interaction = FakeInteraction(GUILD, env.m["Alice"])
+    choices = await env.cog._remove_autocomplete(interaction, "")
+    assert [(c.value, c.name.split(" ")[1]) for c in choices] == [(1, "b"), (2, "c")]
+    other = FakeInteraction(FakeGuild(OTHER_GUILD), env.m["Alice"])
+    assert await env.cog._remove_autocomplete(other, "") == []
+
+
+async def test_removing_someone_elses_track_needs_dj(env):
+    await start_session(env, "a")
+    join(env.m["Bob"], VOICE)
+    env.backend.results["ytmsearch:bob"] = LoadResult([raw_track("bob", identifier="bob")])
+    await run_play(env, env.m["Bob"], "bob")
+    env.bot.guild_settings_repo.set_dj_role(GUILD_ID, 777)  # rôle DJ sur ce serveur
+    join(env.m["Chloé"], VOICE)
+    refused = await call(env, env.m["Chloé"], "remove", 1)
+    assert "Seule la personne" in refused or "DJ" in refused
+    assert len(env.bot.music.snapshot(GUILD_ID).upcoming) == 1
+    assert "Retiré de la file" in await call(env, env.m["Bob"], "remove", 1)  # son propre titre : toujours permis
+
+
+async def test_loop_track_and_queue(env):
+    await start_session(env, "a", "b")
+    service, alice = env.bot.music, env.m["Alice"]
+    assert "titre en cours" in await call(env, alice, "loop", choice("track"))
+    current = service.snapshot(GUILD_ID).current
+    await service.on_track_end(GUILD_ID, current.entry_id, "finished")
+    assert service.snapshot(GUILD_ID).current.track.title == "a"  # le même titre repart
+    assert "toute la file" in await call(env, alice, "loop", choice("queue"))
+    assert "répétition : toute la file" in panel(env).embed.footer.text  # mode visible sur le panneau
+    current = service.snapshot(GUILD_ID).current
+    await service.on_track_end(GUILD_ID, current.entry_id, "finished")
+    snap = service.snapshot(GUILD_ID)
+    assert snap.current.track.title == "b" and [e.track.title for e in snap.upcoming] == ["a"]
+    await call(env, alice, "skip")  # passer en mode file : le titre passé revient aussi à la fin
+    snap = service.snapshot(GUILD_ID)
+    assert snap.current.track.title == "a" and [e.track.title for e in snap.upcoming] == ["b"]
+    assert "désactivée" in await call(env, alice, "loop", choice("off"))
+    assert "répétition" not in panel(env).embed.footer.text
+
+
+async def test_loop_button_cycles_the_mode(env):
+    message = await start_session(env, "a")
+    interaction = await press(env, env.m["Alice"], click_ids(message)["loop"])
+    assert "titre en cours" in all_embeds(interaction)
+    interaction = await press(env, env.m["Alice"], click_ids(message)["loop"])
+    assert "toute la file" in all_embeds(interaction)
+
+
+async def test_failed_track_is_never_looped(env):
+    await start_session(env, "a", "b")
+    service = env.bot.music
+    await call(env, env.m["Alice"], "loop", choice("track"))
+    current = service.snapshot(GUILD_ID).current
+    await service.on_track_end(GUILD_ID, current.entry_id, "loadFailed")
+    assert service.snapshot(GUILD_ID).current.track.title == "b"  # pas de boucle sur un titre illisible
+
+
+async def test_join_and_leave(env):
+    alice = env.m["Alice"]
+    assert "Rejoignez d'abord un salon vocal" in await call(env, alice, "join")
+    join(alice, VOICE)
+    assert f"<#{VOICE_ID}>" in await call(env, alice, "join")
+    assert env.backend.connected == {GUILD_ID: VOICE_ID} and env.bot.music.snapshot(GUILD_ID).current is None
+    assert "déjà dans votre salon" in await call(env, alice, "join")
+    join(env.m["Bob"], VOICE2)
+    assert "rejoignez ce salon" in await call(env, env.m["Bob"], "join")
+    assert "quitté le salon vocal" in await call(env, alice, "leave")
+
+
+async def test_server_mute_is_reported_after_play(env):
+    GUILD.me.voice = SimpleNamespace(channel=VOICE, mute=True, suppress=False)
+    try:
+        join(env.m["Alice"], VOICE)
+        env.backend.results["ytmsearch:a"] = LoadResult([raw_track("a")])
+        interaction = await run_play(env, env.m["Alice"], "a")
+        assert "muet par le serveur" in all_embeds(interaction)
+    finally:
+        GUILD.me.voice = None
+
+
+async def test_two_guilds_have_separate_queues_and_panels(env):
+    other = FakeGuild(OTHER_GUILD)
+    other_voice = FakeVoiceChannel(301)
+    other.channels = {301: other_voice}
+    other_text = FakeTextChannel(300, other)
+    env.bot.get_channel = {TEXT_ID: env.text, 300: other_text}.get
+    await start_session(env, "a", "b")
+    dana = FakeMember(444444444444444444, "Dana")
+    dana.voice = SimpleNamespace(channel=other_voice)
+    other_voice.members.append(dana)
+    env.backend.results["ytmsearch:z"] = LoadResult([raw_track("z", identifier="z")])
+    interaction = FakeInteraction(other, dana)
+    interaction.channel_id = 300
+    await env.cog.play.callback(env.cog, interaction, "z", None)
+    await flush(env.cog)
+    assert env.backend.connected == {GUILD_ID: VOICE_ID, OTHER_GUILD: 301}
+    assert env.bot.music.snapshot(OTHER_GUILD).current.track.title == "z"
+    assert env.bot.music.snapshot(GUILD_ID).current.track.title == "a"
+    assert len(other_text.messages) == 1 and len(env.text.messages) == 1  # un panneau par serveur
+    # Arrêter sur un serveur ne touche jamais l'autre.
+    await call(env, dana, "stop", guild=other)
+    assert env.bot.music.snapshot(OTHER_GUILD).current is None
+    assert env.bot.music.snapshot(GUILD_ID).current.track.title == "a"
+    # Une personne d'un autre serveur ne peut pas agir sur ce lecteur, même avec le bon identifiant de bouton.
+    message = panel(env)
+    refused = await press(env, dana, click_ids(message)["stop"], guild=other)
+    assert "n'appartient pas à ce serveur" in all_embeds(refused)
+
+
+async def test_audiocheck_shows_the_five_steps(env):
+    await start_session(env, "a")
+    service = env.bot.music
+    entry = service.snapshot(GUILD_ID).current
+    from src.music.service import LiveVoiceState
+
+    env.backend.live[GUILD_ID] = LiveVoiceState(exists=True, connected=False, ping_ms=-1, has_track=True, voice_sent=True,
+                                                channel_sent=True)
+    service.on_track_started(GUILD_ID, entry.entry_id)
+    text = await call(env, env.m["Alice"], "audiocheck")
+    for step in ("Recherche", "Piste chargée", "Lecteur démarré", "Connexion vocale", "Audio envoyé"):
+        assert step in text
+    assert ("live", GUILD_ID) in env.backend.calls
+    assert "token" not in text.casefold() and "jeton vocal :" not in text.casefold()
+
+
+async def test_audiocheck_without_music_session(env):
+    text = await call(env, env.m["Alice"], "audiocheck")
+    assert "Recherche" in text and env.backend.count("live") == 0
+
+
+async def test_wavelink_audio_events_feed_the_diagnostic(env):
+    await start_session(env, "a")
+    service = env.bot.music
+    entry = service.snapshot(GUILD_ID).current
+    player = SimpleNamespace(guild=SimpleNamespace(id=GUILD_ID))
+    track = SimpleNamespace(extras={ENTRY_KEY: entry.entry_id})
+    await env.cog.on_wavelink_track_start(SimpleNamespace(player=player, track=track))
+    await env.cog.on_wavelink_player_update(SimpleNamespace(player=player, connected=True, ping=12, position=0))
+    assert service.audio.trace(GUILD_ID).started_at is not None and service.audio.trace(GUILD_ID).voice_connected
+    await env.cog.on_wavelink_websocket_closed(SimpleNamespace(player=player, code=4017, reason="DAVE", by_remote=True))
+    await flush(env.cog)
+    assert "DAVE" in panel(env).embed.description or "DAVE" in " ".join(f.value for f in panel(env).embed.fields)
+    await env.cog.on_wavelink_stats_update(SimpleNamespace(frames=SimpleNamespace(sent=3000, nulled=0, deficit=0)))
+    assert service.audio.frames == (3000, 0, 0)
+    # Événements sans lecteur connu : ignorés sans erreur.
+    await env.cog.on_wavelink_player_update(SimpleNamespace(player=None, connected=False, ping=-1, position=0))
+    await env.cog.on_wavelink_track_start(SimpleNamespace(player=None, track=None))
+
+
+async def test_audio_check_is_scheduled_after_a_track_starts(env):
+    import asyncio
+
+    env.cog.audio_check_delay = 0.01
+    seen = []
+    env.bot.music.check_audio = lambda guild_id, entry_id: seen.append((guild_id, entry_id))
+    await start_session(env, "a")
+    await asyncio.sleep(0.05)
+    assert seen and seen[0][0] == GUILD_ID
+
+
+async def test_expired_interaction_is_logged_not_raised(env, caplog):
+    class Expired(FakeResponse):
+        async def send_message(self, content=None, **kwargs):
+            raise discord.NotFound(_Response(), "Unknown interaction")
+
+    interaction = FakeInteraction(GUILD, env.m["Alice"])
+    interaction.response = Expired()
+    await env.cog.queue.callback(env.cog, interaction)  # ne lève rien
+    assert "expiré" in caplog.text

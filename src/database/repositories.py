@@ -42,6 +42,12 @@ class ManagedMessageRepository:
         rows = self._conn.execute(f"SELECT {_MESSAGE_COLUMNS} FROM managed_messages ORDER BY key").fetchall()
         return [ManagedMessage(**dict(row)) for row in rows]
 
+    def forget_all(self) -> int:
+        """Oublie tous les messages suivis (changement de serveur principal) : rien n'est supprimé sur Discord."""
+        with self._conn:
+            cursor = self._conn.execute("DELETE FROM managed_messages")
+        return int(cursor.rowcount)
+
     def upsert(self, key: str, channel_id: int, message_id: int, content_hash: str, action: str | None = None) -> None:
         """Enregistre l'emplacement et le contenu publiés. N'est appelé qu'après un succès côté Discord."""
         with self._conn:

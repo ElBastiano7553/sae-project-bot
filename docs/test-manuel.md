@@ -266,3 +266,22 @@ Guide et procédure détaillée : [music.md](music.md) §8. Sauvegarde `…-avan
 - [ ] `/musique historique`, `/musique favoris` (rejouer), `/musique favori retirer:1`.
 - [ ] Bot laissé sans musique : il quitte le salon après `MUSIC_IDLE_MINUTES`.
 - [ ] `logs/bot.log` et journal de Lavalink : aucun mot de passe.
+
+
+## 1.12.0 : commandes de musique, son, multi-serveurs, `/setup`
+
+À faire sur un **serveur Discord de test** avec un **bot de test**. Guide : [music.md](music.md) §8 et §8 bis,
+[installation.md](installation.md). Sauvegarde `…-avantv14.sqlite3` créée au démarrage.
+
+- [ ] Après la mise à jour : `/musique` a disparu, `/play`, `/skip`, `/queue`… sont là ; aucune commande en double.
+- [ ] Journal au démarrage : liste des fonctions facultatives et leur état ; `Lavalink 4.2.2 : sources …` ; aucun secret.
+- [ ] **Son** : procédure de [music.md](music.md) §8 bis ; `/audiocheck` avec les 5 étapes ✅ ; **son entendu** (noter oui/non, réseau, version de Lavalink).
+- [ ] `/play query:<texte>` lance le 1er résultat ; `/search` propose 5 résultats.
+- [ ] `/join`, `/remove` (autocomplétion), `/clear`, `/shuffle`, `/loop` (titre, file, désactivée), bouton 🔁 du panneau.
+- [ ] `/favorite add` · `list` (rejouer) · `remove number:1` ; `/history`, `/volume`.
+- [ ] Bot rendu muet par le serveur (clic droit > Rendre muet) : avertissement sur le panneau et dans `/audiocheck`.
+- [ ] `/setup etat` sur le serveur principal et sur un second serveur de test ; aucun secret affiché.
+- [ ] `/setup role-dj role:@DJ` : seul le rôle peut arrêter / volume / vider ; un autre serveur n'est pas concerné.
+- [ ] Second serveur : musique en même temps sur les deux, files et panneaux séparés ; `/reunion` et `/projet liste` ne montrent que les données de ce serveur ; `/admin`, `/refonte`, `/ia`, `/activite`, `/roles` absents.
+- [ ] `/setup serveur-principal` par un admin qui n'est pas le propriétaire du bot : refus.
+- [ ] Installation de zéro sur une autre machine en suivant [installation.md](installation.md), avec seulement `DISCORD_BOT_TOKEN` dans `.env`.

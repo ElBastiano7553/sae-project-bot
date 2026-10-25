@@ -84,9 +84,11 @@ class ProjectsCog(commands.Cog):
 
     # --- Données ------------------------------------------------------------------------------
 
-    def project_guilds(self) -> frozenset[int]:
-        """Serveurs Discord où /projet est ouvert. Pour l'instant : DISCORD_GUILD_ID seulement."""
-        return frozenset({self.bot.settings.guild_id})
+    def projects_open(self, guild_id: int) -> bool:
+        """/projet est ouvert sur tous les serveurs où le bot est invité : chaque serveur ne voit et ne modifie
+        que ses propres projets (toutes les données sont rangées par serveur). Seuls les projets historiques
+        du .env restent attachés au serveur principal."""
+        return guild_id is not None
 
     def _gitlab_routes(self) -> dict[str, str] | None:
         if not self.bot.settings.gitlab_requested:
@@ -110,6 +112,7 @@ class ProjectsCog(commands.Cog):
             channel_id_for=lambda key: self.bot.channel_id_for(key, bindings),
             gitlab_routes=self._gitlab_routes(),
             github_channel_key=GITHUB_CHANNEL_KEY,
+            home_guild_id=self.bot.home_guild_id or 0,
         )
         return [*legacy, *registered]
 
@@ -135,7 +138,7 @@ class ProjectsCog(commands.Cog):
 
     async def _guild_or_error(self, interaction: discord.Interaction) -> discord.Guild | None:
         guild = interaction.guild
-        if guild is None or guild.id not in self.project_guilds():
+        if guild is None or not self.projects_open(guild.id):
             await send_error(interaction, "Le suivi des projets n'est pas encore ouvert sur ce serveur.", title="Serveur non pris en charge")
             return None
         return guild
@@ -234,7 +237,7 @@ class ProjectsCog(commands.Cog):
         settings = self.bot.settings
         if (
             parsed.provider == "github"
-            and guild_id == settings.guild_id
+            and guild_id == self.bot.home_guild_id
             and settings.github_requested
             and settings.github_repository.casefold() == parsed.external_id
         ):
@@ -427,7 +430,7 @@ class ProjectsCog(commands.Cog):
                 f"Ce projet est sur {record.instance_url}, mais l'application OAuth de Samae est sur {flow.instance_url} : "
                 "il ne peut pas être relié pour l'instant."
             )
-        legacy = settings.gitlab_project_id if (record.guild_id == settings.guild_id and settings.gitlab_webhooks_enabled) else None
+        legacy = settings.gitlab_project_id if (record.guild_id == self.bot.home_guild_id and settings.gitlab_webhooks_enabled) else None
         if legacy is not None and record.external_id == str(legacy):
             return (
                 "Ce projet est déjà suivi par la configuration `.env` (projet historique `env-gitlab`). Le relier aussi doublerait "
@@ -451,7 +454,7 @@ class ProjectsCog(commands.Cog):
     async def _admin_still(self, interaction: discord.Interaction) -> discord.Guild | None:
         """Revérifie, à chaque bouton, que la personne est toujours administratrice de CE serveur."""
         guild = interaction.guild
-        if guild is None or guild.id not in self.project_guilds() or not self._is_admin(interaction):
+        if guild is None or not self.projects_open(guild.id) or not self._is_admin(interaction):
             await send_error(interaction, "Réservé aux administrateurs de ce serveur.", title="Accès refusé")
             return None
         return guild
@@ -500,7 +503,7 @@ class ProjectsCog(commands.Cog):
         if existing is not None and existing.id in self.bot.projects_repo.linked_ids(guild_id):
             return f"Ce dépôt est déjà connecté sur ce serveur (projet `{existing.id}`). Voir `/projet details`."
         settings = self.bot.settings
-        if guild_id == settings.guild_id and settings.github_requested and settings.github_repository.casefold() == external_id:
+        if guild_id == self.bot.home_guild_id and settings.github_requested and settings.github_repository.casefold() == external_id:
             return (
                 "Ce dépôt est déjà suivi par la configuration `.env` (projet historique `env-github`). Le connecter aussi "
                 "doublerait ses notifications : videz d'abord `GITHUB_WEBHOOK_SECRET` sur le serveur qui héberge Samae "
@@ -638,7 +641,7 @@ class ProjectsCog(commands.Cog):
         installation_known = link is not None and any(
             i.installation_id == link.installation_id for i in self.bot.github_setup_repo.installations(guild.id)
         )
-        legacy_duplicate = guild.id == settings.guild_id and (
+        legacy_duplicate = guild.id == self.bot.home_guild_id and (
             (record.provider == "github" and settings.github_requested and settings.github_repository.casefold() == record.external_id)
             or (record.provider == "gitlab" and settings.gitlab_requested and str(settings.gitlab_project_id) == record.external_id)
         )
@@ -659,7 +662,7 @@ class ProjectsCog(commands.Cog):
     async def _repository_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         # Autocomplétion appelée sans les vérifications de la commande : administrateurs seulement.
         guild = interaction.guild
-        if guild is None or guild.id not in self.project_guilds() or not self._is_admin(interaction):
+        if guild is None or not self.projects_open(guild.id) or not self._is_admin(interaction):
             return []
         needle = current.casefold()
         return [app_commands.Choice(name=n[:100], value=n[:100]) for n in self._github_candidates(guild.id) if needle in n.casefold()][:25]
@@ -668,7 +671,7 @@ class ProjectsCog(commands.Cog):
     async def _gitlab_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         # Administrateurs seulement, et seulement les projets GitLab enregistrés sur CE serveur.
         guild = interaction.guild
-        if guild is None or guild.id not in self.project_guilds() or not self._is_admin(interaction):
+        if guild is None or not self.projects_open(guild.id) or not self._is_admin(interaction):
             return []
         needle = current.casefold()
         return [
@@ -689,7 +692,7 @@ class ProjectsCog(commands.Cog):
     @details.autocomplete("projet")
     async def _project_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         guild = interaction.guild
-        if guild is None or guild.id not in self.project_guilds():
+        if guild is None or not self.projects_open(guild.id):
             return []
         needle = current.casefold()
         choices = [

@@ -56,6 +56,8 @@ class FakeBackend:
         self.fail_play: set[str] = set()  # identifiants dont la lecture échoue
         self.hang: set[str] = set()  # opérations qui ne répondent jamais
         self.positions: dict[int, int] = {}
+        self.info = None  # LavalinkInfo annoncée par Lavalink (None : pas encore lue)
+        self.live: dict[int, object] = {}  # guild → LiveVoiceState renvoyé par live_voice_state
 
     async def _maybe_hang(self, what: str) -> None:
         if what in self.hang:
@@ -68,6 +70,12 @@ class FakeBackend:
         if isinstance(result, Exception):
             raise result
         return result
+
+    async def live_voice_state(self, guild_id: int):
+        from src.music.service import LiveVoiceState
+
+        self.calls.append(("live", guild_id))
+        return self.live.get(guild_id, LiveVoiceState(exists=guild_id in self.connected))
 
     async def connect(self, guild_id: int, channel_id: int) -> None:
         self.calls.append(("connect", guild_id, channel_id))

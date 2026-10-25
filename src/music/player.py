@@ -7,7 +7,7 @@
          │                      └──file vide / arrêt┴───────────────────┘
          └────────── départ du salon, déconnexion, Lavalink perdu (depuis n'importe quel état)
 
-* ``PLAYING`` → ``PLAYING`` : passage à la piste suivante (fin, /musique passer, erreur de lecture).
+* ``PLAYING`` → ``PLAYING`` : passage à la piste suivante (fin, /skip, erreur de lecture).
 * Une **session** commence à chaque connexion au salon vocal : son identifiant aléatoire est
   inscrit dans les boutons du panneau, si bien qu'un bouton d'une session terminée (ou d'avant
   un redémarrage du bot) ne commande jamais la session suivante.
@@ -42,6 +42,17 @@ TRANSITIONS: dict[PlayerState, frozenset[PlayerState]] = {
 }
 
 
+class LoopMode(StrEnum):
+    """Répétition : aucune, le titre en cours, ou toute la file (le titre fini repart en fin de file)."""
+
+    OFF = "off"
+    TRACK = "track"
+    QUEUE = "queue"
+
+
+LOOP_LABELS = {LoopMode.OFF: "désactivée", LoopMode.TRACK: "titre en cours", LoopMode.QUEUE: "toute la file"}
+
+
 class InvalidTransition(RuntimeError):
     """Erreur de programmation : le service a tenté une transition interdite."""
 
@@ -59,6 +70,7 @@ class GuildPlayer:
         self.volume = volume
         self.consecutive_failures = 0
         self.last_problem: str | None = None  # dernier problème de lecture, affiché sur le panneau
+        self.loop = LoopMode.OFF
         # Toutes les opérations qui changent ce lecteur passent par ce verrou (commandes, boutons,
         # événements de Lavalink) : une seule transition à la fois, jamais deux « piste suivante ».
         self.lock = asyncio.Lock()
@@ -86,6 +98,7 @@ class GuildPlayer:
         self.panel_message_id = None
         self.consecutive_failures = 0
         self.last_problem = None
+        self.loop = LoopMode.OFF
         return self.session_id
 
     def started(self, entry: QueueEntry) -> None:

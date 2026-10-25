@@ -41,6 +41,7 @@ class Meeting:
     started_at: str | None
     ended_at: str | None
     updated_at: str
+    guild_id: int | None = None  # serveur Discord (None : réunion d'avant le multi-serveurs, pas encore rattachée)
 
     @property
     def report_messages(self) -> list[int]:
@@ -123,7 +124,7 @@ class MeetingDetail:
 _MEETING_COLUMNS = (
     "id, title, description, objectives, leader_id, leader_name, status, planned_minutes, channel_id, "
     "panel_message_id, report, report_channel_id, report_message_ids, revision, created_by, created_at, "
-    "started_at, ended_at, updated_at"
+    "started_at, ended_at, updated_at, guild_id"
 )
 
 
@@ -222,16 +223,17 @@ class MeetingRepository:
         planned_minutes: int | None,
         channel_id: int | None,
         created_by: tuple[int, str],
+        guild_id: int | None = None,
     ) -> int:
         """Crée la réunion, ses participants et son ordre du jour en une seule transaction."""
         with self._conn:
             cursor = self._conn.execute(
                 """
                 INSERT INTO meetings (title, description, objectives, leader_id, leader_name, planned_minutes,
-                                      channel_id, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                      channel_id, created_by, guild_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (title, description, objectives, leader[0], leader[1], planned_minutes, channel_id, created_by[0]),
+                (title, description, objectives, leader[0], leader[1], planned_minutes, channel_id, created_by[0], guild_id),
             )
             meeting_id = int(cursor.lastrowid)
             change = MeetingChange(self._conn, meeting_id)
@@ -327,8 +329,14 @@ class MeetingRepository:
         ]
         return MeetingDetail(meeting, participants, steps, notes, actions)
 
-    def list(self, statuses: tuple[str, ...] = (), limit: int = 25, search: str | None = None) -> list[Meeting]:
+    def list(
+        self, statuses: tuple[str, ...] = (), limit: int = 25, search: str | None = None, *, guild_id: int | None = None
+    ) -> list[Meeting]:
+        """Réunions récentes ; avec ``guild_id``, seulement celles de ce serveur."""
         clauses, params = [], []
+        if guild_id is not None:
+            clauses.append("guild_id = ?")
+            params.append(int(guild_id))
         if statuses:
             clauses.append(f"status IN ({', '.join('?' * len(statuses))})")
             params.extend(statuses)
@@ -342,16 +350,17 @@ class MeetingRepository:
         ).fetchall()
         return [Meeting(**dict(row)) for row in rows]
 
-    def open_for(self, user_id: int, channel_id: int | None) -> list[Meeting]:
+    def open_for(self, user_id: int, channel_id: int | None, *, guild_id: int | None = None) -> list[Meeting]:
         """Réunions prévues ou en cours de ce salon dont le membre fait partie (les plus récentes d'abord)."""
         rows = self._conn.execute(
             f"""
             SELECT {_MEETING_COLUMNS} FROM meetings
              WHERE status IN ('planned', 'running')
+               AND (? IS NULL OR guild_id = ?)
                AND (channel_id = ? OR id IN (SELECT meeting_id FROM meeting_participants WHERE user_id = ?))
              ORDER BY (channel_id = ?) DESC, (status = 'running') DESC, id DESC
             """,
-            (channel_id, user_id, channel_id),
+            (guild_id, guild_id, channel_id, user_id, channel_id),
         ).fetchall()
         return [Meeting(**dict(row)) for row in rows]
 
@@ -367,3 +376,9 @@ class MeetingRepository:
             "SELECT COUNT(*) AS n FROM meetings WHERE created_by = ? AND created_at >= ?", (int(user_id), since)
         ).fetchone()
         return int(row["n"])
+
+    def adopt_orphans(self, guild_id: int) -> int:
+        """Réunions créées avant le multi-serveurs (sans serveur) : rattachées au serveur principal. Retourne leur nombre."""
+        with self._conn:
+            cursor = self._conn.execute("UPDATE meetings SET guild_id = ? WHERE guild_id IS NULL", (int(guild_id),))
+        return int(cursor.rowcount)

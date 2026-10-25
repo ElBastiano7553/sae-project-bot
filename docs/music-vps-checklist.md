@@ -71,7 +71,7 @@ rm Lavalink.jar youtube-plugin-1.18.2.jar
 
 ## 4. Configuration de Lavalink 🔑
 
-Depuis le dépôt du bot (déjà à jour en 1.11.0) :
+Depuis le dépôt du bot (déjà à jour en 1.12.0) :
 
 ```bash
 sudo install -o root -g lavalink -m 0640 ~utilisateur-du-bot/sae-project-bot/deploy/lavalink/application.yml.example /opt/lavalink/application.yml
@@ -142,7 +142,7 @@ systemctl status lavalink | grep -i memory       # ~300 Mo attendus au repos
 
 ## 9. Activer la musique dans le bot 👤 (utilisateur du bot)
 
-1. `cd ~/sae-project-bot && bash deploy/update.sh` : met à jour en 1.11.0, fait la
+1. `cd ~/sae-project-bot && bash deploy/update.sh` : met à jour en 1.12.0, fait la
    **sauvegarde vérifiée** de la base puis la migration v13 au démarrage (création de
    3 tables, aucune donnée existante modifiée).
 2. Dans `.env` (éditeur de texte, jamais copié dans un message) :
@@ -155,8 +155,9 @@ systemctl status lavalink | grep -i memory       # ~300 Mo attendus au repos
 
 ## 10. Premier essai 👤
 
-Dans un salon vocal du serveur : `/musique jouer recherche:<un titre>` et vérifier que **le son
-s'entend**. Si YouTube refuse (journal Lavalink : « Sign in to confirm you're not a bot » ou
+Dans un salon vocal du serveur : `/play query:<un titre>` et vérifier que **le son
+s'entend**. Puis `/audiocheck` : les 5 étapes doivent être ✅ (sinon, la cause probable est
+affichée : voir [music.md](music.md), §8 bis). Si YouTube refuse (journal Lavalink : « Sign in to confirm you're not a bot » ou
 « This video is unavailable »), mettre `MUSIC_SOURCES=soundcloud,bandcamp` dans `.env` et
 redémarrer le bot. **Ne pas** ajouter de compte Google, de cookies ni de jeton « poToken ».
 
@@ -184,7 +185,7 @@ sudo systemctl start lavalink
 
 ## Tout désactiver (sans rien supprimer)
 
-- 👤 `.env` : `MUSIC_ENABLED=false`, puis redémarrage du bot 🔑 : les commandes `/musique`
+- 👤 `.env` : `MUSIC_ENABLED=false`, puis redémarrage du bot 🔑 : les commandes de musique (`/play`…)
   expliquent que la musique est désactivée ; historique et favoris restent en base.
 - 🔑 `sudo systemctl disable --now lavalink` : Lavalink ne tourne plus et ne redémarre plus.
 

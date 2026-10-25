@@ -160,6 +160,10 @@ class FakeFollowup:
 
 
 class FakeInteraction:
+    @property
+    def guild_id(self):  # comme discord.Interaction : identifiant du serveur, None en message privé
+        return getattr(getattr(self, "guild", None), "id", None)
+
     def __init__(self, client, guild, member) -> None:
         self.client, self.guild, self.user = client, guild, member
         self.response = FakeResponse()
@@ -230,7 +234,7 @@ async def test_role_picker_refuses_outside_the_team_server(env):
     other.id = 1234
     interaction = FakeInteraction(bot, other, FakeMember(other))
     await cog.open_picker(interaction)
-    assert "serveur de l'équipe" in interaction.response.sent[0]["embed"].description
+    assert "espace d'équipe" in interaction.response.sent[0]["embed"].description
 
 
 async def test_role_picker_button_is_persistent(env):

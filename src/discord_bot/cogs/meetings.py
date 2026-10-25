@@ -83,7 +83,7 @@ NOTE_CHOICES = [
 
 async def meeting_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[int]]:
     bot: SaeBot = interaction.client  # type: ignore[assignment]
-    meetings = bot.meetings.repo.list(limit=25, search=current.strip() or None)
+    meetings = bot.meetings.repo.list(limit=25, search=current.strip() or None, guild_id=interaction.guild_id)
     return [
         app_commands.Choice(name=limits.truncate(f"{meeting_label(m)} ({STATUS_LABELS[m.status]})", 100), value=m.id)
         for m in meetings
@@ -123,19 +123,20 @@ class MeetingsCog(commands.Cog):
     def _actor(self, interaction: discord.Interaction) -> Actor:
         user = interaction.user
         admin = isinstance(user, discord.Member) and is_bot_admin(user, self.bot.settings.admin_role_name)
-        return Actor(user.id, _member_name(user)[:100], admin)
+        # Le serveur de l'interaction : une réunion d'un autre serveur est inaccessible (comme inexistante).
+        return Actor(user.id, _member_name(user)[:100], admin, interaction.guild_id)
 
     def _channel_id(self, interaction: discord.Interaction) -> int | None:
         return getattr(interaction, "channel_id", None)
 
-    def _message_url(self, channel_id: int | None, message_id: int | None) -> str | None:
-        if not channel_id or not message_id:
+    def _message_url(self, guild_id: int | None, channel_id: int | None, message_id: int | None) -> str | None:
+        if not guild_id or not channel_id or not message_id:
             return None
-        return f"https://discord.com/channels/{self.bot.settings.guild_id}/{channel_id}/{message_id}"
+        return f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
 
     def _report_url(self, detail: MeetingDetail) -> str | None:
         ids = detail.meeting.report_messages
-        return self._message_url(detail.meeting.report_channel_id, ids[0]) if ids else None
+        return self._message_url(detail.meeting.guild_id, detail.meeting.report_channel_id, ids[0]) if ids else None
 
     async def _fail(self, interaction: discord.Interaction, exc: MeetingError) -> None:
         await send_error(interaction, str(exc), title=exc.title, tone="warning")
@@ -157,7 +158,7 @@ class MeetingsCog(commands.Cog):
         except MeetingError as exc:
             await self._fail(interaction, exc)
             return None
-        panel = self._message_url(detail.meeting.channel_id, detail.meeting.panel_message_id)
+        panel = self._message_url(detail.meeting.guild_id, detail.meeting.channel_id, detail.meeting.panel_message_id)
         suffix = f"\n[Voir le panneau]({panel})" if panel else ""
         await interaction.response.send_message(
             embed=success_embed(f"{message} (réunion {meeting_label(detail.meeting)}).{suffix}"), ephemeral=True
@@ -217,12 +218,15 @@ class MeetingsCog(commands.Cog):
             if channel is not None:
                 try:
                     await channel.fetch_message(existing[0])
-                    return self._message_url(m.report_channel_id, existing[0]), None
+                    return self._message_url(m.guild_id, m.report_channel_id, existing[0]), None
                 except discord.NotFound:
                     pass  # supprimé : on le republie
                 except discord.HTTPException:
                     return None, "le salon du compte rendu est inaccessible"
-        bindings = self.bot.bindings_repo.get_all()
+        # Salon #comptes-rendus de l'espace d'équipe : seulement pour une réunion du serveur principal (jamais un
+        # compte rendu publié sur un autre serveur que celui de la réunion) ; sinon, le salon de la réunion.
+        team_space = m.guild_id is not None and self.bot.team_guild_error(m.guild_id) is None
+        bindings = self.bot.bindings_repo.get_all() if team_space else {}
         channel_id = next((bindings[key] for key in REPORT_CHANNEL_KEYS if key in bindings), None) or m.channel_id
         channel = await self._channel(channel_id) if channel_id else None
         if channel is None:
@@ -239,10 +243,10 @@ class MeetingsCog(commands.Cog):
                 return None, "le bot ne peut pas écrire dans le salon du compte rendu"
         self.service.set_report_messages(m.id, channel.id, ids)
         note = None if len(pages) <= MAX_REPORT_MESSAGES else "compte rendu long : la suite est dans /reunion compte-rendu"
-        return self._message_url(channel.id, ids[0]), note
+        return self._message_url(m.guild_id, channel.id, ids[0]), note
 
     async def show_report(self, interaction: discord.Interaction, meeting_id: int) -> None:
-        pages = report_embeds(self.service.report(meeting_id))
+        pages = report_embeds(self.service.report(meeting_id, interaction.guild_id))
         if len(pages) == 1:
             await interaction.response.send_message(embed=pages[0], ephemeral=True)
             return
@@ -254,7 +258,7 @@ class MeetingsCog(commands.Cog):
 
     async def ask_close(self, interaction: discord.Interaction, meeting_id: int, *, finish: bool) -> None:
         actor = self._actor(interaction)
-        detail = self.service.get(meeting_id)
+        detail = self.service.get(meeting_id, interaction.guild_id)
         what = "terminer la réunion" if finish else "annuler la réunion"
         self.service.ensure_control(detail, actor, what, (RUNNING,) if finish else OPEN_STATUSES)
         done = sum(1 for s in detail.steps if s.status == "done")
@@ -285,7 +289,7 @@ class MeetingsCog(commands.Cog):
             return
         lines = [f"Réunion {meeting_label(detail.meeting)} {'terminée' if finish else 'annulée'}."]
         if finish:
-            url, problem = await self.publish_report(self.service.get(meeting_id))
+            url, problem = await self.publish_report(self.service.get(meeting_id, interaction.guild_id))
             if url:
                 lines.append(f"[Compte rendu publié]({url}).")
             if problem:
@@ -313,7 +317,7 @@ class MeetingsCog(commands.Cog):
                 return
             detail = operations[action]()
         except StalePanel as exc:
-            await self._redraw(interaction, self.service.get(meeting_id))
+            await self._redraw(interaction, self.service.get(meeting_id, interaction.guild_id))
             await self._fail(interaction, exc)
             return
         except MeetingError as exc:
@@ -394,9 +398,10 @@ class MeetingsCog(commands.Cog):
             )
             await interaction.followup.send(embed=error_embed(text, title="Panneau non publié", tone="warning"), ephemeral=True)
             return
-        url = self._message_url(message.channel.id, message.id)
+        url = self._message_url(interaction.guild_id, message.channel.id, message.id)
+        link = f" [Voir le panneau]({url})" if url else ""
         await interaction.followup.send(
-            embed=success_embed(f"Réunion {meeting_label(detail.meeting)} créée. [Voir le panneau]({url})", "Réunion créée"),
+            embed=success_embed(f"Réunion {meeting_label(detail.meeting)} créée.{link}", "Réunion créée"),
             ephemeral=True,
         )
 
@@ -439,7 +444,7 @@ class MeetingsCog(commands.Cog):
     @app_commands.choices(statut=LIST_CHOICES)
     async def liste(self, interaction: discord.Interaction, statut: app_commands.Choice[str] | None = None) -> None:
         key = statut.value if statut else "ouvertes"
-        meetings = self.service.repo.list(LIST_STATUSES[key], limit=20)
+        meetings = self.service.repo.list(LIST_STATUSES[key], limit=20, guild_id=interaction.guild_id)
         label = statut.name if statut else LIST_CHOICES[0].name
         await interaction.response.send_message(embed=meeting_list_embed(meetings, f"Réunions · {label}"), ephemeral=True)
 
@@ -578,7 +583,7 @@ class MeetingsCog(commands.Cog):
     async def aide(self, interaction: discord.Interaction, sujet: app_commands.Choice[str] | None = None) -> None:
         user = interaction.user
         admin = isinstance(user, discord.Member) and is_bot_admin(user, self.bot.settings.admin_role_name)
-        pages = render_pages(MEETING_PAGES, commands=collect_commands(self.bot.tree), admin=admin, heading="Aide des réunions")
+        pages = render_pages(MEETING_PAGES, commands=collect_commands(self.bot.tree, interaction.guild_id), admin=admin, heading="Aide des réunions")
         view = HelpView(pages, user.id, home_label="Début")
         if sujet is not None:
             view.go_to_section(sujet.value)

@@ -80,6 +80,9 @@ def main() -> int:
 
     errors = RecentErrors()
     setup_logging(settings.log_level, PROJECT_ROOT / "logs", secrets=secret_values(), errors=errors)
+    log.info("Démarrage : token Discord présent (obligatoire) ; fonctions facultatives :")
+    for name, state in settings.feature_summary():
+        log.info("  - %s : %s", name, state)
     if settings.gitlab_config_error:
         log.error("Webhooks GitLab désactivés, configuration invalide : %s", settings.gitlab_config_error)
     if settings.github_config_error:
@@ -90,6 +93,11 @@ def main() -> int:
         log.error("%s", exc)
         return EXIT_CONFIG
 
+    try:  # dossier de la base (data/ par défaut) : créé s'il manque, sur une nouvelle machine
+        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.error("Dossier de la base impossible à créer (%s) : %s", settings.database_path.parent, exc.strerror)
+        return EXIT_CONFIG
     lock = InstanceLock(settings.database_path.parent / LOCK_NAME)
     try:
         lock.acquire()

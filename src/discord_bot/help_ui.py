@@ -29,8 +29,11 @@ PAGE_BUDGET = 4500
 SELECT_LIMIT = 25
 
 
-def collect_commands(tree: app_commands.CommandTree) -> list[CommandInfo]:
-    """Commandes enregistrées, avec leurs paramètres, lues directement dans discord.py."""
+def collect_commands(tree: app_commands.CommandTree, guild_id: int | None = None) -> list[CommandInfo]:
+    """Commandes enregistrées, avec leurs paramètres, lues directement dans discord.py.
+
+    ``guild_id`` : ajoute les commandes propres à ce serveur (l'espace d'équipe, sur le serveur principal).
+    """
     result: list[CommandInfo] = []
 
     def visit(command, admin: bool) -> None:
@@ -41,7 +44,10 @@ def collect_commands(tree: app_commands.CommandTree) -> list[CommandInfo]:
         elif isinstance(command, app_commands.Command):
             result.append(_info(command, admin))
 
-    for command in tree.get_commands():
+    commands = list(tree.get_commands())
+    if guild_id is not None:
+        commands += tree.get_commands(guild=discord.Object(id=guild_id))
+    for command in commands:
         visit(command, False)
     return result
 

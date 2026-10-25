@@ -1,11 +1,16 @@
-# Musique dans les salons vocaux (`/musique`, version 1.11.0)
+# Musique dans les salons vocaux (`/play`, `/skip`, `/queue`…, version 1.12.0)
 
 Samae peut jouer de la musique dans un salon vocal : recherche ou lien, file d'attente par
 serveur, panneau à boutons, volume, historique et favoris enregistrés dans la base SQLite.
 
 La musique est **désactivée par défaut** (`MUSIC_ENABLED=false`). Tant qu'elle l'est, ou
-tant que Lavalink n'est pas joignable, les commandes `/musique` répondent par une
+tant que Lavalink n'est pas joignable, les commandes de musique répondent par une
 explication et **le reste du bot ne change pas**.
+
+Depuis 1.12.0, les commandes sont **au premier niveau** (`/play`, `/skip`…, comme les autres
+bots de musique) au lieu du groupe `/musique`, et elles fonctionnent sur **n'importe quel
+serveur** où le bot est invité (une file, un panneau, un volume et un rôle DJ par serveur).
+Le diagnostic « pas de son » est au §8 bis.
 
 > Ce document est public : il ne contient ni adresse de serveur, ni mot de passe.
 > L'installation de Lavalink sur le VPS est décrite pas à pas, pour la personne qui a les
@@ -37,6 +42,8 @@ Samae (Python) ── wavelink ────────────────�
 | Service | `src/music/service.py` | toute la logique : recherche, ajout, enchaînement, erreurs, historique |
 | Adaptateur | `src/music/lavalink.py` | le seul fichier qui parle à wavelink / Lavalink |
 | Base | `src/database/music.py` + migration v13 dans `src/database/connection.py` | historique, favoris, volume |
+| Diagnostic | `src/music/diagnostics.py` | les 5 étapes du son (§8 bis), version de Lavalink, codes de fermeture vocale |
+| Rôle DJ par serveur | `src/database/guild_settings.py` (migration v14) | choisi avec `/setup role-dj` |
 | Discord | `src/discord_bot/cogs/music.py`, `src/discord_bot/music_ui.py` | commandes, panneau, boutons, menus |
 
 Le service ne connaît Lavalink qu'à travers une interface (`AudioBackend`) : les tests
@@ -58,34 +65,59 @@ déposés à la main après vérification de leur empreinte SHA-256).
 
 ## 2. Commandes
 
-Toutes sont dans le groupe `/musique`, sur le serveur seulement. Les réponses sont
+Toutes s'utilisent sur un serveur (jamais en message privé). Les réponses sont
 **éphémères** ; seul le panneau du lecteur est public, et il ne notifie personne.
 
 | Commande | Effet |
 |---|---|
-| `/musique jouer recherche:<texte ou lien> [source:]` | un lien est ajouté directement ; un texte propose les 5 premiers résultats dans un menu |
-| `/musique pause` / `/musique reprendre` | pause et reprise |
-| `/musique passer` | titre suivant |
-| `/musique arreter` | arrête et vide la file (le bot reste dans le salon) |
-| `/musique quitter` | arrête, vide la file et quitte le salon vocal |
-| `/musique encours` | titre en cours : source, durée, progression, demandeur |
-| `/musique file` | titre en cours et file d'attente, par pages |
-| `/musique volume [valeur:0-100]` | sans valeur : affiche ; avec : règle et **retient** pour ce serveur |
-| `/musique historique` | 50 dernières lectures de ce serveur, par pages |
-| `/musique favori [retirer:<n°>]` | ajoute le titre en cours à vos favoris (ou l'en retire) ; `retirer` enlève le favori n° n |
-| `/musique favoris` | vos favoris sur ce serveur, avec un menu pour en rejouer un |
+| `/play query:<texte ou lien> [source:]` | un texte lance **le premier résultat** ; un lien (titre ou playlist) est ajouté directement |
+| `/search query:<texte> [source:]` | propose les 5 premiers résultats dans un menu (réservé à la personne qui cherche) |
+| `/pause` · `/resume` | pause et reprise |
+| `/skip` | titre suivant |
+| `/stop` | arrête et vide la file (le bot reste dans le salon) |
+| `/leave` | arrête, vide la file et quitte le salon vocal |
+| `/join` | fait venir le bot dans votre salon vocal sans rien lancer |
+| `/nowplaying` | titre en cours : source, durée, progression, demandeur |
+| `/queue` | titre en cours et file d'attente, par pages |
+| `/remove position:<n°>` | retire un titre de la file (autocomplétion avec les titres en attente) |
+| `/clear` | vide la file ; le titre en cours continue |
+| `/shuffle` | mélange les titres en attente |
+| `/loop mode:` | répétition : désactivée, titre en cours, ou toute la file |
+| `/volume [level:0-100]` | sans valeur : affiche ; avec : règle et **retient** pour ce serveur |
+| `/history` | 50 dernières lectures de ce serveur, par pages |
+| `/favorite add` · `/favorite list` · `/favorite remove number:<n°>` | ajouter le titre en cours, voir et rejouer (menu), retirer un favori |
+| `/audiocheck` | **pas de son ?** affiche les 5 étapes du son et la cause probable (§8 bis) |
 
 Le **panneau** (message public dans le salon où la musique a été lancée) a six boutons :
-pause, reprise, passer, arrêter, file, favori. Il est mis à jour à chaque changement
-(regroupé à une modification par seconde au plus). Les boutons d'un ancien panneau
-répondent « ce panneau ne correspond plus à la lecture en cours » : ils ne peuvent pas agir
-sur la mauvaise lecture.
+pause/reprise, passer, arrêter, répétition, file, favori. Les boutons et les commandes
+passent par **le même code** (`MusicCog._control` puis `MusicService`) : mêmes règles, mêmes
+messages. Le panneau est modifié sur place (une modification par seconde au plus, jamais un
+nouveau message à chaque action). Les boutons d'un ancien panneau répondent « ce panneau ne
+correspond plus à la lecture en cours » : ils ne peuvent pas agir sur la mauvaise lecture.
 
-Correspondance avec la demande initiale : play → `jouer`, pause → `pause`, resume →
-`reprendre`, skip → `passer`, stop → `arreter`, leave → `quitter`, nowplaying → `encours`,
-queue → `file`, volume → `volume`, history → `historique`, favorite → `favori`,
-favorites → `favoris` (noms en français comme le reste du bot ; un seul groupe pour ne pas
-dépasser la limite de commandes de premier niveau).
+### Correspondance avec les anciennes commandes (avant 1.12.0)
+
+| Avant (`/musique …`) | Maintenant | Remarque |
+|---|---|---|
+| `jouer recherche:` (lien) | `/play query:` | identique |
+| `jouer recherche:` (texte, menu de 5) | `/search query:` | `/play` avec un texte lance directement le 1er résultat |
+| `pause` · `reprendre` | `/pause` · `/resume` | |
+| `passer` | `/skip` | |
+| `arreter` | `/stop` | |
+| `quitter` | `/leave` | |
+| `encours` | `/nowplaying` | |
+| `file` | `/queue` | |
+| `volume valeur:` | `/volume level:` | |
+| `historique` | `/history` | |
+| `favori` (ajoute ou retire le titre en cours) | `/favorite add` | ne retire plus : pas de suppression par erreur ; le bouton ★ du panneau garde l'ajout/retrait |
+| `favori retirer:<n°>` | `/favorite remove number:` | autocomplétion |
+| `favoris` | `/favorite list` | |
+| (nouveau) | `/join`, `/remove`, `/clear`, `/shuffle`, `/loop`, `/audiocheck` | |
+
+Aucune fonction n'a été retirée. Les anciennes commandes `/musique` disparaissent de Discord
+à la première synchronisation de la 1.12.0 (aucun doublon). Les noms sont en anglais parce
+que ce sont les noms que tout le monde connaît pour un bot de musique ; les descriptions et
+les réponses restent en français.
 
 ## 3. Sources : ce qui marche vraiment
 
@@ -159,9 +191,16 @@ bouton.
 | consulter (en cours, file, historique, favoris) | tout membre du serveur |
 
 **Est « DJ »** : un administrateur du bot (« Gérer le serveur » ou `ADMIN_ROLE_NAME`), une
-personne qui a le rôle `MUSIC_DJ_ROLE_NAME`, ou la personne **seule** avec le bot dans le
-salon. **Sans `MUSIC_DJ_ROLE_NAME`** (défaut, adapté à une équipe de 5), toute personne
-présente dans le salon du bot est DJ.
+personne qui a le **rôle DJ de ce serveur**, ou la personne **seule** avec le bot dans le
+salon. Le rôle DJ se choisit **depuis Discord**, serveur par serveur, avec
+`/setup role-dj role:@DJ` (rangé en base, migration v14). À défaut, le nom
+`MUSIC_DJ_ROLE_NAME` du `.env` s'applique à tous les serveurs. **Sans rôle DJ** (défaut,
+adapté à une équipe de 5), toute personne présente dans le salon du bot est DJ.
+
+| Action | Qui (avec un rôle DJ) |
+|---|---|
+| `/remove` de **son** titre | la personne qui l'a demandé |
+| `/remove` du titre d'un autre, `/clear`, `/shuffle`, `/loop` | une personne « DJ » |
 
 Permissions Discord nécessaires au bot dans le salon vocal : **Se connecter** et **Parler**
 (le bot vérifie et explique ce qui manque, ainsi qu'un salon plein). Il rejoint en sourdine
@@ -222,7 +261,8 @@ Lavalink injoignable, ou prête avec le nombre de salons actifs.
 ### Tests automatiques
 
 ```bash
-python -m pytest tests/test_music_*.py -q     # 152 tests, sans réseau ni Discord
+python -m pytest tests/test_music_*.py -q     # sans réseau ni Discord
+python -m pytest -m "not integration" -q     # tests unitaires seulement (sans le faux Lavalink local)
 python -m pytest -q                           # toute la suite
 ```
 
@@ -234,35 +274,96 @@ Discord (simulés), et l'adaptateur wavelink face à un faux serveur Lavalink v4
 
 ### Test manuel sur un serveur Discord de test (à faire avant la production)
 
-Avec le bot de test (`DISCORD_TOKEN` de test) et un Lavalink local :
+Avec le bot de test (token de test) et un Lavalink local :
 
 1. `/etat` : ligne Musique « prête ». Arrêter Lavalink : « injoignable » ; le relancer :
    « prête » sans redémarrer le bot (≈ 10 s).
-2. Hors salon vocal : `/musique jouer` explique qu'il faut rejoindre un salon.
-3. Dans un salon : `/musique jouer recherche:daft punk` → menu de 5 résultats → choisir :
-   le bot rejoint, joue, le panneau apparaît. **Vérifier que le son s'entend.**
+2. Hors salon vocal : `/play` explique qu'il faut rejoindre un salon.
+3. Dans un salon : `/play query:daft punk` → le 1er résultat joue, le panneau apparaît.
+   `/search query:daft punk` → menu de 5 résultats. **Vérifier le son** (§8 bis).
 4. Coller un lien SoundCloud, puis un lien YouTube, puis une playlist : ajout, limite de
    playlist annoncée.
-5. Boutons : pause, reprise, passer, file, favori, arrêter. Cliquer un bouton d'un ancien
-   panneau : refus « ne correspond plus ».
-6. Avec un second compte : rejoindre un autre salon et essayer de contrôler → refus.
-   Définir `MUSIC_DJ_ROLE_NAME` et vérifier que seul le rôle peut arrêter / régler le volume.
-7. `/musique volume valeur:20`, redémarrer le bot, `/musique volume` → 20.
-8. `/musique historique`, `/musique favoris` (rejouer depuis le menu), `/musique favori retirer:1`.
-9. Laisser le bot seul sans musique : il part après `MUSIC_IDLE_MINUTES`.
-10. Lien interdit (`http://127.0.0.1/…`, un site inconnu) → refus clair.
+5. Boutons : pause, reprise, passer, répétition, file, favori, arrêter. Cliquer un bouton d'un
+   ancien panneau : refus « ne correspond plus ».
+6. `/queue`, `/remove` (autocomplétion), `/shuffle`, `/clear`, `/loop mode:Titre en cours`
+   (le titre recommence à la fin), `/loop mode:Toute la file`.
+7. Avec un second compte : rejoindre un autre salon et essayer de contrôler → refus.
+   `/setup role-dj role:@DJ` et vérifier que seul le rôle peut arrêter / régler le volume.
+8. `/volume level:20`, redémarrer le bot, `/volume` → 20.
+9. `/history`, `/favorite add`, `/favorite list` (rejouer depuis le menu), `/favorite remove number:1`.
+10. Inviter le bot sur un **second** serveur de test : lancer de la musique sur les deux en
+    même temps ; files et panneaux séparés, `/stop` sur l'un ne touche pas l'autre.
+11. Laisser le bot seul sans musique : il part après `MUSIC_IDLE_MINUTES`.
+12. Lien interdit (`http://127.0.0.1/…`, un site inconnu) → refus clair.
 
-Le résultat (surtout le point 3) est à noter dans [test-manuel.md](test-manuel.md).
+## 8 bis. « Le bot est dans le salon mais on n'entend rien »
+
+Une recherche réussie et un bot présent dans le salon **ne prouvent pas** que du son part.
+Le son suit cinq étapes, et le bot vérifie chacune séparément :
+
+| Étape | Ce qui est vérifié | D'où vient l'information |
+|---|---|---|
+| 1. Recherche | la source a renvoyé au moins un titre lisible | réponse de Lavalink à `loadtracks` |
+| 2. Piste chargée | Lavalink a accepté la piste (requête de lecture sans erreur) | réponse de Lavalink à la mise à jour du lecteur |
+| 3. Lecteur démarré | Lavalink a envoyé « TrackStartEvent » pour **cette** piste | WebSocket de Lavalink |
+| 4. Connexion vocale | Lavalink est connecté au serveur vocal de Discord | `playerUpdate.connected` (toutes les 5 s) |
+| 5. Audio envoyé | la position de lecture **avance** pendant que la connexion vocale est ouverte | `playerUpdate.position` |
+
+Chaque étape est écrite **une fois par titre** dans les journaux du bot
+(`Musique [serveur …] étape 3/5 : …`), sans jeton ni identifiant de session vocale (les
+journaux de wavelink, qui contiennent le jeton vocal en DEBUG, sont bloqués à INFO).
+20 s après le lancement d'un titre, si une étape a échoué, la **cause probable** s'affiche
+sur le panneau. `/audiocheck` montre l'état des cinq étapes à tout moment, la version de
+Lavalink, ce que Lavalink dit du lecteur (connecté, ping, position, salon transmis) et l'état
+vocal du bot côté Discord (muet par le serveur, spectateur d'une scène).
+
+| Ce que montre `/audiocheck` | Cause probable | Que faire |
+|---|---|---|
+| étape 3 en échec, erreur de la source | YouTube refuse l'adresse de la machine, vidéo indisponible | essayer `source:SoundCloud` ; mettre `soundcloud` en premier dans `MUSIC_SOURCES` |
+| étape 4 en échec, « code 4017 » ou « DAVE » | Lavalink plus ancien que 4.2.0 : Discord exige le chiffrement DAVE | installer Lavalink 4.2.2 (§1) |
+| étape 4 en échec sans code | Lavalink n'arrive pas à joindre le serveur vocal (UDP sortant bloqué par un pare-feu, réseau d'école ou d'entreprise) | autoriser l'UDP sortant de Java (ports 50000-65535) ; tester depuis un autre réseau |
+| « Version de Lavalink » trop ancienne ou plugin YouTube absent | installation incomplète | voir [music-vps-checklist.md](music-vps-checklist.md), étape 3 |
+| étape 5 en échec alors que 1 à 4 sont OK | la connexion vocale est ouverte mais ne consomme pas le son | redémarrer Lavalink ; regarder ses journaux |
+| tout est ✅ mais rien ne s'entend | côté Discord : bot rendu muet **pour vous** (clic droit sur le bot > volume utilisateur), sortie audio de votre ordinateur, application Discord trop ancienne (DAVE) | vérifier avec un autre compte ou un autre appareil |
+| « muet par le serveur » / « spectateur » | un modérateur a rendu le bot muet, ou salon de type scène | clic droit sur le bot > décocher « Rendre muet » ; dans une scène, l'inviter à parler |
+
+Ce que le bot **ne peut pas savoir** : si vos oreilles entendent le son. L'étape 5 réussie
+veut dire « le son quitte Lavalink, chiffré, vers Discord ». Seul le test manuel ci-dessous
+le confirme.
+
+### Procédure de test du son sur un vrai serveur Discord
+
+À faire avec **un serveur Discord de test** et **un bot de test** (jamais le token de production) :
+
+1. Lancer Lavalink 4.2.2 (§8), puis le bot avec `MUSIC_ENABLED=true` et `LOG_LEVEL=INFO`.
+2. Dans les journaux du bot, vérifier au démarrage : `Lavalink 4.2.2 : sources youtube, soundcloud…`
+   et **aucune** ligne `Musique : Lavalink … ne gère pas le chiffrement DAVE`.
+3. Sur Discord : `/etat` → ligne « Musique » prête, version de Lavalink affichée.
+4. Rejoindre un salon vocal **normal** (pas une scène) avec votre compte, depuis l'application
+   Discord à jour (ordinateur ou téléphone).
+5. `/play query:https://soundcloud.com/…` (un titre SoundCloud public : moins de blocages que YouTube).
+6. Attendre 20 s, puis `/audiocheck` : les 5 étapes doivent être ✅. Noter le résultat.
+7. **Écouter** : le son doit s'entendre. Si les 5 étapes sont ✅ et rien ne s'entend, vérifier le
+   volume utilisateur du bot (clic droit sur le bot) et tester avec un second compte.
+8. Recommencer avec `/play query:daft punk` (recherche YouTube Music) et noter si YouTube
+   refuse la machine (étape 3).
+9. Dans les journaux du bot, retrouver les lignes `étape 1/5` à `étape 5/5` du titre.
+10. Noter dans [test-manuel.md](test-manuel.md) : version de Lavalink, système, réseau
+    (maison, VPS…), résultat de `/audiocheck`, son entendu ou non.
 
 ## 9. Limites connues
 
 - **Non vérifié ici** : la lecture du son dans un vrai salon Discord (pas de Discord dans
   l'environnement de développement) et les recherches texte réelles (pas d'accès DNS) ; à
-  valider par le test manuel ci-dessus.
+  valider par la procédure du §8 bis. La cause exacte du silence observé en 1.11.0 n'est
+  pas prouvée : le diagnostic de la 1.12.0 sert à la trouver au prochain essai.
+- wavelink 3.5.2 lève une erreur interne sur un code de fermeture vocale qu'il ne connaît pas ;
+  la surveillance de l'adaptateur (§4) remet alors le lecteur en état, mais la cause n'est
+  écrite que dans les journaux de Lavalink.
 - **YouTube** peut refuser l'adresse du VPS à tout moment ; rien n'est fait pour le
   contourner. SoundCloud reste alors la source de secours.
 - La progression affichée dans le panneau n'est pas en temps réel : elle est recalculée à
-  chaque mise à jour du panneau et par `/musique encours`.
+  chaque mise à jour du panneau et par `/nowplaying`.
 - La file est en mémoire : elle est perdue au redémarrage du bot ou de Lavalink.
 - **Défaut de wavelink 3.5.2** constaté sur un vrai Lavalink : quand Lavalink s'arrête, sa
   tâche de connexion meurt sans que le nœud passe « déconnecté ». L'adaptateur le surveille
@@ -293,7 +394,7 @@ Vérifier avant d'activer : le VPS doit avoir ≈ 800 Mo de mémoire libre en pl
    migration v13 automatique), puis dans `.env` : `MUSIC_ENABLED=true`,
    `LAVALINK_PASSWORD=<la valeur donnée par le propriétaire>`, puis redémarrer le bot
    (`sudo systemctl restart samae`, ou le demander au propriétaire).
-4. `/etat` → Musique prête ; un premier `/musique jouer` dans un salon.
+4. `/etat` → Musique prête ; un premier `/play` dans un salon, puis `/audiocheck` (§8 bis).
 
 Pour désactiver : `MUSIC_ENABLED=false` et redémarrer le bot ; Lavalink peut rester arrêté
 (`sudo systemctl disable --now lavalink`). L'historique et les favoris restent en base.

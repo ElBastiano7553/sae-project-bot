@@ -39,6 +39,7 @@ from src.database.project_deliveries import ProjectDeliveryRepository
 from src.database.github_setup import GithubSetupRepository
 from src.database.gitlab_setup import GitlabSetupRepository
 from src.database.projects import ProjectRepository
+from src.database.guild_settings import GuildSettingsRepository
 from src.database.music import MusicRepository
 from src.music.service import MusicConfig, MusicService
 from src.github.dispatcher import GitHubDispatcher
@@ -72,8 +73,20 @@ CATEGORY_BINDINGS_KEY = "category_bindings"
 # Identifiants des rôles de la cible retrouvés ou créés par /refonte (JSON « clé → identifiant »),
 # pour les futurs systèmes (votes, réunions, notifications, auto-attribution).
 ROLE_BINDINGS_KEY = "role_bindings"
-# Empreinte des commandes slash déjà envoyées à Discord (évite une synchronisation à chaque redémarrage).
-COMMANDS_SYNC_KEY = "commands_sync_hash"
+# Empreintes des commandes slash déjà envoyées à Discord (évite une synchronisation à chaque redémarrage) :
+# commandes globales (tous les serveurs), puis commandes de l'espace d'équipe (serveur principal seulement).
+COMMANDS_SYNC_GLOBAL_KEY = "commands_sync_hash:global"
+COMMANDS_SYNC_HOME_KEY = "commands_sync_hash:home"
+# Serveur où les commandes de l'espace d'équipe ont été envoyées la dernière fois (à retirer s'il change).
+COMMANDS_HOME_GUILD_KEY = "commands_home_guild"
+# Serveur principal choisi depuis Discord (/setup serveur-principal) quand DISCORD_GUILD_ID est vide.
+HOME_GUILD_KEY = "home_guild_id"
+# Serveur sur lequel l'espace d'équipe (/admin installer, /refonte) a été installé.
+TEAM_SPACE_GUILD_KEY = "team_space_guild_id"
+# Commandes de l'espace d'équipe : elles lisent ou modifient des données d'UN seul serveur (messages
+# permanents, structure, projet GitLab du .env, documents de l'équipe). Elles ne sont envoyées à Discord
+# que pour le serveur principal ; partout ailleurs, elles n'apparaissent pas.
+HOME_ONLY_COMMANDS = ("admin", "refonte", "ia", "activite", "roles")
 EXTENSIONS = (
     "src.discord_bot.cogs.general",
     "src.discord_bot.cogs.activity",
@@ -84,6 +97,7 @@ EXTENSIONS = (
     "src.discord_bot.cogs.welcome",
     "src.discord_bot.cogs.projects",
     "src.discord_bot.cogs.music",
+    "src.discord_bot.cogs.setup",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
@@ -116,6 +130,9 @@ class SaeBot(commands.Bot):
         self.bindings_repo = ChannelBindingRepository(database)
         self.state_repo = KeyValueRepository(database)
         self.admin_log = AdminActionRepository(database)
+        # Réglages choisis depuis Discord pour chaque serveur (/setup), isolés par serveur.
+        self.guild_settings_repo = GuildSettingsRepository(database)
+        self._home_commands: dict[str, app_commands.Command | app_commands.Group] = {}
         self.gateway = DiscordMessageGateway(self)
         self.gitlab_events_repo = GitLabEventRepository(database)
         self.bot_errors_repo = BotErrorRepository(database)
@@ -163,7 +180,9 @@ class SaeBot(commands.Bot):
         # Connexion des projets GitLab (étape B5) : None tant que l'application OAuth GitLab n'est pas configurée.
         self.gitlab_setup_repo = GitlabSetupRepository(database)
         self.gitlab_setup: GitLabSetupFlow | None = (
-            build_gitlab_flow(settings, self.gitlab_setup_repo, self.projects_repo, on_linked=self.record_gitlab_link)
+            build_gitlab_flow(
+                settings, self.gitlab_setup_repo, self.projects_repo, on_linked=self.record_gitlab_link, home_guild_id=lambda: self.home_guild_id
+            )
             if settings.gitlab_app_enabled
             else None
         )
@@ -244,29 +263,66 @@ class SaeBot(commands.Bot):
             return
         log.info("Musique : connexion à Lavalink (%s) lancée en arrière-plan", self.settings.lavalink_uri)
 
-    def commands_fingerprint(self, guild: discord.abc.Snowflake) -> str:
+    def commands_fingerprint(self, guild: discord.abc.Snowflake | None) -> str:
         """Empreinte de ce qui serait envoyé à Discord : change dès qu'une commande, une option ou un texte change."""
         payload = [command.to_dict(self.tree) for command in self.tree.get_commands(guild=guild)]
-        raw = json.dumps({"app": self.application_id, "guild": guild.id, "commands": payload}, sort_keys=True, default=str)
+        raw = json.dumps({"app": self.application_id, "guild": guild.id if guild else None, "commands": payload}, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    async def sync_commands(self, *, force: bool = False) -> int | None:
-        """Synchronise les commandes slash sur le serveur, seulement si elles ont changé.
+    def split_commands(self) -> dict[str, app_commands.Command | app_commands.Group]:
+        """Range les commandes de l'espace d'équipe à part : elles ne sont envoyées qu'au serveur principal."""
+        for name in HOME_ONLY_COMMANDS:
+            command = self.tree.get_command(name)
+            if command is not None:
+                self.tree.remove_command(name)
+                self._home_commands[name] = command
+        home = self.home_guild_id
+        if home is not None:
+            target = discord.Object(id=home)
+            self.tree.clear_commands(guild=target)
+            for command in self._home_commands.values():
+                self.tree.add_command(command, guild=target)
+        return self._home_commands
 
-        Discord limite le nombre de synchronisations : avec un redémarrage automatique,
-        resynchroniser à chaque démarrage ralentirait le bot et pourrait le faire limiter.
-        Retourne le nombre de commandes envoyées, 0 si rien n'a changé, ``None`` en cas d'échec
-        (les commandes déjà enregistrées restent alors utilisables).
+    async def sync_commands(self, *, force: bool = False) -> int | None:
+        """Synchronise les commandes slash avec Discord, seulement si elles ont changé.
+
+        * Commandes **globales** (musique, réunions, /projet, /aide, /etat, /setup) : visibles sur tous les
+          serveurs où le bot est invité, sans aucun identifiant à configurer.
+        * Commandes de l'**espace d'équipe** (HOME_ONLY_COMMANDS) : envoyées au serveur principal seulement
+          (et retirées de l'ancien serveur principal s'il a changé).
+
+        Discord limite le nombre de synchronisations : chaque envoi n'a lieu que si l'empreinte a changé
+        (jamais à chaque démarrage). Retourne le nombre de commandes envoyées, 0 si rien n'a changé,
+        ``None`` en cas d'échec (les commandes déjà enregistrées restent alors utilisables).
         """
-        guild = discord.Object(id=self.settings.guild_id)
-        # Synchronisation sur le serveur uniquement : les commandes apparaissent immédiatement.
-        self.tree.copy_global_to(guild=guild)
-        fingerprint = self.commands_fingerprint(guild)
-        if not force and self.state_repo.get(COMMANDS_SYNC_KEY) == fingerprint:
-            log.info("Commandes slash inchangées depuis la dernière synchronisation : rien à envoyer à Discord")
-            return 0
+        self.split_commands()
+        home = self.home_guild_id
+        sent = 0
         try:
-            synced = await self.tree.sync(guild=guild)
+            fingerprint = self.commands_fingerprint(None)
+            if force or self.state_repo.get(COMMANDS_SYNC_GLOBAL_KEY) != fingerprint:
+                synced = await self.tree.sync()
+                self.state_repo.set(COMMANDS_SYNC_GLOBAL_KEY, fingerprint)
+                sent += len(synced)
+                log.info("%d commandes slash globales synchronisées (tous les serveurs)", len(synced))
+            previous = self.state_repo.get(COMMANDS_HOME_GUILD_KEY)
+            if previous and previous.isdigit() and int(previous) != home:
+                old = discord.Object(id=int(previous))
+                self.tree.clear_commands(guild=old)
+                await self.tree.sync(guild=old)  # liste vide : l'ancien serveur principal perd l'espace d'équipe
+                self.state_repo.set(COMMANDS_HOME_GUILD_KEY, "")
+                self.state_repo.set(COMMANDS_SYNC_HOME_KEY, "")
+                log.info("Commandes de l'espace d'équipe retirées de l'ancien serveur principal %s", previous)
+            if home is not None:
+                target = discord.Object(id=home)
+                fingerprint = self.commands_fingerprint(target)
+                if force or self.state_repo.get(COMMANDS_SYNC_HOME_KEY) != fingerprint or previous != str(home):
+                    synced = await self.tree.sync(guild=target)
+                    self.state_repo.set(COMMANDS_SYNC_HOME_KEY, fingerprint)
+                    self.state_repo.set(COMMANDS_HOME_GUILD_KEY, str(home))
+                    sent += len(synced)
+                    log.info("%d commandes de l'espace d'équipe synchronisées sur le serveur principal %s", len(synced), home)
         except discord.HTTPException as exc:
             log.error(
                 "Synchronisation des commandes slash impossible (HTTP %s) : les commandes déjà connues de Discord "
@@ -274,9 +330,9 @@ class SaeBot(commands.Bot):
                 getattr(exc, "status", "?"),
             )
             return None
-        self.state_repo.set(COMMANDS_SYNC_KEY, fingerprint)
-        log.info("%d commandes slash synchronisées sur le serveur %s", len(synced), self.settings.guild_id)
-        return len(synced)
+        if not sent:
+            log.info("Commandes slash inchangées depuis la dernière synchronisation : rien à envoyer à Discord")
+        return sent
 
     async def start_gitlab_webhooks(self) -> None:
         """Démarre la V2 si elle est configurée. Une erreur ici n'empêche jamais la V1 de fonctionner."""
@@ -469,11 +525,33 @@ class SaeBot(commands.Bot):
         if self._startup_done:
             return  # on_ready peut être appelé plusieurs fois (reconnexions)
         self._startup_done = True
+        self._maintenance_task = asyncio.create_task(self._maintenance_loop(), name="maintenance")
+        guilds = list(self.guilds)
+        log.info("Bot présent sur %d serveur(s) : %s", len(guilds), ", ".join(f"{g.name} ({g.id})" for g in guilds[:10]) or "aucun")
+        if not guilds:
+            log.warning("Le bot n'est sur aucun serveur : invitez-le avec le lien de docs/installation.md (étape 2).")
+        home = self.home_guild_id
+        if home is None:
+            log.info(
+                "Aucun serveur principal : la musique, les réunions, /projet et /aide fonctionnent partout. Pour l'espace "
+                "d'équipe (messages permanents, /refonte, /ia), le propriétaire du bot peut lancer /setup serveur-principal."
+            )
+            return
+        self.adopt_orphan_meetings()
         guild = self.target_guild
         if guild is None:
             log.error(
-                "Le bot n'est pas présent sur le serveur %s. Vérifiez DISCORD_GUILD_ID et invitez le bot.",
-                self.settings.guild_id,
+                "Le bot n'est pas présent sur son serveur principal %s (DISCORD_GUILD_ID ou /setup serveur-principal) : "
+                "invitez-le, ou videz DISCORD_GUILD_ID. Le reste du bot fonctionne normalement.",
+                home,
+            )
+            return
+        conflict = self.team_space_conflict
+        if conflict is not None:
+            log.error(
+                "L'espace d'équipe a été installé sur le serveur %s, qui n'est plus le serveur principal (%s) : rien n'est "
+                "actualisé automatiquement. Lancez /setup serveur-principal reinitialiser:True sur le nouveau serveur.",
+                conflict, home,
             )
             return
         try:
@@ -493,7 +571,6 @@ class SaeBot(commands.Bot):
                 "Alertes désactivées : le salon ALERTS_CHANNEL=%s n'est pas associé (clé de config/server.toml, puis /admin installer).",
                 self.settings.alerts_channel,
             )
-        self._maintenance_task = asyncio.create_task(self._maintenance_loop(), name="maintenance")
 
     async def _refresh_on_startup(self, report: StructureReport) -> None:
         try:
@@ -734,16 +811,98 @@ class SaeBot(commands.Bot):
 
     # --- Services ----------------------------------------------------------
 
+    # --- Serveur principal (espace d'équipe) -------------------------------------------
+
+    @property
+    def home_guild_id(self) -> int | None:
+        """Serveur principal : DISCORD_GUILD_ID s'il est rempli, sinon celui choisi avec /setup serveur-principal."""
+        if self.settings.guild_id:
+            return self.settings.guild_id
+        raw = self.state_repo.get(HOME_GUILD_KEY)
+        return int(raw) if raw and raw.isdigit() else None
+
+    @property
+    def home_guild_source(self) -> str:
+        if self.settings.guild_id:
+            return "DISCORD_GUILD_ID (.env)"
+        return "/setup serveur-principal" if self.home_guild_id else "aucun"
+
+    def set_home_guild(self, guild_id: int) -> None:
+        """Mémorise le serveur principal choisi depuis Discord (quand DISCORD_GUILD_ID est vide)."""
+        self.state_repo.set(HOME_GUILD_KEY, str(int(guild_id)))
+        self.adopt_orphan_meetings()
+
     @property
     def target_guild(self) -> discord.Guild | None:
-        return self.get_guild(self.settings.guild_id)
+        home = self.home_guild_id
+        return self.get_guild(home) if home else None
+
+    @property
+    def team_space_guild_id(self) -> int | None:
+        """Serveur où l'espace d'équipe a été installé (avant 1.12 : le serveur de DISCORD_GUILD_ID)."""
+        raw = self.state_repo.get(TEAM_SPACE_GUILD_KEY)
+        if raw and raw.isdigit():
+            return int(raw)
+        return self.settings.guild_id if self.state_repo.get(SETUP_CONFIRMED_KEY) else None
+
+    @property
+    def team_space_conflict(self) -> int | None:
+        """Serveur de l'espace d'équipe s'il n'est PAS le serveur principal actuel (rien n'est alors fait automatiquement)."""
+        team, home = self.team_space_guild_id, self.home_guild_id
+        if self.state_repo.get(SETUP_CONFIRMED_KEY) and team is not None and team != home:
+            return team
+        return None
+
+    def team_guild_error(self, guild_id: int | None) -> str | None:
+        """Pourquoi l'espace d'équipe est indisponible sur ce serveur (``None`` : disponible)."""
+        home = self.home_guild_id
+        if home is None:
+            return (
+                "Cette commande fait partie de l'espace d'équipe, qui n'est activé sur aucun serveur. Le propriétaire du bot "
+                "peut faire de ce serveur le serveur principal avec `/setup serveur-principal`."
+            )
+        if guild_id != home:
+            return "Cette commande fait partie de l'espace d'équipe : elle n'est disponible que sur le serveur principal du bot."
+        if self.team_space_conflict is not None:
+            return (
+                "L'espace d'équipe a été installé sur un autre serveur. Pour l'installer ici, le propriétaire du bot doit "
+                "lancer `/setup serveur-principal reinitialiser:True` (les messages déjà publiés là-bas ne sont pas supprimés)."
+            )
+        return None
+
+    def reset_team_space(self) -> None:
+        """Oublie l'installation de l'espace d'équipe (associations de salons, messages suivis) SANS rien supprimer
+        sur Discord : les messages déjà publiés restent où ils sont, le bot ne les modifie plus."""
+        self.bindings_repo.replace_all({})
+        self.messages_repo.forget_all()
+        for key in (SETUP_CONFIRMED_KEY, CATEGORY_BINDINGS_KEY, ROLE_BINDINGS_KEY, TEAM_SPACE_GUILD_KEY):
+            self.state_repo.set(key, "")
+
+    def adopt_orphan_meetings(self) -> int:
+        """Réunions d'avant le multi-serveurs : rattachées au serveur principal (une seule fois, sans risque)."""
+        home = self.home_guild_id
+        if home is None:
+            return 0
+        try:
+            count = self.meetings.repo.adopt_orphans(home)
+        except Exception:
+            log.exception("Réunions existantes non rattachées au serveur principal")
+            return 0
+        if count:
+            log.info("%d réunion(s) existante(s) rattachée(s) au serveur principal %s", count, home)
+        return count
 
     @property
     def setup_confirmed_at(self) -> str | None:
-        return self.state_repo.get(SETUP_CONFIRMED_KEY)
+        """Date de l'installation confirmée de l'espace d'équipe, sur le serveur principal actuel seulement."""
+        if self.team_space_conflict is not None:
+            return None  # installé sur un autre serveur : aucune action automatique ici
+        return self.state_repo.get(SETUP_CONFIRMED_KEY) or None
 
     def mark_setup_confirmed(self) -> None:
         self.state_repo.set(SETUP_CONFIRMED_KEY, dt.datetime.now().strftime("%d/%m/%Y %H:%M"))
+        if self.home_guild_id is not None:
+            self.state_repo.set(TEAM_SPACE_GUILD_KEY, str(self.home_guild_id))
 
     def resolve_structure(self, guild: discord.Guild) -> StructureReport:
         """Relit config/server.toml et compare avec le serveur (aucune modification)."""
@@ -871,6 +1030,19 @@ class SaeBot(commands.Bot):
             log.exception("Impossible d'enregistrer l'action d'administration %s", action)
 
 
+class TeamSpaceOnly(app_commands.CheckFailure):
+    """Commande de l'espace d'équipe utilisée hors du serveur principal (message destiné à l'utilisateur)."""
+
+
+def require_team_space(interaction: discord.Interaction) -> bool:
+    """Vérification des cogs de l'espace d'équipe (``interaction_check``) : lève ``TeamSpaceOnly`` hors du serveur principal."""
+    client = interaction.client
+    problem = client.team_guild_error(interaction.guild_id) if isinstance(client, SaeBot) else None
+    if problem:
+        raise TeamSpaceOnly(problem)
+    return True
+
+
 async def send_error(interaction: discord.Interaction, message: str, *, title: str = "Action impossible", tone: str = "failure") -> None:
     """Répond à l'utilisateur, que l'interaction ait déjà reçu une réponse ou non."""
     embed = error_embed(message, title=title, tone=tone)
@@ -892,7 +1064,9 @@ def install_error_handler(tree: app_commands.CommandTree) -> None:
         if isinstance(client, SaeBot):
             client.record_interaction(interaction, ok=isinstance(error, app_commands.CheckFailure))
         if isinstance(error, app_commands.NoPrivateMessage):
-            await send_error(interaction, "Cette commande s'utilise sur le serveur de l'équipe, pas en message privé.")
+            await send_error(interaction, "Cette commande s'utilise sur un serveur, pas en message privé.")
+        elif isinstance(error, TeamSpaceOnly):
+            await send_error(interaction, str(error), title="Espace d'équipe", tone="warning")
         elif isinstance(error, app_commands.CheckFailure):
             await send_error(
                 interaction,

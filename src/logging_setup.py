@@ -39,3 +39,6 @@ def setup_logging(
         root.addHandler(ErrorTrackingHandler(errors, secrets))
     # discord.py est très bavard en DEBUG : on garde ses messages à partir de INFO.
     logging.getLogger("discord").setLevel(max(logging.INFO, logging.getLevelName(level)))
+    # wavelink écrit en DEBUG les messages vocaux complets (jeton et session vocale de Discord) : jamais en dessous de INFO,
+    # même avec LOG_LEVEL=DEBUG. Le diagnostic du son passe par nos propres journaux (src.music), sans aucun jeton.
+    logging.getLogger("wavelink").setLevel(max(logging.INFO, logging.getLevelName(level)))

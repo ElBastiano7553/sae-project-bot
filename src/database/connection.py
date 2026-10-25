@@ -400,6 +400,21 @@ MIGRATIONS: list[str] = [
         updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
     );
     """,
+    # v14 (multi-serveurs, docs/installation.md) : réglages choisis depuis Discord pour CHAQUE serveur
+    # (/setup), et serveur de chaque réunion. Ajouts seulement : aucune donnée existante n'est modifiée ni
+    # supprimée. Les réunions déjà créées gardent guild_id NULL jusqu'à ce que le bot connaisse son serveur
+    # principal (elles lui sont alors rattachées, voir MeetingRepository.adopt_orphans) ; d'ici là, elles ne
+    # sont visibles nulle part, plutôt que sur un mauvais serveur.
+    """
+    CREATE TABLE guild_settings (
+        guild_id         INTEGER PRIMARY KEY,
+        music_dj_role_id INTEGER,
+        updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    ALTER TABLE meetings ADD COLUMN guild_id INTEGER;
+    CREATE INDEX meetings_guild ON meetings (guild_id, status, id);
+    """,
 ]
 
 

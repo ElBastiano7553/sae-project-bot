@@ -57,6 +57,10 @@ class FakeUser:
 
 
 class FakeInteraction:
+    @property
+    def guild_id(self):  # comme discord.Interaction : identifiant du serveur, None en message privé
+        return getattr(getattr(self, "guild", None), "id", None)
+
     def __init__(self, client, user_id: int = 7, values=None) -> None:
         self.client = client
         self.user = FakeUser(user_id)

@@ -324,7 +324,14 @@ def add_gitlab_setup_routes(app: web.Application, flow: GitLabSetupFlow) -> None
 
 
 def build_gitlab_flow(
-    settings, repository: GitlabSetupRepository, projects: ProjectRepository, *, clock=None, base_url: str | None = None, on_linked=None
+    settings,
+    repository: GitlabSetupRepository,
+    projects: ProjectRepository,
+    *,
+    clock=None,
+    base_url: str | None = None,
+    on_linked=None,
+    home_guild_id=None,
 ) -> GitLabSetupFlow:
     """Parcours à partir des réglages (``settings.gitlab_app_enabled`` doit être vrai).
 
@@ -332,8 +339,11 @@ def build_gitlab_flow(
     """
     states = SetupStates(repository, settings.gitlab_app_client_secret, purpose=STATE_PURPOSE, **({"clock": clock} if clock else {}))
 
+    # Serveur principal (projet GitLab historique du .env) : DISCORD_GUILD_ID, ou celui choisi avec /setup.
+    home = home_guild_id or (lambda: settings.guild_id)
+
     def legacy_project_id(guild_id: int) -> int | None:
-        if guild_id == settings.guild_id and settings.gitlab_webhooks_enabled:
+        if guild_id == home() and settings.gitlab_webhooks_enabled:
             return settings.gitlab_project_id
         return None
 

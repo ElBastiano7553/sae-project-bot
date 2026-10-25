@@ -80,6 +80,8 @@ class Actor:
     user_id: int
     name: str
     is_admin: bool = False
+    # Serveur Discord de l'action : une réunion d'un autre serveur est traitée comme inexistante.
+    guild_id: int | None = None
 
     @property
     def ref(self) -> tuple[int, str]:
@@ -260,17 +262,18 @@ class MeetingService:
 
     # --- Lecture ---------------------------------------------------------------
 
-    def get(self, meeting_id: int) -> MeetingDetail:
+    def get(self, meeting_id: int, guild_id: int | None = None) -> MeetingDetail:
+        """Réunion ``meeting_id`` ; avec ``guild_id``, une réunion d'un autre serveur répond comme une réunion inconnue."""
         detail = self.repo.detail(meeting_id)
-        if detail is None:
+        if detail is None or (guild_id is not None and detail.meeting.guild_id != guild_id):
             raise MeetingError(f"La réunion #{meeting_id} n'existe pas.")
         return detail
 
     def resolve(self, meeting_id: int | None, actor: Actor, channel_id: int | None) -> MeetingDetail:
         """Réunion désignée, ou à défaut l'unique réunion ouverte de ce salon ou du membre."""
         if meeting_id is not None:
-            return self.get(meeting_id)
-        candidates = self.repo.open_for(actor.user_id, channel_id)
+            return self.get(meeting_id, actor.guild_id)
+        candidates = self.repo.open_for(actor.user_id, channel_id, guild_id=actor.guild_id)
         if not candidates:
             raise MeetingError("Aucune réunion prévue ou en cours ici : précisez l'option `reunion` (voir `/reunion liste`).")
         in_channel = [m for m in candidates if m.channel_id == channel_id]
@@ -278,10 +281,10 @@ class MeetingService:
         if len(pool) > 1:
             names = ", ".join(f"#{m.id} {m.title}" for m in pool[:5])
             raise MeetingError(f"Plusieurs réunions possibles ({names}) : précisez l'option `reunion`.")
-        return self.get(pool[0].id)
+        return self.get(pool[0].id, actor.guild_id)
 
-    def report(self, meeting_id: int) -> MeetingReport:
-        detail = self.get(meeting_id)
+    def report(self, meeting_id: int, guild_id: int | None = None) -> MeetingReport:
+        detail = self.get(meeting_id, guild_id)
         if detail.meeting.report:
             try:
                 return MeetingReport.from_json(detail.meeting.report)
@@ -325,9 +328,9 @@ class MeetingService:
         if status not in allowed:
             raise MeetingError(f"Impossible de {what} : la réunion #{detail.meeting.id} est {STATUS_LABELS[status]}.")
 
-    def _load(self, meeting_id: int, expected_revision: int | None = None) -> MeetingDetail:
+    def _load(self, meeting_id: int, expected_revision: int | None = None, guild_id: int | None = None) -> MeetingDetail:
         """Réunion à modifier ; un bouton d'un panneau périmé est refusé avant toute autre vérification."""
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, guild_id)
         if expected_revision is not None and expected_revision != detail.meeting.revision:
             raise StalePanel("La réunion a changé depuis l'affichage de ce panneau : il vient d'être actualisé, réessayez.")
         return detail
@@ -385,6 +388,7 @@ class MeetingService:
             planned_minutes=planned_minutes,
             channel_id=channel_id,
             created_by=actor.ref,
+            guild_id=actor.guild_id,
         )
         return self.get(meeting_id)
 
@@ -392,7 +396,7 @@ class MeetingService:
 
     def join(self, meeting_id: int, actor: Actor) -> MeetingDetail:
         self._throttle(actor)
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, actor.guild_id)
         self._require_status(detail, OPEN_STATUSES, "la rejoindre")
         if detail.is_participant(actor.user_id):
             raise MeetingError(f"Vous participez déjà à la réunion #{meeting_id}.")
@@ -402,7 +406,7 @@ class MeetingService:
 
     def leave(self, meeting_id: int, actor: Actor) -> MeetingDetail:
         self._throttle(actor)
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, actor.guild_id)
         self._require_status(detail, OPEN_STATUSES, "la quitter")
         if actor.user_id == detail.meeting.leader_id:
             raise MeetingError("Le responsable ne peut pas quitter sa réunion : annulez-la ou terminez-la.")
@@ -412,7 +416,7 @@ class MeetingService:
 
     def invite(self, meeting_id: int, actor: Actor, member: tuple[int, str]) -> MeetingDetail:
         self._throttle(actor)
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, actor.guild_id)
         self._require_control(detail, actor, "inviter des participants")
         self._require_status(detail, OPEN_STATUSES, "inviter")
         if detail.is_participant(member[0]):
@@ -425,7 +429,7 @@ class MeetingService:
 
     def start(self, meeting_id: int, actor: Actor, *, expected_revision: int | None = None) -> MeetingDetail:
         self._throttle(actor)
-        detail = self._load(meeting_id, expected_revision)
+        detail = self._load(meeting_id, expected_revision, actor.guild_id)
         self._require_control(detail, actor, "démarrer la réunion")
         self._require_status(detail, (PLANNED,), "la démarrer")
         first = next((s for s in detail.steps if s.status == "pending"), None)
@@ -439,7 +443,7 @@ class MeetingService:
 
     def next_step(self, meeting_id: int, actor: Actor, *, expected_revision: int | None = None) -> MeetingDetail:
         self._throttle(actor)
-        detail = self._load(meeting_id, expected_revision)
+        detail = self._load(meeting_id, expected_revision, actor.guild_id)
         self._require_control(detail, actor, "changer d'étape")
         self._require_status(detail, (RUNNING,), "changer d'étape")
         current = detail.current_step
@@ -458,7 +462,7 @@ class MeetingService:
 
     def previous_step(self, meeting_id: int, actor: Actor, *, expected_revision: int | None = None) -> MeetingDetail:
         self._throttle(actor)
-        detail = self._load(meeting_id, expected_revision)
+        detail = self._load(meeting_id, expected_revision, actor.guild_id)
         self._require_control(detail, actor, "changer d'étape")
         self._require_status(detail, (RUNNING,), "changer d'étape")
         current = detail.current_step
@@ -476,7 +480,7 @@ class MeetingService:
 
     def add_step(self, meeting_id: int, actor: Actor, title: str) -> MeetingDetail:
         self._throttle(actor)
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, actor.guild_id)
         self._require_contributor(detail, actor, "compléter l'ordre du jour")
         self._require_status(detail, OPEN_STATUSES, "compléter l'ordre du jour")
         title = _clean(title, STEP_TITLE_MAX, "Le point", required=True)
@@ -488,7 +492,7 @@ class MeetingService:
         self._throttle(actor)
         if kind not in NOTE_LABELS:
             raise MeetingError("Type de note inconnu.")
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, actor.guild_id)
         if kind == DECISION:
             self._require_control(detail, actor, "enregistrer une décision")
         else:
@@ -508,7 +512,7 @@ class MeetingService:
         self, meeting_id: int, actor: Actor, description: str, assignee: tuple[int, str], due_date: str | None = None
     ) -> MeetingDetail:
         self._throttle(actor)
-        detail = self.get(meeting_id)
+        detail = self.get(meeting_id, actor.guild_id)
         self._require_contributor(detail, actor, "ajouter une action")
         self._require_status(detail, (RUNNING,), "ajouter une action")
         description = _clean(description, ACTION_MAX, "L'action", required=True)
@@ -525,14 +529,14 @@ class MeetingService:
     def finish(self, meeting_id: int, actor: Actor, *, expected_revision: int | None = None) -> MeetingDetail:
         """Termine la réunion et fige son compte rendu (dans la même transaction)."""
         self._throttle(actor)
-        detail = self._load(meeting_id, expected_revision)
+        detail = self._load(meeting_id, expected_revision, actor.guild_id)
         self._require_control(detail, actor, "terminer la réunion")
         self._require_status(detail, (RUNNING,), "la terminer")
         return self._close(detail, actor, FINISHED, "clôture")
 
     def cancel(self, meeting_id: int, actor: Actor, *, expected_revision: int | None = None) -> MeetingDetail:
         self._throttle(actor)
-        detail = self._load(meeting_id, expected_revision)
+        detail = self._load(meeting_id, expected_revision, actor.guild_id)
         self._require_control(detail, actor, "annuler la réunion")
         self._require_status(detail, OPEN_STATUSES, "l'annuler")
         return self._close(detail, actor, CANCELLED, "annulation")

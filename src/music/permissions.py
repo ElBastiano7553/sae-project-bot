@@ -11,9 +11,9 @@ Règles :
 * **Passer un titre** : la personne qui l'a demandé, ou une personne « DJ ».
 * **Arrêter et vider la file, changer le volume, faire partir le bot** : une personne « DJ ».
 * **Est « DJ »** : un administrateur du bot (« Gérer le serveur » ou ADMIN_ROLE_NAME), une
-  personne qui a le rôle MUSIC_DJ_ROLE_NAME, ou la personne seule avec le bot dans le salon.
-  Sans MUSIC_DJ_ROLE_NAME (réglage par défaut, adapté à une petite équipe), toute personne
-  présente dans le salon vocal du bot est « DJ ».
+  personne qui a le rôle DJ du serveur (choisi par /setup role-dj, sinon MUSIC_DJ_ROLE_NAME),
+  ou la personne seule avec le bot dans le salon. Sans rôle DJ (réglage par défaut, adapté à
+  une petite équipe), toute personne présente dans le salon vocal du bot est « DJ ».
 * **Consulter** (titre en cours, file, historique, favoris) : tout membre du serveur ; les
   réponses sont éphémères et ne concernent que ce serveur.
 * Un administrateur du bot peut arrêter la musique ou faire partir le bot sans être dans le salon.
@@ -39,6 +39,8 @@ class Listener:
     has_dj_role: bool = False
     # Nombre de personnes (hors bots) dans son salon vocal, elle comprise.
     humans_in_channel: int = 0
+    # Ce serveur a-t-il un rôle DJ ? None : le réglage global du service s'applique.
+    dj_role_configured: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,8 @@ class MusicPolicy:
         in_bot_channel = player is not None and player.connected and listener.voice_channel_id == player.voice_channel_id
         if in_bot_channel and listener.humans_in_channel <= 1:
             return True  # seule avec le bot : personne d'autre n'est gêné
-        return in_bot_channel and not self.dj_role_configured
+        configured = self.dj_role_configured if listener.dj_role_configured is None else listener.dj_role_configured
+        return in_bot_channel and not configured
 
     def require_dj(self, player: GuildPlayer | None, listener: Listener, action: str, *, admin_anywhere: bool = False) -> None:
         if admin_anywhere and listener.is_admin:

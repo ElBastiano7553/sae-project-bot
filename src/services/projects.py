@@ -299,14 +299,16 @@ def legacy_projects(
     channel_id_for: Callable[[str], int | None],
     gitlab_routes: Mapping[str, str] | None,
     github_channel_key: str,
+    home_guild_id: int | None = None,
 ) -> list[ProjectView]:
-    """Projets configurés dans ``.env``, rattachés au serveur ``DISCORD_GUILD_ID`` uniquement.
+    """Projets configurés dans ``.env``, rattachés au serveur principal uniquement (``home_guild_id``,
+    par défaut DISCORD_GUILD_ID).
 
     ``channel_id_for`` : salon associé à une clé de config/server.toml (None si absent).
     ``gitlab_routes`` : [routes] de config/gitlab.toml (None si le fichier est invalide).
     Seuls les noms de variables et l'état sont lus : jamais la valeur d'un secret.
     """
-    if guild_id != settings.guild_id:
+    if guild_id != (home_guild_id if home_guild_id is not None else settings.guild_id):
         return []
     projects: list[ProjectView] = []
     if settings.github_requested:

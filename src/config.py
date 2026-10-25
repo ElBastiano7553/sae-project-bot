@@ -47,7 +47,9 @@ SECRET_ENV_VARS = (
     "DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET",
     "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_CLIENT_SECRET", "GITLAB_APP_CLIENT_SECRET", "LAVALINK_PASSWORD",
 )
-# Webhooks GitHub : seul ce dépôt est accepté par défaut (dépôt privé du jeu).
+# Webhooks GitHub hérités du .env (seulement si GITHUB_WEBHOOK_SECRET est rempli) : dépôt accepté par défaut,
+# gardé pour l'installation existante de l'équipe. Une autre installation indique le sien dans
+# GITHUB_WEBHOOK_REPOSITORY, ou mieux, utilise /projet ajouter (aucun dépôt à écrire dans .env).
 DEFAULT_GITHUB_REPOSITORY = "ElBastiano7553/game-project"
 DEFAULT_GITHUB_WEBHOOK_PORT = 8081
 # Réception commune des projets enregistrés (multi-projets, étape B3) : interface locale seulement.
@@ -89,7 +91,10 @@ class Settings:
     """Réglages lus dans les variables d'environnement."""
 
     discord_token: str = field(repr=False)
-    guild_id: int
+    # Serveur principal FACULTATIF (DISCORD_GUILD_ID) : seulement pour l'espace d'équipe (messages permanents,
+    # /refonte, /ia, /activite, webhooks du .env). None : choisi depuis Discord avec /setup serveur-principal,
+    # ou aucun. La musique, les réunions, /projet et /aide fonctionnent sur tous les serveurs sans lui.
+    guild_id: int | None
     database_path: Path
     admin_role_name: str | None = None
     log_level: str = "INFO"
@@ -163,6 +168,30 @@ class Settings:
     # Erreur dans MUSIC_* / LAVALINK_* : la musique reste désactivée, le reste du bot démarre.
     music_config_error: str | None = None
 
+    def feature_summary(self) -> list[tuple[str, str]]:
+        """(fonction, état) de chaque fonction FACULTATIVE, pour le journal de démarrage. Aucun secret, aucune valeur.
+
+        Seul DISCORD_BOT_TOKEN est obligatoire (vérifié par ``from_env``) ; chaque ligne ci-dessous peut être
+        désactivée ou invalide sans empêcher le reste du bot de démarrer.
+        """
+
+        def state(enabled: bool, error: str | None, how: str) -> str:
+            if error:
+                return f"désactivée, configuration invalide : {error}"
+            return "activée" if enabled else f"désactivée ({how})"
+
+        home = (f"DISCORD_GUILD_ID = {self.guild_id}" if self.guild_id else
+                "aucun dans .env (facultatif : /setup serveur-principal depuis Discord)")
+        return [
+            ("Serveur principal", home),
+            ("Musique", state(self.music_enabled, self.music_config_error, "MUSIC_ENABLED=false")),
+            ("IA", state(self.ai_enabled, self.ai_config_error, "AI_PROVIDER vide")),
+            ("Webhooks GitLab", state(self.gitlab_webhooks_enabled, self.gitlab_config_error, "GITLAB_WEBHOOK_SECRET vide")),
+            ("Webhooks GitHub", state(self.github_webhooks_enabled, self.github_config_error, "GITHUB_WEBHOOK_SECRET vide")),
+            ("Réception des projets", state(self.projects_http_enabled, self.projects_http_error, "PROJECTS_HTTP_ENABLED=false")),
+            ("Accueil des nouveaux membres", "activé" if self.welcome_on_join else "désactivé (WELCOME_ON_JOIN=false)"),
+        ]
+
     @property
     def ai_enabled(self) -> bool:
         return self.ai_provider != "none"
@@ -222,15 +251,13 @@ class Settings:
             )
 
         guild_raw = env.get("DISCORD_GUILD_ID", "").strip()
-        guild_id = 0
-        if not guild_raw:
-            errors.append("DISCORD_GUILD_ID est vide : indiquez l'identifiant du serveur Discord.")
-        elif not guild_raw.isdigit():
+        guild_id = None  # facultatif : le bot fonctionne sur n'importe quel serveur sans lui
+        if guild_raw and not guild_raw.isdigit():
             errors.append(
-                f"DISCORD_GUILD_ID doit contenir uniquement des chiffres (valeur actuelle : {guild_raw!r})."
+                f"DISCORD_GUILD_ID doit contenir uniquement des chiffres, ou rester vide (valeur actuelle : {guild_raw!r})."
             )
-        else:
-            guild_id = int(guild_raw)
+        elif guild_raw:
+            guild_id = int(guild_raw) or None
 
         log_level = env.get("LOG_LEVEL", "INFO").strip().upper() or "INFO"
         if log_level not in _VALID_LOG_LEVELS:
