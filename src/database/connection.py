@@ -359,6 +359,47 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX gitlab_setup_states_expires_at ON gitlab_setup_states (expires_at);
     """,
+    # v13 : musique (docs/music.md). music_history : titres réellement lancés, par serveur, oubliés
+    # après MUSIC_HISTORY_RETENTION_DAYS ; music_favorites : favoris d'une personne DANS un serveur
+    # (pas de doublon : clé « source:identifiant ») ; music_guild_settings : volume de chaque serveur.
+    # Seul le nécessaire à l'affichage est gardé (aucun nom de membre : l'identifiant Discord suffit).
+    # La file d'attente n'est pas enregistrée : elle repart vide après un redémarrage.
+    # Uniquement des créations de tables : rien d'existant n'est modifié.
+    """
+    CREATE TABLE music_history (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id     INTEGER NOT NULL,
+        track_key    TEXT    NOT NULL,             -- « source:identifiant »
+        uri          TEXT,                         -- lien public de la piste, s'il existe
+        title        TEXT    NOT NULL,
+        author       TEXT    NOT NULL DEFAULT '',
+        source       TEXT    NOT NULL,
+        length_ms    INTEGER NOT NULL DEFAULT 0 CHECK (length_ms >= 0),
+        requested_by INTEGER NOT NULL,
+        played_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX music_history_guild ON music_history (guild_id, played_at);
+    CREATE INDEX music_history_played_at ON music_history (played_at);
+
+    CREATE TABLE music_favorites (
+        guild_id   INTEGER NOT NULL,
+        user_id    INTEGER NOT NULL,
+        track_key  TEXT    NOT NULL,
+        uri        TEXT    NOT NULL,               -- sans lien, une piste ne peut pas être rejouée : pas de favori
+        title      TEXT    NOT NULL,
+        author     TEXT    NOT NULL DEFAULT '',
+        source     TEXT    NOT NULL,
+        length_ms  INTEGER NOT NULL DEFAULT 0 CHECK (length_ms >= 0),
+        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (guild_id, user_id, track_key)
+    );
+
+    CREATE TABLE music_guild_settings (
+        guild_id   INTEGER PRIMARY KEY,
+        volume     INTEGER NOT NULL CHECK (volume BETWEEN 0 AND 100),
+        updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    """,
 ]
 
 

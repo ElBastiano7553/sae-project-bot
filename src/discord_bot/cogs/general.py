@@ -24,6 +24,7 @@ from src.services.health import (
     ProjectsReceptionSummary,
     HistorySummary,
     MessagesSummary,
+    MusicSummary,
     build_health_checks,
 )
 from src.services.help import GUIDE_PAGES
@@ -88,6 +89,13 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             github_connect_error=bot.settings.github_app_error,
             gitlab_connect=bot.gitlab_setup is not None,
             gitlab_connect_error=bot.settings.gitlab_app_error,
+        ),
+        music=MusicSummary(
+            enabled=bot.music is not None,
+            config_error=bot.settings.music_config_error,
+            lavalink_ready=bot.music is not None and bot.music.available,
+            active_players=sum(1 for p in bot.music.players.all() if p.connected) if bot.music is not None else 0,
+            sources=bot.settings.music_sources,
         ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at

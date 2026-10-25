@@ -40,6 +40,7 @@ CATEGORIES = {
     "projets": "Projets suivis",
     "ia": "Assistant IA",
     "reunions": "Réunions",
+    "musique": "Musique",
     "administration": "Administrer",
 }
 
@@ -161,6 +162,23 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
     HelpEntry("reunion annuler", "reunions", "Annule une réunion prévue ou en cours, après confirmation ; l'historique est conservé.", "/reunion annuler reunion:4"),
     HelpEntry("reunion compte-rendu", "reunions", "Compte rendu paginé (aperçu provisoire si la réunion n'est pas terminée).", "/reunion compte-rendu reunion:3"),
     HelpEntry("reunion aide", "reunions", "Guide pas à pas des réunions : créer, participer, animer, décisions, compte rendu, dépannage.", "/reunion aide sujet:Terminer"),
+    HelpEntry(
+        "musique jouer",
+        "musique",
+        "Cherche un titre ou ouvre un lien, puis l'ajoute à la file ; le bot rejoint votre salon vocal. Choix parmi 5 résultats.",
+        "/musique jouer recherche:daft punk one more time",
+    ),
+    HelpEntry("musique pause", "musique", "Met la lecture en pause (pour les personnes du salon vocal du bot).", "/musique pause"),
+    HelpEntry("musique reprendre", "musique", "Reprend la lecture mise en pause.", "/musique reprendre"),
+    HelpEntry("musique passer", "musique", "Passe au titre suivant (votre titre, ou n'importe lequel pour un « DJ »).", "/musique passer"),
+    HelpEntry("musique arreter", "musique", "Arrête la lecture et vide la file ; l'historique et les favoris restent (« DJ »).", "/musique arreter"),
+    HelpEntry("musique quitter", "musique", "Arrête la musique et fait quitter le salon vocal au bot (« DJ »).", "/musique quitter"),
+    HelpEntry("musique encours", "musique", "Titre en cours : artiste, source, durée, progression, demandeur.", "/musique encours"),
+    HelpEntry("musique file", "musique", "Titre en cours et titres en attente, par pages.", "/musique file"),
+    HelpEntry("musique volume", "musique", "Affiche le volume, ou le règle de 0 à 100 % (« DJ »).", "/musique volume valeur:40"),
+    HelpEntry("musique historique", "musique", "Dernières lectures sur ce serveur, par pages.", "/musique historique"),
+    HelpEntry("musique favori", "musique", "Ajoute le titre en cours à vos favoris, ou l'en retire ; ou retire un favori par son numéro.", "/musique favori"),
+    HelpEntry("musique favoris", "musique", "Vos favoris sur ce serveur, avec un menu pour en rejouer un.", "/musique favoris"),
     HelpEntry(
         "admin installer",
         "administration",
