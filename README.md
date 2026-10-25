@@ -5,7 +5,7 @@ informations du projet, publie des messages permanents tenus à jour, relaie
 l'activité GitLab et, dans les lots suivants, proposera historique, statistiques
 et bilans assistés par IA.
 
-## État actuel : version 1.10.0 (multi-projets : `/projet`, réception commune, connexion GitHub et GitLab)
+## État actuel : version 1.11.0 (musique dans les salons vocaux : `/musique`, désactivée par défaut)
 
 | Fonction | État |
 |---|---|
@@ -34,6 +34,7 @@ et bilans assistés par IA.
 | Multi-projets, étape B3 : réception commune des événements GitHub et GitLab des projets enregistrés (127.0.0.1:8090, désactivée par défaut), filtres et anti-doublons par projet, guide Nginx/DNS/certificat ; aucun projet n'est encore relié (B4/B5) | ✅ 1.8.0 ([guide](docs/projets-reception.md)) |
 | Multi-projets, étape B4 : `/projet configurer` (admins) relie un dépôt GitHub par la GitHub App de Samae (lien d'installation personnel et à usage unique, vérification OAuth puis révocation, aucune clé privée ni token gardé), message de test ; désactivée sans configuration | ✅ 1.9.0 ([guide](docs/github-app.md)) |
 | Multi-projets, étape B5 : `/projet configurer projet:` (admins) relie un projet GitLab par une application OAuth en lecture seule (rôle Maintainer vérifié puis accès révoqué, secret du webhook affiché une seule fois et gardé seulement sous forme d'empreinte) ; désactivée sans configuration | ✅ 1.10.0 ([guide](docs/gitlab-app.md)) |
+| Musique (désactivée par défaut) : `/musique` (recherche multi-sources, liens, file par serveur, panneau à boutons, volume, historique, favoris), lecture par un serveur Lavalink 4 local ; aucune installation faite sur le VPS | ✅ 1.11.0 ([guide](docs/music.md), [procédure VPS](docs/music-vps-checklist.md)) |
 | Multi-projets, étapes B6 et B7 : déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 

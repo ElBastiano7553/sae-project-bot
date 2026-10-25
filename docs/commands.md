@@ -117,6 +117,23 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 | `/reunion terminer` · `annuler` | responsable ou admin | Clôture après confirmation (2 min) ; `terminer` fige et publie le compte rendu. |
 | `/reunion compte-rendu [reunion] [publier]` | tous ; `publier` : responsable ou admin | Compte rendu paginé (aperçu provisoire avant la fin) ; `publier:True` republie un compte rendu supprimé. |
 
+## Musique : `/musique` (1.11.0, si `MUSIC_ENABLED=true`)
+
+Guide complet (sources, règles, installation de Lavalink) : [music.md](music.md). Les réponses sont
+éphémères ; seul le panneau du lecteur est public. « DJ » : voir [music.md](music.md#qui-peut-faire-quoi).
+
+| Commande | Qui | Effet |
+|---|---|---|
+| `/musique jouer recherche [source]` | personnes dans le salon vocal du bot (ou dans un salon vocal si le bot n'est connecté nulle part) | Cherche un titre (5 résultats au choix) ou ouvre un lien ; ajoute à la file sans interrompre le titre en cours. |
+| `/musique pause` · `reprendre` | personnes du salon vocal du bot | Pause et reprise (aussi par le bouton du panneau). |
+| `/musique passer` | qui a demandé le titre, ou « DJ » | Titre suivant. |
+| `/musique arreter` | « DJ » (admin : depuis n'importe où) | Arrête et vide la file ; historique et favoris conservés. |
+| `/musique quitter` | « DJ » (admin : depuis n'importe où) | Arrête et fait quitter le salon vocal au bot. |
+| `/musique volume [valeur]` | voir : tous ; régler : « DJ » | Volume de 0 à 100 %, retenu pour le serveur. |
+| `/musique encours` · `file` | tous | Titre en cours (progression au moment de la commande), file paginée. |
+| `/musique historique` | tous | Dernières lectures de CE serveur. |
+| `/musique favori [retirer]` · `favoris` | tous | Ajoute ou retire le titre en cours de vos favoris ; liste vos favoris avec un menu pour en rejouer un. |
+
 ## Administration : `/admin` et `/refonte` (admins du bot)
 
 | Commande | Effet | Confirmation |
@@ -154,5 +171,7 @@ pose sur un salon (voir le détail dans [refonte.md](refonte.md#7-permissions-n�
 | Salons des notifications GitLab (`#gitlab-activite`, `#builds-et-tests`) | Voir le salon, Envoyer des messages, Intégrer des liens (et Voir les anciens messages, Épingler pour le tableau de bord de `#gitlab-activite`) |
 | Salon des alertes (`ALERTS_CHANNEL`, facultatif) | Voir le salon, Envoyer des messages, Intégrer des liens |
 | Salons où sont créées les réunions, et `#comptes-rendus` (ou, avant la refonte, `#decisions-et-comptes-rendus`) pour les comptes rendus | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
+| Salons vocaux où l'on écoute de la musique (`/musique`, si activée) | Voir le salon, Se connecter, Parler |
+| Salons texte où l'on lance `/musique jouer` (panneau du lecteur) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
 
 `/admin diagnostic` indique, salon par salon, les permissions qui manquent.

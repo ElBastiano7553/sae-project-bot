@@ -251,3 +251,18 @@ Avec l'application OAuth de test (section 3 du guide) et l'adresse HTTPS :
 - [ ] `logs/bot.log`, journal Nginx, `sqlite3 data/sae_bot.sqlite3 .dump` : ni le secret du webhook, ni token, ni `code=`/`state=`.
 - [ ] Projet du `.env` (`GITLAB_PROJECT_ID`) : refusé avec « env-gitlab ».
 
+
+## 1.11.0 : musique (`/musique`)
+
+Guide et procédure détaillée : [music.md](music.md) §8. Sauvegarde `…-avantv13.sqlite3` créée au démarrage.
+
+- [ ] `MUSIC_ENABLED=false` : `/etat` « Musique désactivée » ; `/musique jouer` l'explique, rien d'autre ne change.
+- [ ] Lavalink lancé, `MUSIC_ENABLED=true` : `/etat` « prête ». Lavalink arrêté puis relancé : « injoignable » puis « prête » sans redémarrer le bot.
+- [ ] `/musique jouer` hors salon vocal : refus clair. Dans un salon : menu de 5 résultats, le bot rejoint, **le son s'entend**, le panneau apparaît.
+- [ ] Lien SoundCloud, lien YouTube, playlist (limite annoncée). Lien `http://127.0.0.1/…` ou site inconnu : refus.
+- [ ] Boutons pause / reprise / passer / file / favori / arrêter ; bouton d'un ancien panneau : « ne correspond plus ».
+- [ ] Second compte dans un autre salon : contrôles refusés. Avec `MUSIC_DJ_ROLE_NAME` : arrêt et volume réservés au rôle.
+- [ ] `/musique volume valeur:20`, redémarrage du bot, `/musique volume` → 20.
+- [ ] `/musique historique`, `/musique favoris` (rejouer), `/musique favori retirer:1`.
+- [ ] Bot laissé sans musique : il quitte le salon après `MUSIC_IDLE_MINUTES`.
+- [ ] `logs/bot.log` et journal de Lavalink : aucun mot de passe.

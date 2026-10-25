@@ -60,6 +60,7 @@ def build_health_checks(
     interactions: InteractionSummary | None = None,
     github: GitHubSummary | None = None,
     projects: ProjectsReceptionSummary | None = None,
+    music: MusicSummary | None = None,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
@@ -82,6 +83,8 @@ def build_health_checks(
         checks.insert(-1, _github_check(github))
     if projects is not None:
         checks.insert(-1, _projects_check(projects))
+    if music is not None:
+        checks.insert(-1, _music_check(music))
     if history is not None:
         checks.append(_history_check(history))
     if alerts is not None:
@@ -322,3 +325,26 @@ def _structure_check(structure: StructureReport | None) -> HealthCheck:
     return HealthCheck(
         "Salons", HealthStatus.WARNING, f"{usable}/{total} salons utilisables, détails avec /admin installer"
     )
+
+
+@dataclass(frozen=True)
+class MusicSummary:
+    """Musique (docs/music.md), mesurée au moment de /etat."""
+
+    enabled: bool = False
+    config_error: str | None = None
+    lavalink_ready: bool = False
+    active_players: int = 0
+    sources: tuple[str, ...] = ()
+
+
+def _music_check(summary: MusicSummary) -> HealthCheck:
+    name = "Musique"
+    if summary.config_error:
+        return HealthCheck(name, HealthStatus.WARNING, f"désactivée, configuration invalide : {summary.config_error}")
+    if not summary.enabled:
+        return HealthCheck(name, HealthStatus.DISABLED, "désactivée (MUSIC_ENABLED=false)")
+    if not summary.lavalink_ready:
+        return HealthCheck(name, HealthStatus.ERROR, "Lavalink injoignable : les commandes /musique sont indisponibles (voir docs/music.md)")
+    players = f"{summary.active_players} salon(s) vocal(aux) en cours" if summary.active_players else "aucune lecture en cours"
+    return HealthCheck(name, HealthStatus.OK, f"Lavalink connecté, {players} ; sources : {', '.join(summary.sources)}")

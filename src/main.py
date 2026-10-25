@@ -106,7 +106,8 @@ def main() -> int:
 
 
 def _run(settings: Settings, errors: RecentErrors) -> int:
-    # Le bot n'utilise pas les salons vocaux : inutile d'avertir que les bibliothèques audio manquent.
+    # Le bot n'envoie jamais de son lui-même (la musique passe par Lavalink, qui gère aussi le chiffrement DAVE) :
+    # inutile d'avertir que les bibliothèques audio de discord.py (PyNaCl, davey) manquent.
     discord.VoiceClient.warn_nacl = False
     discord.VoiceClient.warn_dave = False
 

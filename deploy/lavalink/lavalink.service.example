@@ -1,0 +1,64 @@
+# Service systemd de Lavalink (moteur audio de Samae), INDÉPENDANT du service samae.
+# Procédure complète, à faire relire puis exécuter par le PROPRIÉTAIRE du serveur (sudo nécessaire) :
+# docs/music-vps-checklist.md. Copie : /etc/systemd/system/lavalink.service
+#
+# Lavalink tourne sous son propre compte système « lavalink » (sans shell, sans sudo), jamais sous
+# le compte de Samae ni en root. Le mot de passe est dans /etc/lavalink/lavalink.env, pas ici.
+[Unit]
+Description=Lavalink 4 (moteur audio de Samae)
+Documentation=https://lavalink.dev
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=lavalink
+Group=lavalink
+WorkingDirectory=/opt/lavalink
+# LAVALINK_SERVER_PASSWORD=… (fichier root:lavalink, droits 0640)
+EnvironmentFile=/etc/lavalink/lavalink.env
+# Mémoire Java bornée à 512 Mo (mesuré au repos : ~300 Mo de mémoire résidente avec ce réglage).
+ExecStart=/usr/bin/java -Xms128m -Xmx512m -XX:+UseG1GC -jar /opt/lavalink/Lavalink.jar
+# Java s'arrête avec le code 143 sur SIGTERM : c'est un arrêt normal.
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Ressources : au-delà, systemd ralentit puis arrête Lavalink (le bot, lui, continue sans musique).
+MemoryHigh=640M
+MemoryMax=768M
+TasksMax=256
+# Décommenter pour limiter Lavalink à 1,5 cœur si la machine est petite :
+# CPUQuota=150%
+
+# Sécurité : système en lecture seule, écriture limitée aux journaux de Lavalink.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/lavalink/logs
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+UMask=0027
+# Pas de MemoryDenyWriteExecute : le compilateur à la volée de Java en a besoin.
+
+[Install]
+WantedBy=multi-user.target
