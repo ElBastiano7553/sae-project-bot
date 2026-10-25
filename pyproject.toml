@@ -1,6 +1,6 @@
 [project]
 name = "sae-project-bot"
-version = "1.11.0"
+version = "1.12.0"
 description = "Bot Discord de l'équipe SAE EPITA : messages permanents, notifications GitLab et bilans assistés par IA."
 requires-python = ">=3.11"
 
@@ -10,3 +10,6 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore:.audioop. is deprecated:DeprecationWarning"]
+# Tests unitaires par défaut ; « integration » : vrai wavelink face à un faux Lavalink LOCAL (jamais de réseau extérieur).
+# Seulement les tests unitaires : python -m pytest -m "not integration"
+markers = ["integration: vrai wavelink contre un faux serveur Lavalink local (aucun token, aucun Lavalink réel)"]

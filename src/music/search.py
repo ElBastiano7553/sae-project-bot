@@ -161,7 +161,7 @@ def validate_url(raw: str, enabled: Iterable[str]) -> tuple[str, str]:
 
 
 def prepare_query(raw: str, enabled: Iterable[str], *, source: str | None = None) -> PreparedQuery:
-    """Nettoie la saisie de /musique jouer et prépare les identifiants à demander au moteur audio.
+    """Nettoie la saisie de /play et /search et prépare les identifiants à demander au moteur audio.
 
     ``source`` : source choisie par l'utilisateur pour une recherche par texte (sinon l'ordre de MUSIC_SOURCES).
     """

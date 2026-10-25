@@ -21,9 +21,10 @@ from typing import Any
 
 import discord
 
+from src.music.diagnostics import LavalinkInfo
 from src.music.errors import BackendError
 from src.music.models import Track
-from src.music.service import LoadResult
+from src.music.service import LiveVoiceState, LoadResult
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class WavelinkBackend:
         self._node: Any = None
         self._task: asyncio.Task | None = None
         self.watchdog_seconds = WATCHDOG_SECONDS
+        self.info: LavalinkInfo | None = None  # version et sources annoncées par Lavalink (après connexion)
 
     # --- Connexion à Lavalink ---------------------------------------------------------
 
@@ -126,6 +128,22 @@ class WavelinkBackend:
                 except Exception:
                     log.debug("Départ d'un salon vocal après la perte de Lavalink incomplet", exc_info=True)
 
+    async def refresh_info(self) -> LavalinkInfo | None:
+        """Lit la version et les sources de Lavalink (``GET /v4/info``) : un Lavalink sans DAVE ne peut pas émettre de son."""
+        if not self.ready:
+            return None
+        try:
+            raw = await asyncio.wait_for(self._node.fetch_info(), CONNECT_TIMEOUT_SECONDS)
+        except Exception as exc:  # information utile mais pas indispensable
+            log.warning("Version de Lavalink illisible : %s", type(exc).__name__)
+            return self.info
+        self.info = LavalinkInfo(
+            version=str(raw.version.semver),
+            source_managers=tuple(str(name) for name in raw.source_managers),
+            plugins=tuple(f"{plugin.name} {plugin.version}" for plugin in raw.plugins),
+        )
+        return self.info
+
     @property
     def ready(self) -> bool:
         node = self._node
@@ -193,6 +211,10 @@ class WavelinkBackend:
         except discord.ClientException as exc:
             raise BackendError(f"connexion au salon vocal refusée : {exc}") from None
         player.autoplay = self._wavelink.AutoPlayMode.disabled  # la file est gérée par Samae
+        # Lavalink 4.2 exige l'identifiant du salon pour DAVE ; wavelink 3.5 le transmet avec la session vocale.
+        sent_channel = bool(getattr(player, "_voice_state", {}).get("channel_id"))
+        log.info("Musique [serveur %s] : salon vocal rejoint, session vocale transmise à Lavalink (salon inclus : %s)",
+                 guild_id, "oui" if sent_channel else "NON")
 
     async def play(self, guild_id: int, track: Track, *, entry_id: int, volume: int) -> None:
         wavelink = self._wavelink
@@ -230,6 +252,30 @@ class WavelinkBackend:
         if player is None:
             return
         await player.disconnect()
+
+    async def live_voice_state(self, guild_id: int) -> LiveVoiceState | None:
+        """État du lecteur vu par Lavalink à l'instant (``GET …/players/<serveur>``), sans aucune donnée secrète."""
+        if not self.ready:
+            return None
+        try:
+            info = await asyncio.wait_for(self._node.fetch_player_info(guild_id), CONNECT_TIMEOUT_SECONDS)
+        except Exception as exc:
+            log.warning("État du lecteur Lavalink illisible (serveur %s) : %s", guild_id, type(exc).__name__)
+            return None
+        if info is None:
+            return LiveVoiceState(exists=False)
+        voice = info.voice_state
+        return LiveVoiceState(
+            exists=True,
+            connected=bool(info.state.connected),
+            ping_ms=int(info.state.ping),
+            position_ms=int(info.state.position),
+            paused=bool(info.paused),
+            has_track=info.track is not None,
+            volume=int(info.volume),
+            voice_sent=bool(voice.session_id and voice.endpoint and voice.token),
+            channel_sent=bool(voice.channel_id),
+        )
 
     def position_ms(self, guild_id: int) -> int | None:
         player = self._player(guild_id)

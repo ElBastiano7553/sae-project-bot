@@ -42,7 +42,7 @@ def build_health_checks(
     *,
     latency_ms: float | None,
     database_ok: bool,
-    guild_found: bool,
+    guild_found: bool | None,
     structure: StructureReport | None,
     setup_confirmed: bool,
     ai_provider: str,
@@ -61,24 +61,33 @@ def build_health_checks(
     github: GitHubSummary | None = None,
     projects: ProjectsReceptionSummary | None = None,
     music: MusicSummary | None = None,
+    team_space: bool = True,
 ) -> list[HealthCheck]:
-    """Construit la liste des vérifications à partir de valeurs déjà mesurées."""
+    """Construit la liste des vérifications à partir de valeurs déjà mesurées.
+
+    ``guild_found`` : None = aucun serveur principal (facultatif), True/False = le bot y est ou non.
+    ``team_space=False`` (autre serveur que le serveur principal) : seules les lignes utiles à ce serveur sont
+    gardées (Discord, base, musique, réactivité) ; l'espace d'équipe d'un autre serveur n'y est jamais décrit.
+    """
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
     if database_ok and database_schema is not None:
         db_detail += f" (schéma v{database_schema})"
     checks = [
         _discord_check(latency_ms),
         HealthCheck("Base de données", HealthStatus.OK if database_ok else HealthStatus.ERROR, db_detail),
-        HealthCheck(
-            "Serveur Discord",
-            HealthStatus.OK if guild_found else HealthStatus.ERROR,
-            "serveur trouvé" if guild_found else "le bot n'est pas sur le serveur DISCORD_GUILD_ID",
-        ),
+        _home_check(guild_found, team_space),
         _structure_check(structure),
         _messages_check(setup_confirmed, messages),
         _gitlab_check(gitlab_enabled, gitlab_listening, gitlab_error, gitlab_last_event_at, gitlab_address),
         _ai_check(ai or AISummary(provider=ai_provider)),
     ]
+    if not team_space:
+        checks = checks[:3]
+        if music is not None:
+            checks.append(_music_check(music))
+        if interactions is not None:
+            checks.append(_interactions_check(interactions))
+        return checks
     if github is not None:
         checks.insert(-1, _github_check(github))
     if projects is not None:
@@ -94,6 +103,17 @@ def build_health_checks(
     if interactions is not None:
         checks.append(_interactions_check(interactions))
     return checks
+
+
+def _home_check(guild_found: bool | None, team_space: bool) -> HealthCheck:
+    name = "Serveur principal"
+    if guild_found is None:
+        return HealthCheck(name, HealthStatus.DISABLED, "aucun (facultatif : seulement pour l'espace d'équipe, voir /setup serveur-principal)")
+    if not team_space:
+        return HealthCheck(name, HealthStatus.OK, "un autre serveur : ici, musique, réunions, /projet et /aide seulement")
+    if guild_found:
+        return HealthCheck(name, HealthStatus.OK, "ce serveur (espace d'équipe disponible)")
+    return HealthCheck(name, HealthStatus.ERROR, "le bot n'est pas sur son serveur principal (DISCORD_GUILD_ID ou /setup)")
 
 
 def _interactions_check(summary: InteractionSummary) -> HealthCheck:
@@ -336,6 +356,8 @@ class MusicSummary:
     lavalink_ready: bool = False
     active_players: int = 0
     sources: tuple[str, ...] = ()
+    lavalink_version: str | None = None
+    problems: tuple[str, ...] = ()  # incompatibilités de Lavalink (DAVE, source manquante)
 
 
 def _music_check(summary: MusicSummary) -> HealthCheck:
@@ -345,6 +367,10 @@ def _music_check(summary: MusicSummary) -> HealthCheck:
     if not summary.enabled:
         return HealthCheck(name, HealthStatus.DISABLED, "désactivée (MUSIC_ENABLED=false)")
     if not summary.lavalink_ready:
-        return HealthCheck(name, HealthStatus.ERROR, "Lavalink injoignable : les commandes /musique sont indisponibles (voir docs/music.md)")
+        return HealthCheck(name, HealthStatus.ERROR, "Lavalink injoignable : /play et les autres commandes de musique sont indisponibles (voir docs/music.md)")
     players = f"{summary.active_players} salon(s) vocal(aux) en cours" if summary.active_players else "aucune lecture en cours"
-    return HealthCheck(name, HealthStatus.OK, f"Lavalink connecté, {players} ; sources : {', '.join(summary.sources)}")
+    version = f" {summary.lavalink_version}" if summary.lavalink_version else ""
+    detail = f"Lavalink{version} connecté, {players} ; sources : {', '.join(summary.sources)}"
+    if summary.problems:
+        return HealthCheck(name, HealthStatus.WARNING, detail + " ; " + " ".join(summary.problems))
+    return HealthCheck(name, HealthStatus.OK, detail)

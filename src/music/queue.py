@@ -6,6 +6,7 @@ La file n'est pas protégée contre les accès concurrents par elle-même : c'es
 
 from __future__ import annotations
 
+import random
 from collections import deque
 from collections.abc import Iterable, Iterator
 
@@ -51,6 +52,38 @@ class TrackQueue:
         if not added and self.remaining <= 0:
             raise QueueFull(f"La file est pleine ({self.max_size} titres au plus). Attendez qu'elle avance un peu.")
         return added
+
+    def push_front(self, entry: QueueEntry) -> bool:
+        """Remet une piste en tête (répétition d'un titre). Retourne False si la file est pleine."""
+        if self.remaining <= 0:
+            return False
+        self._items.appendleft(entry)
+        return True
+
+    def append_if_room(self, entry: QueueEntry) -> bool:
+        """Ajoute en fin de file s'il reste de la place (répétition de la file). Ne lève jamais."""
+        if self.remaining <= 0:
+            return False
+        self._items.append(entry)
+        return True
+
+    def peek_at(self, position: int) -> QueueEntry | None:
+        return self._items[position - 1] if 1 <= position <= len(self._items) else None
+
+    def remove_at(self, position: int) -> QueueEntry | None:
+        """Retire la piste à la position ``position`` (1 = la prochaine). ``None`` si la position n'existe pas."""
+        if not 1 <= position <= len(self._items):
+            return None
+        entry = self._items[position - 1]
+        del self._items[position - 1]
+        return entry
+
+    def shuffle(self, rng: random.Random | None = None) -> int:
+        """Mélange les pistes en attente (le titre en cours n'est pas dans la file). Retourne leur nombre."""
+        items = list(self._items)
+        (rng or random).shuffle(items)
+        self._items = deque(items)
+        return len(items)
 
     def pop_next(self) -> QueueEntry | None:
         return self._items.popleft() if self._items else None

@@ -21,11 +21,22 @@ def test_token_is_never_in_repr():
     assert "faux-token-de-test" not in repr(settings)
 
 
-def test_missing_token_and_guild_are_reported_together():
+def test_only_the_token_is_required():
+    # DISCORD_GUILD_ID est facultatif depuis 1.12 : le bot fonctionne sur n'importe quel serveur.
     with pytest.raises(ConfigError) as exc:
         Settings.from_env({})
     assert "DISCORD_BOT_TOKEN" in str(exc.value)
-    assert "DISCORD_GUILD_ID" in str(exc.value)
+    assert "DISCORD_GUILD_ID" not in str(exc.value)
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "x"}).guild_id is None
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "x", "DISCORD_GUILD_ID": "  "}).guild_id is None
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "x", "DISCORD_GUILD_ID": "42"}).guild_id == 42
+
+
+def test_invalid_guild_id_is_reported_without_the_token():
+    with pytest.raises(ConfigError) as exc:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "faux-token-secret", "DISCORD_GUILD_ID": "mon-serveur"})
+    assert "DISCORD_GUILD_ID" in str(exc.value) and "rester vide" in str(exc.value)
+    assert "faux-token-secret" not in str(exc.value)
 
 
 def test_token_optional_when_not_required():
@@ -345,3 +356,17 @@ def test_settings_paths_with_linux_semantics(env, database_path, backup_dir):
     settings = Settings.from_env({**VALID_ENV, **env}, project_root=LINUX_ROOT)
     assert settings.database_path == PurePosixPath(database_path)
     assert settings.backup_dir == PurePosixPath(backup_dir)
+
+
+def test_feature_summary_separates_optional_features_and_never_shows_secrets():
+    settings = Settings.from_env({
+        "DISCORD_BOT_TOKEN": "faux-token-secret",
+        "MUSIC_ENABLED": "true",
+        "LAVALINK_PASSWORD": "court",  # invalide : seule la musique est désactivée
+    })
+    summary = dict(settings.feature_summary())
+    assert "facultatif" in summary["Serveur principal"]
+    assert summary["Musique"].startswith("désactivée, configuration invalide")
+    assert summary["IA"].startswith("désactivée") and summary["Webhooks GitLab"].startswith("désactivée")
+    text = repr(summary)
+    assert "faux-token-secret" not in text and "court" not in text.replace("LAVALINK_PASSWORD", "")

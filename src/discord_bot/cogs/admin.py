@@ -15,7 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.config import ConfigError, load_link_catalog, load_server_layout
-from src.discord_bot.bot import SaeBot, install_error_handler, send_error
+from src.discord_bot.bot import SaeBot, install_error_handler, require_team_space, send_error
 from src.discord_bot.cogs.general import build_status_embed
 from src.discord_bot.embeds import (
     backup_embed,
@@ -75,6 +75,10 @@ class AdminCog(commands.Cog):
         guild_only=True,
         default_permissions=discord.Permissions(manage_guild=True),
     )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Espace d'équipe : utilisable seulement sur le serveur principal (voir /setup serveur-principal)."""
+        return require_team_space(interaction)
 
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
@@ -146,7 +150,7 @@ class AdminCog(commands.Cog):
         report = self.bot.resolve_structure(self._guild(interaction))
         settings_lines = [
             "Token Discord : défini ✅ (jamais affiché)",
-            f"Serveur : `{settings.guild_id}`",
+            f"Serveur : `{self.bot.home_guild_id}`",
             f"Rôle administrateur : {settings.admin_role_name or '*non défini* (permission « Gérer le serveur »)'}",
             f"Base de données : `{settings.database_path.name}` (schéma v{self.bot.database.schema_version})",
             f"Actualisation au démarrage : {'oui' if settings.auto_refresh_on_startup else 'non'}",
@@ -166,7 +170,7 @@ class AdminCog(commands.Cog):
                 settings_lines=settings_lines,
                 report=report,
                 messages=self.bot.messages_repo.list_all(),
-                guild_id=settings.guild_id,
+                guild_id=self.bot.home_guild_id,
                 setup_confirmed_at=self.bot.setup_confirmed_at,
             ),
             ephemeral=True,
@@ -226,7 +230,7 @@ class AdminCog(commands.Cog):
     @admin_only()
     async def admin_messages(self, interaction: discord.Interaction) -> None:
         statuses = self.bot.build_message_service().status(self.bot.bindings_repo.get_all())
-        embed = messages_status_embed(statuses, self.bot.settings.guild_id, load_link_catalog())
+        embed = messages_status_embed(statuses, self.bot.home_guild_id, load_link_catalog())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin.command(name="reconstruire", description="Reconstruire un message permanent (nouveau message, ancien supprimé)")
@@ -370,8 +374,9 @@ class AdminCog(commands.Cog):
         )
 
     def _guild(self, interaction: discord.Interaction) -> discord.Guild:
-        if interaction.guild is None or interaction.guild.id != self.bot.settings.guild_id:
-            raise ConfigError("Cette commande doit être utilisée sur le serveur configuré dans DISCORD_GUILD_ID.")
+        problem = self.bot.team_guild_error(interaction.guild_id)
+        if interaction.guild is None or problem:
+            raise ConfigError(problem or "Cette commande s'utilise sur le serveur principal du bot.")
         return interaction.guild
 
 

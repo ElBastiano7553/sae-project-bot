@@ -12,6 +12,8 @@ from src.music.errors import BackendError
 from src.music.lavalink import WavelinkBackend
 from tests.music_fakes import raw_track
 
+pytestmark = pytest.mark.integration
+
 PASSWORD = "mot-de-passe-lavalink-0123456789"
 
 

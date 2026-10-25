@@ -5,17 +5,24 @@ agit, décrite par le cog) et parle au moteur audio à travers ``AudioBackend``.
 utilisent un faux moteur ; en production, c'est ``lavalink.WavelinkBackend``.
 
 Concurrence : toute opération qui modifie un lecteur prend ``GuildPlayer.lock``. Une fin de
-piste, un /musique passer et une erreur de lecture arrivés en même temps sont donc traités
+piste, un /skip et une erreur de lecture arrivés en même temps sont donc traités
 l'un après l'autre, et chaque événement de fin porte l'identifiant de l'entrée concernée :
 un événement qui ne correspond plus au titre en cours est ignoré (jamais deux « suivant »).
 
 Après chaque changement visible, ``on_change(guild_id)`` est appelé (le cog actualise le panneau).
+
+Les commandes slash ET les boutons du panneau appellent les mêmes méthodes : une seule
+implémentation de la lecture, de la file et des permissions.
+
+Le chemin du son est suivi étape par étape dans ``self.audio`` (``diagnostics.AudioMonitor``) :
+recherche, piste chargée, lecteur démarré, connexion vocale, audio envoyé (commande /audiocheck).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -34,9 +41,10 @@ from src.music.errors import (
     SourceUnavailable,
     StaleControl,
 )
+from src.music.diagnostics import AudioMonitor, AudioReport, LavalinkInfo
 from src.music.models import QueueEntry, SearchOutcome, Track
 from src.music.permissions import Listener, MusicPolicy
-from src.music.player import GuildPlayer, PlayerManager, PlayerState
+from src.music.player import LOOP_LABELS, GuildPlayer, LoopMode, PlayerManager, PlayerState
 from src.music.search import SEARCH_CHOICES, SOURCES, normalize_track, prepare_query, validate_url
 
 log = logging.getLogger(__name__)
@@ -65,11 +73,30 @@ class LoadResult:
     playlist_name: str | None = None
 
 
+@dataclass(frozen=True)
+class LiveVoiceState:
+    """État d'un lecteur tel que Lavalink le décrit à l'instant (aucun jeton, aucune session vocale)."""
+
+    exists: bool
+    connected: bool = False
+    ping_ms: int = -1
+    position_ms: int = 0
+    paused: bool = False
+    has_track: bool = False
+    volume: int = 0
+    voice_sent: bool = False  # session, serveur et jeton vocaux transmis par le bot
+    channel_sent: bool = False  # identifiant du salon transmis (exigé par DAVE depuis Lavalink 4.2)
+
+
 class AudioBackend(Protocol):
     """Ce que le service attend du moteur audio (Lavalink en production)."""
 
+    info: LavalinkInfo | None  # version et sources de Lavalink, connues après la connexion
+
     @property
     def ready(self) -> bool: ...
+
+    async def live_voice_state(self, guild_id: int) -> LiveVoiceState | None: ...
 
     async def load(self, identifier: str) -> LoadResult: ...
 
@@ -121,6 +148,7 @@ class Snapshot:
     volume: int
     last_problem: str | None
     queue_length_ms: int
+    loop: LoopMode = LoopMode.OFF
 
     @property
     def paused(self) -> bool:
@@ -136,6 +164,8 @@ class MusicService:
         *,
         on_change: Callable[[int], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        audio_clock: Callable[[], float] = time.monotonic,
+        rng: random.Random | None = None,
     ) -> None:
         self.backend = backend
         self.repo = repo
@@ -146,6 +176,8 @@ class MusicService:
         self._clock = clock
         self._last_search: dict[tuple[int, int], float] = {}
         self._search_slots: dict[int, asyncio.Semaphore] = {}
+        self._rng = rng or random.Random()
+        self.audio = AudioMonitor(audio_clock)
 
     # --- Outils ---------------------------------------------------------------------
 
@@ -209,6 +241,7 @@ class MusicService:
             volume=player.volume,
             last_problem=player.last_problem,
             queue_length_ms=player.queue.total_length_ms(),
+            loop=player.loop,
         )
 
     # --- Recherche --------------------------------------------------------------------
@@ -240,6 +273,8 @@ class MusicService:
                     continue
                 outcome = self._build_outcome(result, prepared.kind, key)
                 if outcome.tracks:
+                    self.audio.search_ok(guild_id, key)
+                    log.info("Musique [serveur %s] étape 1/5 : recherche réussie (%d titre(s), source %s)", guild_id, len(outcome.tracks), key)
                     return outcome
                 if outcome.rejected:
                     raise NoResults(self._rejection_text(outcome.rejected))
@@ -353,6 +388,11 @@ class MusicService:
                     return None
                 continue
             player.started(entry)  # les échecs d'affilée ne sont remis à zéro qu'à la fin normale d'une piste
+            self.audio.loaded(player.guild_id, entry.entry_id, entry.track.title, entry.track.source)
+            log.info(
+                "Musique [serveur %s] étape 2/5 : piste acceptée par Lavalink (entrée %s, source %s, volume %s)",
+                player.guild_id, entry.entry_id, entry.track.source, player.volume,
+            )
             self._record_history(player.guild_id, entry)
             return entry
 
@@ -365,7 +405,7 @@ class MusicService:
     def _require_player(self, guild_id: int, *, playing: bool = False) -> GuildPlayer:
         player = self.players.get(guild_id)
         if player is None or not player.connected:
-            raise NothingPlaying("Le bot n'est dans aucun salon vocal de ce serveur. Lancez un titre avec /musique jouer.")
+            raise NothingPlaying("Le bot n'est dans aucun salon vocal de ce serveur. Lancez un titre avec /play.")
         if playing and player.current is None:
             raise NothingPlaying("Aucun titre n'est en cours de lecture.")
         return player
@@ -411,6 +451,8 @@ class MusicService:
                 raise NothingPlaying("Aucun titre n'est en cours de lecture.")
             self.policy.require_skip(player, listener, current)
             player.consecutive_failures = 0
+            if player.loop is LoopMode.QUEUE:
+                player.queue.append_if_room(self._again(current))  # file en boucle : le titre passé revient à la fin
             if player.queue:
                 started = await self._play_next(player)  # remplace la piste en cours (fin « replaced », ignorée)
             else:
@@ -445,6 +487,7 @@ class MusicService:
             except MusicError:
                 log.warning("Départ du salon vocal incomplet (serveur %s) : le lecteur est réinitialisé quand même", guild_id)
             cleared = player.disconnected()
+            self.audio.forget(guild_id)
         self._notify(guild_id)
         return cleared
 
@@ -463,6 +506,136 @@ class MusicService:
         self._notify(guild_id)
         return value
 
+    async def join(self, guild_id: int, listener: Listener, *, text_channel_id: int | None = None) -> bool:
+        """Fait venir le bot dans le salon vocal de la personne, sans rien lancer. Retourne False s'il y était déjà."""
+        self.require_available()
+        player = self._player(guild_id)
+        async with player.lock:
+            self.policy.require_same_channel(player, listener)  # déjà connecté ailleurs : refus clair
+            if player.connected:
+                return False
+            await self._call(self.backend.connect(guild_id, listener.voice_channel_id), "connexion au salon vocal")
+            player.connected_to(listener.voice_channel_id)
+            if text_channel_id is not None:
+                player.text_channel_id = text_channel_id
+        self._notify(guild_id)
+        return True
+
+    async def shuffle(self, guild_id: int, listener: Listener) -> int:
+        """Mélange la file d'attente (le titre en cours continue). Retourne le nombre de titres mélangés."""
+        player = self._require_player(guild_id)
+        async with player.lock:
+            self.policy.require_dj(player, listener, "mélanger la file")
+            if len(player.queue) < 2:
+                raise InvalidQuery("Il faut au moins deux titres en attente pour mélanger la file.")
+            count = player.queue.shuffle(self._rng)
+        self._notify(guild_id)
+        return count
+
+    async def remove(self, guild_id: int, listener: Listener, position: int) -> QueueEntry:
+        """Retire le titre à la position ``position`` de la file (le sien, ou n'importe lequel pour une personne DJ)."""
+        player = self._require_player(guild_id)
+        async with player.lock:
+            self.policy.require_same_channel(player, listener)
+            entry = player.queue.peek_at(position)
+            if entry is None:
+                raise InvalidQuery(
+                    f"Aucun titre en position {position} : la file en compte {len(player.queue)} (voir /queue)."
+                    if player.queue else "La file d'attente est vide."
+                )
+            if entry.requester_id != listener.user_id:
+                self.policy.require_dj(player, listener, "retirer le titre de quelqu'un d'autre")
+            player.queue.remove_at(position)
+        self._notify(guild_id)
+        return entry
+
+    async def clear(self, guild_id: int, listener: Listener) -> int:
+        """Vide la file d'attente, sans arrêter le titre en cours. Retourne le nombre de titres retirés."""
+        player = self._require_player(guild_id)
+        async with player.lock:
+            self.policy.require_dj(player, listener, "vider la file", admin_anywhere=True)
+            cleared = player.queue.clear()
+        self._notify(guild_id)
+        return cleared
+
+    async def set_loop(self, guild_id: int, listener: Listener, mode: LoopMode | str | None = None) -> LoopMode:
+        """Choisit le mode de répétition (``None`` : passe au mode suivant, pour le bouton du panneau)."""
+        player = self._require_player(guild_id)
+        async with player.lock:
+            self.policy.require_dj(player, listener, "changer la répétition")
+            if mode is None:
+                order = list(LoopMode)
+                player.loop = order[(order.index(player.loop) + 1) % len(order)]
+            else:
+                player.loop = LoopMode(mode)
+        self._notify(guild_id)
+        return player.loop
+
+    # --- Suivi du son (diagnostic) --------------------------------------------------------
+
+    def on_track_started(self, guild_id: int, entry_id: int | None) -> None:
+        """Lavalink a démarré la piste (TrackStartEvent) : étape 3."""
+        trace = self.audio.started(guild_id, entry_id)
+        if trace is not None and 3 not in trace.logged:
+            trace.logged.add(3)
+            log.info("Musique [serveur %s] étape 3/5 : Lavalink a démarré la piste (entrée %s)", guild_id, entry_id)
+
+    def on_player_update(self, guild_id: int, *, connected: bool, ping_ms: int, position_ms: int) -> None:
+        """État périodique du lecteur (toutes les 5 s) : étapes 4 et 5."""
+        player = self.players.get(guild_id)
+        paused = player is not None and player.state is PlayerState.PAUSED
+        trace = self.audio.player_update(guild_id, connected=connected, ping_ms=ping_ms, position_ms=position_ms, paused=paused)
+        if trace is None:
+            return
+        if connected and 4 not in trace.logged:
+            trace.logged.add(4)
+            log.info("Musique [serveur %s] étape 4/5 : Lavalink est connecté au serveur vocal (ping %s ms)", guild_id, ping_ms)
+        elif not connected and trace.started_at is not None and -4 not in trace.logged:
+            trace.logged.add(-4)
+            log.warning("Musique [serveur %s] étape 4/5 ÉCHOUÉE : Lavalink n'est PAS connecté au serveur vocal de Discord", guild_id)
+        if trace.audio_seen_at is not None and 5 not in trace.logged:
+            trace.logged.add(5)
+            log.info("Musique [serveur %s] étape 5/5 : la lecture avance, le son part vers Discord", guild_id)
+
+    def on_voice_closed(self, guild_id: int, code: int, reason: str, by_remote: bool) -> str:
+        """Discord (ou Lavalink) a fermé la connexion vocale : la cause est journalisée et affichée sur le panneau."""
+        text = self.audio.voice_closed(guild_id, code, reason, by_remote)
+        log.warning("Musique [serveur %s] : connexion vocale de Lavalink fermée, %s", guild_id, text)
+        player = self.players.get(guild_id)
+        if player is not None and player.connected and code != 1000:
+            player.last_problem = f"Connexion vocale fermée par Discord : {text}."
+            self._notify(guild_id)
+        return text
+
+    def audio_report(self, guild_id: int) -> AudioReport:
+        player = self.players.get(guild_id)
+        playing = player is not None and player.current is not None
+        paused = player is not None and player.state is PlayerState.PAUSED
+        return self.audio.report(guild_id, playing=playing, paused=paused, lavalink=getattr(self.backend, "info", None))
+
+    def check_audio(self, guild_id: int, entry_id: int) -> str | None:
+        """Appelé quelques secondes après le lancement de ``entry_id`` : affiche un problème de son sur le panneau."""
+        player = self.players.get(guild_id)
+        if player is None or player.current is None or player.current.entry_id != entry_id:
+            return None
+        problem = self.audio_report(guild_id).problem
+        trace = self.audio.trace(guild_id)
+        if problem is None or trace is None or 0 in trace.logged:
+            return None
+        trace.logged.add(0)
+        log.warning("Musique [serveur %s] : pas de son probable : %s", guild_id, problem)
+        player.last_problem = f"Son : {problem}"
+        self._notify(guild_id)
+        return problem
+
+    def lavalink_problems(self) -> list[str]:
+        info = getattr(self.backend, "info", None)
+        return info.problems(self.config.sources) if info is not None else []
+
+    @staticmethod
+    def loop_label(mode: LoopMode) -> str:
+        return LOOP_LABELS[mode]
+
     # --- Événements du moteur audio ------------------------------------------------------
 
     async def on_track_end(self, guild_id: int, entry_id: int | None, reason: str) -> QueueEntry | None:
@@ -479,6 +652,7 @@ class MusicService:
             elif reason in ADVANCE_REASONS:
                 if reason == "finished":
                     player.consecutive_failures = 0
+                    self._recycle_finished(player, player.current)
                 else:
                     player.consecutive_failures += 1
                     player.last_problem = f"« {player.current.track.title} » n'a pas pu être lu et a été passé."
@@ -499,6 +673,18 @@ class MusicService:
         self._notify(guild_id)
         return started
 
+    @staticmethod
+    def _again(entry: QueueEntry) -> QueueEntry:
+        """Nouvelle entrée pour le même titre (nouvel identifiant : un ancien événement ne la confond jamais)."""
+        return QueueEntry(entry.track, entry.requester_id, entry.requester_name)
+
+    def _recycle_finished(self, player: GuildPlayer, entry: QueueEntry) -> None:
+        """Répétition après une fin NORMALE (jamais après un échec, pour ne pas boucler sur un titre illisible)."""
+        if player.loop is LoopMode.TRACK:
+            player.queue.push_front(self._again(entry))
+        elif player.loop is LoopMode.QUEUE:
+            player.queue.append_if_room(self._again(entry))
+
     async def _play_next_safely(self, player: GuildPlayer) -> QueueEntry | None:
         try:
             return await self._play_next(player)
@@ -514,6 +700,7 @@ class MusicService:
         if player is None:
             return None
         log.warning("Lecture musicale (serveur %s) : %s", guild_id, message)
+        self.audio.track_failed(guild_id, entry_id, message, stuck=stuck)
         if not stuck:
             return None
         async with player.lock:
@@ -544,6 +731,7 @@ class MusicService:
         async with player.lock:
             if channel_id is None:
                 player.disconnected()
+                self.audio.forget(guild_id)
             else:
                 player.voice_channel_id = channel_id
         self._notify(guild_id)
@@ -557,6 +745,7 @@ class MusicService:
             async with player.lock:
                 player.disconnected()
                 player.last_problem = reason
+            self.audio.forget(player.guild_id)
             count += 1
             self._notify(player.guild_id)
         return count
@@ -595,18 +784,31 @@ class MusicService:
         try:
             added = self.repo.add_favorite(guild_id, user_id, track)
         except FavoritesFull:
-            raise InvalidQuery("Vous avez atteint le nombre maximal de favoris : retirez-en avec /musique favori retirer:<numéro>.") from None
+            raise InvalidQuery("Vous avez atteint le nombre maximal de favoris : retirez-en avec /favorite remove.") from None
         return track, added
+
+    def add_favorite(self, guild_id: int, user_id: int) -> tuple[Track, bool]:
+        """Ajoute le titre EN COURS aux favoris (/favorite add). Retourne (titre, ajouté ?) : False s'il y était déjà."""
+        player = self._require_player(guild_id, playing=True)
+        track = player.current.track
+        if not track.uri:
+            raise InvalidQuery("Ce titre n'a pas de lien public : il ne pourrait pas être rejoué, il n'est donc pas mis en favori.")
+        if self.repo.is_favorite(guild_id, user_id, track.key):
+            return track, False
+        try:
+            return track, self.repo.add_favorite(guild_id, user_id, track)
+        except FavoritesFull:
+            raise InvalidQuery("Vous avez atteint le nombre maximal de favoris : retirez-en avec /favorite remove.") from None
 
     def remove_favorite_at(self, guild_id: int, user_id: int, number: int) -> FavoriteRow:
         favorites = self.repo.favorites(guild_id, user_id)
         if not 1 <= number <= len(favorites):
-            raise InvalidQuery(f"Aucun favori n° {number} (vous en avez {len(favorites)} ; voir /musique favoris).")
+            raise InvalidQuery(f"Aucun favori n° {number} (vous en avez {len(favorites)} ; voir /favorite list).")
         favorite = favorites[number - 1]
         self.repo.remove_favorite(guild_id, user_id, favorite.track_key)
         return favorite
 
 
 def source_choices(enabled: Sequence[str]) -> list[tuple[str, str]]:
-    """(libellé, clé) des sources activées, pour le menu de /musique jouer."""
+    """(libellé, clé) des sources activées, pour le menu de /play et /search."""
     return [(SOURCES[key].label, key) for key in enabled]

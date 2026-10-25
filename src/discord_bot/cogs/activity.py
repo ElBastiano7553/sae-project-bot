@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.discord_bot.bot import SaeBot, send_error
+from src.discord_bot.bot import SaeBot, require_team_space, send_error
 from src.config import load_link_catalog
 from src.discord_bot.embeds import errors_embed, events_embed, leaderboard_embed, project_embed, stats_embed
 from src.discord_bot.permissions import is_bot_admin
@@ -45,6 +45,10 @@ class ActivityCog(commands.Cog):
     activite = app_commands.Group(
         name="activite", description="Activité des dépôts : résumé, événements reçus, statistiques, contributions", guild_only=True
     )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Espace d'équipe : utilisable seulement sur le serveur principal (voir /setup serveur-principal)."""
+        return require_team_space(interaction)
 
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot

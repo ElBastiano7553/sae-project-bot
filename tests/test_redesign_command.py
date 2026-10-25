@@ -79,6 +79,10 @@ class FakeFollowup:
 
 
 class FakeInteraction:
+    @property
+    def guild_id(self):  # comme discord.Interaction : identifiant du serveur, None en message privé
+        return getattr(getattr(self, "guild", None), "id", None)
+
     def __init__(self, client, guild, user) -> None:
         self.client, self.guild, self.user = client, guild, user
         self.response, self.followup = FakeResponse(), FakeFollowup()

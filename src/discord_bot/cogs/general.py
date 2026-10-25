@@ -34,18 +34,25 @@ log = logging.getLogger(__name__)
 HELP_SECTIONS = [app_commands.Choice(name=page.title, value=page.key) for page in GUIDE_PAGES]
 
 
-def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.Embed:
-    """Assemble /etat à partir de mesures faites maintenant ; rien n'est supposé."""
-    guild = bot.target_guild
+def build_status_embed(bot: SaeBot, *, title: str = "État du bot", guild_id: int | None = None) -> discord.Embed:
+    """Assemble /etat à partir de mesures faites maintenant ; rien n'est supposé.
+
+    ``guild_id`` : serveur où /etat est demandé. Hors du serveur principal, l'espace d'équipe n'est pas décrit.
+    """
+    home = bot.home_guild_id
+    team_space = guild_id is None or guild_id == home
+    guild = bot.target_guild if team_space else None
     report = None
     try:
         report = bot.resolve_structure(guild) if guild else None
     except ConfigError:
         log.exception("Configuration invalide pendant /etat")
+    backend_info = getattr(bot.music_backend, "info", None)
     checks = build_health_checks(
+        team_space=team_space and home is not None,
         latency_ms=bot.latency * 1000,
         database_ok=bot.database.ping(),
-        guild_found=guild is not None,
+        guild_found=None if home is None else (guild is not None if team_space else True),
         structure=report,
         setup_confirmed=bot.setup_confirmed_at is not None,
         ai_provider=bot.settings.ai_provider,
@@ -96,6 +103,8 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot") -> discord.E
             lavalink_ready=bot.music is not None and bot.music.available,
             active_players=sum(1 for p in bot.music.players.all() if p.connected) if bot.music is not None else 0,
             sources=bot.settings.music_sources,
+            lavalink_version=backend_info.version if backend_info is not None else None,
+            problems=tuple(bot.music.lavalink_problems()) if bot.music is not None else (),
         ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at
@@ -149,7 +158,7 @@ class GeneralCog(commands.Cog):
         member = interaction.user
         # Les pages d'administration détaillées ne sont montrées qu'aux administrateurs du bot.
         admin = isinstance(member, discord.Member) and is_bot_admin(member, self.bot.settings.admin_role_name)
-        pages = render_pages(GUIDE_PAGES, commands=collect_commands(self.bot.tree), admin=admin, heading="Aide de Samae")
+        pages = render_pages(GUIDE_PAGES, commands=collect_commands(self.bot.tree, interaction.guild_id), admin=admin, heading="Aide de Samae")
         view = HelpView(pages, interaction.user.id)
         if section is not None:
             view.go_to_section(section.value)
@@ -159,7 +168,7 @@ class GeneralCog(commands.Cog):
     @app_commands.command(name="etat", description="État du bot et de ses intégrations (Discord, base, GitLab, GitHub, IA)")
     @app_commands.guild_only()
     async def status(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(embed=build_status_embed(self.bot), ephemeral=True)
+        await interaction.response.send_message(embed=build_status_embed(self.bot, guild_id=interaction.guild_id), ephemeral=True)
 
 
 async def setup(bot: SaeBot) -> None:

@@ -200,7 +200,8 @@ async def test_members_are_refused_and_other_servers_too(make_bot):  # noqa: F81
     other = FakeGuild()
     other.id = OTHER_GUILD
     sent = await add(bot, guild=other, url="https://github.com/equipe/jeu")
-    assert "pas encore ouvert" in embed_text(sent["embed"])
+    assert "pas encore ouvert" not in embed_text(sent["embed"])  # tout serveur peut suivre ses projets (1.12)
+    assert "view" in sent  # aperçu puis confirmation, comme sur le serveur principal
 
 
 async def test_added_project_is_listed_as_pending_and_configurable(make_bot):  # noqa: F811

@@ -407,13 +407,17 @@ async def test_details_refuse_another_guilds_project_and_unknown_references(make
         assert sent["ephemeral"] and "introuvable" in embed_text(sent["embed"]).casefold()
 
 
-async def test_commands_are_refused_outside_the_configured_guild(make_bot):
-    bot = await make_bot()
+async def test_any_guild_sees_only_its_own_projects(make_bot):
+    # Depuis 1.12, /projet fonctionne sur tous les serveurs, chacun avec ses propres projets.
+    bot = await make_bot(GITHUB_WEBHOOK_SECRET=GITHUB_SECRET)
     other = FakeGuild()
     other.id = OTHER_GUILD
     bot.projects_repo.create(OTHER_GUILD, "github", "x/y", "Leur projet", created_by=9)
-    sent = await run(bot, "liste", other, Member(admin=True))
-    assert "pas encore ouvert" in embed_text(sent["embed"])
+    text = embed_text((await run(bot, "liste", other, Member(admin=True)))["embed"])
+    assert "Leur projet" in text and "pas encore ouvert" not in text
+    assert "env-github" not in text  # les projets du .env restent ceux du serveur principal
+    home = embed_text((await run(bot, "liste", FakeGuild(), Member(admin=True)))["embed"])
+    assert "Leur projet" not in home
 
 
 async def test_autocomplete_offers_only_this_guilds_projects(make_bot):

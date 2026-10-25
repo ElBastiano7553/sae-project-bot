@@ -10,7 +10,7 @@ from typing import Any
 
 # Identifiants des entrées de la file : uniques dans le processus. Ils sont envoyés à Lavalink avec
 # la piste (« userData ») et reviennent dans l'événement de fin : un événement d'une ancienne piste
-# (même titre ajouté deux fois, /musique passer pendant la fin naturelle…) ne fait jamais avancer la file.
+# (même titre ajouté deux fois, /skip pendant la fin naturelle…) ne fait jamais avancer la file.
 _entry_ids = itertools.count(1)
 
 

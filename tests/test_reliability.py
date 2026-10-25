@@ -11,7 +11,7 @@ import discord
 import pytest
 
 from src.config import ConfigError, Settings
-from src.discord_bot.bot import COMMANDS_SYNC_KEY, EXTENSIONS, SaeBot
+from src.discord_bot.bot import COMMANDS_SYNC_GLOBAL_KEY, COMMANDS_SYNC_HOME_KEY, EXTENSIONS, HOME_ONLY_COMMANDS, SaeBot
 from src.discord_bot.meeting_ui import MeetingButton
 from src.discord_bot.views import ConfirmView
 from src.services.health import HealthStatus, _interactions_check
@@ -39,18 +39,60 @@ async def test_commands_are_synced_only_when_they_change(bot, monkeypatch):
     calls = []
 
     async def fake_sync(*, guild=None):
-        calls.append(guild.id)
+        calls.append(guild.id if guild else None)
         return [object()] * 3
 
     monkeypatch.setattr(bot.tree, "sync", fake_sync)
-    assert await bot.sync_commands() == 3
+    assert await bot.sync_commands() == 6  # commandes globales + espace d'équipe du serveur principal (42)
+    assert calls == [None, 42]
     assert await bot.sync_commands() == 0  # redémarrage sans changement : aucun appel à Discord
-    assert len(calls) == 1
+    assert len(calls) == 2
 
     bot.tree.get_command("etat").description = "Nouvelle description"
-    assert await bot.sync_commands() == 3  # une description modifiée suffit à resynchroniser
-    assert await bot.sync_commands(force=True) == 3
-    assert len(calls) == 3
+    assert await bot.sync_commands() == 3  # une description modifiée suffit à resynchroniser (globales seulement)
+    assert calls[-1] is None
+    assert await bot.sync_commands(force=True) == 6
+    assert len(calls) == 5
+
+
+async def test_team_space_commands_are_only_sent_to_the_home_guild(bot, monkeypatch):
+    sent: dict[int | None, set[str]] = {}
+
+    async def fake_sync(*, guild=None):
+        names = {c.name for c in bot.tree.get_commands(guild=guild)}
+        sent[guild.id if guild else None] = names
+        return list(names)
+
+    monkeypatch.setattr(bot.tree, "sync", fake_sync)
+    await bot.sync_commands()
+    assert set(HOME_ONLY_COMMANDS) == sent[42]
+    assert not (set(HOME_ONLY_COMMANDS) & sent[None])  # jamais visibles sur les autres serveurs
+    assert {"play", "skip", "setup", "aide", "etat", "reunion"} <= sent[None]
+    assert not (sent[None] & sent[42])  # aucune commande en double sur le serveur principal
+
+
+async def test_changing_home_guild_clears_the_old_one(db, monkeypatch):
+    instance = SaeBot(Settings.from_env({}, require_token=False), db)
+    try:
+        for extension in EXTENSIONS:
+            await instance.load_extension(extension)
+        sent: dict[int | None, set[str]] = {}
+
+        async def fake_sync(*, guild=None):
+            sent[guild.id if guild else None] = {c.name for c in instance.tree.get_commands(guild=guild)}
+            return [1]
+
+        monkeypatch.setattr(instance.tree, "sync", fake_sync)
+        await instance.sync_commands()
+        assert list(sent) == [None]  # aucun serveur principal : seulement les commandes globales
+        instance.set_home_guild(7)
+        await instance.sync_commands()
+        assert sent[7] == set(HOME_ONLY_COMMANDS)
+        instance.set_home_guild(8)
+        await instance.sync_commands()
+        assert sent[7] == set() and sent[8] == set(HOME_ONLY_COMMANDS)  # l'ancien serveur principal est vidé
+    finally:
+        await instance.close()
 
 
 async def test_failed_sync_keeps_the_bot_running_and_retries_next_start(bot, monkeypatch, caplog):
@@ -59,7 +101,7 @@ async def test_failed_sync_keeps_the_bot_running_and_retries_next_start(bot, mon
 
     monkeypatch.setattr(bot.tree, "sync", failing_sync)
     assert await bot.sync_commands() is None
-    assert bot.state_repo.get(COMMANDS_SYNC_KEY) is None  # rien n'est marqué comme synchronisé
+    assert bot.state_repo.get(COMMANDS_SYNC_GLOBAL_KEY) is None and bot.state_repo.get(COMMANDS_SYNC_HOME_KEY) is None  # rien n'est marqué comme synchronisé
     assert "restent utilisables" in caplog.text
 
 
@@ -157,6 +199,10 @@ class FakeUser:
 
 
 class FakeInteraction:
+    @property
+    def guild_id(self):  # comme discord.Interaction : identifiant du serveur, None en message privé
+        return getattr(getattr(self, "guild", None), "id", None)
+
     def __init__(self, user_id: int = 7, client=None) -> None:
         self.user = FakeUser(user_id)
         self.client = client

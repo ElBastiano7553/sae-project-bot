@@ -42,7 +42,13 @@ def test_unknown_latency():
 
 
 def test_guild_not_found():
-    assert checks(guild_found=False)["Serveur Discord"].status is HealthStatus.ERROR
+    assert checks(guild_found=False)["Serveur principal"].status is HealthStatus.ERROR
+
+
+def test_no_home_guild_is_not_an_error():
+    result = checks(guild_found=None)
+    assert result["Serveur principal"].status is HealthStatus.DISABLED
+    assert overall_status(list(result.values())) is not HealthStatus.ERROR
 
 
 def test_gitlab_disabled_is_not_an_error():

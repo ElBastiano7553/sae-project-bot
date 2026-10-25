@@ -19,7 +19,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.config import load_link_catalog, load_planning
-from src.discord_bot.bot import SaeBot
+from src.discord_bot.bot import SaeBot, require_team_space
 from src.discord_bot.embeds import payload_to_embed, payload_to_view
 from src.discord_bot.roles_ui import RolePickerButton, RolePickerView, picker_embed, result_embed, send_problem
 from src.services.content import render_message
@@ -44,6 +44,10 @@ AUDIT_REASON = "Choix des rôles par le membre (Samae)"
 
 
 class WelcomeCog(commands.Cog):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Espace d'équipe : utilisable seulement sur le serveur principal (voir /setup serveur-principal)."""
+        return require_team_space(interaction)
+
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot
         self._cleanup_task: asyncio.Task | None = None
@@ -72,8 +76,9 @@ class WelcomeCog(commands.Cog):
         """Membre, catalogue des rôles et, si le choix est impossible, la raison à afficher."""
         member = interaction.user
         # Hors serveur, Discord transmet un utilisateur sans rôles (discord.User) au lieu d'un membre.
-        if interaction.guild is None or interaction.guild.id != self.bot.settings.guild_id or getattr(member, "roles", None) is None:
-            return None, None, "Le choix des rôles se fait sur le serveur de l'équipe."
+        problem = self.bot.team_guild_error(interaction.guild_id)
+        if interaction.guild is None or problem or getattr(member, "roles", None) is None:
+            return None, None, problem or "Le choix des rôles se fait sur le serveur principal du bot."
         catalog = self.bot.self_role_catalog()
         if catalog is None:
             return member, None, "Le serveur de l'équipe est momentanément inaccessible pour Samae. Réessayez dans un instant."
@@ -142,7 +147,7 @@ class WelcomeCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        if not self.bot.settings.welcome_on_join or member.bot or member.guild.id != self.bot.settings.guild_id:
+        if not self.bot.settings.welcome_on_join or member.bot or member.guild.id != self.bot.home_guild_id:
             return
         try:
             await self.send_welcome(member)
@@ -190,7 +195,7 @@ class WelcomeCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
         """Un membre reparti avant la suppression : son message d'accueil est retiré tout de suite."""
-        if not self.bot.settings.welcome_on_join or member.guild.id != self.bot.settings.guild_id:
+        if not self.bot.settings.welcome_on_join or member.guild.id != self.bot.home_guild_id:
             return
         pending = load_pending(self.bot.state_repo.get(PENDING_KEY))
         if any(item.member_id == member.id for item in pending):

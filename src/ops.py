@@ -343,12 +343,15 @@ def cmd_check(settings: Settings, *, alert: bool, env: dict | None = None, now: 
 
 
 def cmd_resync(settings: Settings) -> int:
-    from src.discord_bot.bot import COMMANDS_SYNC_KEY  # import local : discord.py n'est utile qu'ici
+    from src.discord_bot.bot import COMMANDS_SYNC_GLOBAL_KEY, COMMANDS_SYNC_HOME_KEY  # import local : discord.py n'est utile qu'ici
 
     conn = sqlite3.connect(settings.database_path)
     try:
         with conn:
-            conn.execute("DELETE FROM kv_store WHERE key = ?", (COMMANDS_SYNC_KEY,))
+            conn.execute(
+                "DELETE FROM kv_store WHERE key IN (?, ?, 'commands_sync_hash')",
+                (COMMANDS_SYNC_GLOBAL_KEY, COMMANDS_SYNC_HOME_KEY),
+            )
     except sqlite3.Error as exc:
         _out(f"❌ {exc}")
         return EXIT_PROBLEM

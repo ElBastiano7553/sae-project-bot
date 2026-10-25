@@ -15,6 +15,7 @@ from tests.music_fakes import raw_track
 
 MUSIC_TABLES = {"music_history", "music_favorites", "music_guild_settings"}
 MUSIC_VERSION = 13
+LATEST = len(MIGRATIONS)  # version atteinte par une mise à jour (v14 et suivantes comprises)
 
 
 def build_old_database(path, version: int) -> None:
@@ -42,8 +43,9 @@ def indexes(db: Database) -> set[str]:
     return {row[0] for row in db.conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
 
 
-def test_music_migration_is_the_last_one():
-    assert len(MIGRATIONS) == MUSIC_VERSION
+def test_music_migration_is_v13_and_only_creates_tables():
+    # v14 (multi-serveurs) vient après : la migration de la musique reste la v13, inchangée.
+    assert len(MIGRATIONS) >= MUSIC_VERSION
     assert "music_history" in MIGRATIONS[MUSIC_VERSION - 1]
     # Uniquement des créations : aucune table existante n'est modifiée ni supprimée.
     script = MIGRATIONS[MUSIC_VERSION - 1].upper()
@@ -56,7 +58,7 @@ def test_upgrade_keeps_existing_data_and_adds_music_tables(tmp_path, version):
     build_old_database(path, version)
     db = Database(path, backup_dir=tmp_path / "backups")
     try:
-        assert db.schema_version == MUSIC_VERSION
+        assert db.schema_version == len(MIGRATIONS)
         assert MUSIC_TABLES <= tables(db)
         assert db.conn.execute("SELECT value FROM kv_store WHERE key = 'setup_confirmed_at'").fetchone()[0] == "22/10/2026 10:00"
         assert db.conn.execute("SELECT channel_id FROM channel_bindings WHERE key = 'annonces'").fetchone()[0] == 123
@@ -66,13 +68,13 @@ def test_upgrade_keeps_existing_data_and_adds_music_tables(tmp_path, version):
             assert db.conn.execute("SELECT name FROM projects").fetchone()[0] == "Jeu"
         assert db.integrity_ok()
         # Une sauvegarde vérifiée est faite avant toute migration d'une base existante.
-        assert list((tmp_path / "backups").glob(f"*avantv{MUSIC_VERSION}*"))
+        assert list((tmp_path / "backups").glob(f"*avantv{LATEST}*"))
     finally:
         db.close()
     # Réouverture : rien à migrer, données toujours là.
     again = Database(path, backup_dir=tmp_path / "backups")
     try:
-        assert again.schema_version == MUSIC_VERSION
+        assert again.schema_version == LATEST
         assert again.conn.execute("SELECT COUNT(*) FROM channel_bindings").fetchone()[0] == 1
     finally:
         again.close()
@@ -115,7 +117,7 @@ def test_interrupted_music_migration_leaves_v12_untouched(tmp_path, monkeypatch)
     monkeypatch.setattr(connection, "MIGRATIONS", MIGRATIONS)
     db = Database(path, backup_dir=tmp_path / "backups")  # nouvel essai au démarrage suivant
     try:
-        assert db.schema_version == MUSIC_VERSION and MUSIC_TABLES <= tables(db)
+        assert db.schema_version == LATEST and MUSIC_TABLES <= tables(db)
     finally:
         db.close()
 

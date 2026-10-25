@@ -15,7 +15,7 @@ from discord.ext import commands
 
 from src.ai import AIError
 from src.config import load_link_catalog, load_planning
-from src.discord_bot.bot import SaeBot, send_error
+from src.discord_bot.bot import SaeBot, require_team_space, send_error
 from src.discord_bot.embeds import ai_answer_embed
 from src.gitlab.api import GitLabAPIError
 from src.services.ai_assistant import AIAssistant, QuotaExceeded
@@ -30,6 +30,10 @@ SUMMARY_PERIODS = [app_commands.Choice(name=PERIOD_LABELS[key], value=key) for k
 
 class AICog(commands.Cog):
     ia = app_commands.Group(name="ia", description="Assistant IA : questions sur le projet, bilans, relectures", guild_only=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Espace d'équipe : utilisable seulement sur le serveur principal (voir /setup serveur-principal)."""
+        return require_team_space(interaction)
 
     def __init__(self, bot: SaeBot) -> None:
         self.bot = bot

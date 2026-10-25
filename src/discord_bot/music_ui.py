@@ -18,9 +18,11 @@ import discord
 
 from src.database.music import FavoriteRow, HistoryRow
 from src.discord_bot.embeds import add_field, fit_embed, make_embed
+from src.music.diagnostics import AudioReport, LavalinkInfo, StepStatus
 from src.music.models import QueueEntry, SearchOutcome, Track
+from src.music.player import LOOP_LABELS, LoopMode
 from src.music.search import format_duration, source_label
-from src.music.service import Snapshot
+from src.music.service import LiveVoiceState, Snapshot
 from src.services import design
 from src.services import text_limits as limits
 from src.services.design import Tone
@@ -34,6 +36,7 @@ BUTTONS = {
     "resume": ("▶️ Reprendre", discord.ButtonStyle.success),
     "skip": ("⏭️ Suivant", discord.ButtonStyle.secondary),
     "stop": ("⏹️ Arrêter", discord.ButtonStyle.danger),
+    "loop": ("🔁 Répétition", discord.ButtonStyle.secondary),
     "queue": ("📜 File", discord.ButtonStyle.secondary),
     "favorite": ("⭐ Favori", discord.ButtonStyle.secondary),
 }
@@ -62,7 +65,7 @@ def player_embed(snapshot: Snapshot) -> discord.Embed:
     """Panneau public du lecteur. La progression est celle du moment de l'affichage (pas d'actualisation en continu)."""
     entry = snapshot.current
     if entry is None:
-        description = "Rien en cours. Ajoutez un titre avec `/musique jouer`."
+        description = "Rien en cours. Ajoutez un titre avec `/play`."
         if not snapshot.voice_channel_id:
             description = "Le lecteur est arrêté : le bot a quitté le salon vocal."
         embed = make_embed(f"{ICON} Lecteur", description, tone=Tone.NEUTRAL, footer=design.footer("Musique"))
@@ -74,7 +77,8 @@ def player_embed(snapshot: Snapshot) -> discord.Embed:
             f"{state}\n{progress_bar(snapshot.position_ms, track.length_ms)}",
             tone=Tone.INFO,
             url=track.uri,
-            footer=design.footer("Musique", f"volume {snapshot.volume} %"),
+            footer=design.footer("Musique", f"volume {snapshot.volume} %"
+                                 + (f" · répétition : {LOOP_LABELS[snapshot.loop]}" if snapshot.loop is not LoopMode.OFF else "")),
         )
         if track.author:
             add_field(embed, "Artiste", design.escape_markdown(track.author), inline=True)
@@ -158,6 +162,7 @@ def player_view(snapshot: Snapshot) -> discord.ui.View | None:
     add("resume" if snapshot.paused else "pause", disabled=not playing)
     add("skip", disabled=not playing)
     add("stop", disabled=not playing and not snapshot.upcoming)
+    add("loop")
     add("queue")
     add("favorite", disabled=not playing or not (snapshot.current and snapshot.current.track.uri))
     return view
@@ -207,8 +212,8 @@ def favorites_pages(rows: Sequence[FavoriteRow]) -> list[discord.Embed]:
     return _pages(
         "⭐ Vos favoris",
         lines,
-        empty="Aucun favori. Pendant une lecture, utilisez le bouton ⭐ ou /musique favori.",
-        header="Rejouer : menu ci-dessous. Retirer : `/musique favori retirer:<numéro>`." if rows else None,
+        empty="Aucun favori. Pendant une lecture, utilisez le bouton ⭐ ou /favorite add.",
+        header="Rejouer : menu ci-dessous. Retirer : `/favorite remove`." if rows else None,
     )
 
 
@@ -308,3 +313,62 @@ def results_embed(outcome: SearchOutcome, query: str) -> discord.Embed:
         tone=Tone.INFO,
         footer=design.footer("Musique"),
     )
+
+
+# --- Diagnostic du son (/audiocheck) ------------------------------------------------------------
+
+STEP_ICONS = {StepStatus.OK: "✅", StepStatus.WAITING: "⏳", StepStatus.FAILED: "❌", StepStatus.UNKNOWN: "▫️"}
+
+
+def audio_report_embed(
+    report: AudioReport,
+    *,
+    lavalink_ready: bool,
+    lavalink: LavalinkInfo | None,
+    lavalink_problems: Sequence[str],
+    live: LiveVoiceState | None,
+    bot_voice: dict,
+    frames: tuple[int, int, int] | None,
+) -> discord.Embed:
+    """Les cinq étapes du son, ce que Lavalink et Discord disent à l'instant, et la cause probable d'un silence."""
+    lines = [f"{STEP_ICONS[step.status]} **{n}. {step.name}** : {design.escape_markdown(step.detail)}"
+             for n, step in enumerate(report.steps, start=1)]
+    problems = list(lavalink_problems)
+    if not lavalink_ready:
+        problems.insert(0, "Lavalink n'est pas joignable : vérifiez qu'il tourne et que LAVALINK_PASSWORD est le bon (/etat).")
+    if bot_voice.get("server_mute"):
+        problems.append("Le bot est rendu muet par le serveur : personne ne l'entend (à retirer dans le salon vocal).")
+    if bot_voice.get("suppress"):
+        problems.append("Dans une scène, le bot est spectateur : un modérateur doit l'inviter à parler.")
+    if live is not None and live.exists and not live.channel_sent:
+        problems.append("Lavalink n'a pas reçu l'identifiant du salon vocal (exigé par DAVE) : vérifiez wavelink 3.5.2.")
+    if report.problem:
+        problems.append(report.problem)
+    tone = Tone.FAILURE if problems else (Tone.SUCCESS if report.all_ok else Tone.INFO)
+    embed = make_embed("🔊 Diagnostic du son", "\n".join(lines), tone=tone, footer=design.footer("Musique", "/audiocheck"))
+    if lavalink is not None:
+        dave = {True: "oui", False: "**non**", None: "inconnu"}[lavalink.supports_dave]
+        add_field(embed, "Lavalink", f"version {design.escape_markdown(lavalink.version)} · DAVE : {dave}\n"
+                  f"sources : {design.escape_markdown(', '.join(lavalink.source_managers) or 'aucune')}", inline=False)
+    if live is not None:
+        if not live.exists:
+            add_field(embed, "Lecteur Lavalink (maintenant)", "aucun lecteur pour ce serveur chez Lavalink", inline=False)
+        else:
+            state = "connecté" if live.connected else "**non connecté**"
+            ping = f", ping {live.ping_ms} ms" if live.ping_ms >= 0 else ""
+            add_field(embed, "Lecteur Lavalink (maintenant)",
+                      f"voix : {state}{ping} · titre : {'oui' if live.has_track else 'non'} · position {format_duration(live.position_ms)}"
+                      f" · volume {live.volume} · pause : {'oui' if live.paused else 'non'}\n"
+                      f"session vocale transmise : {'oui' if live.voice_sent else '**non**'} · salon transmis : "
+                      f"{'oui' if live.channel_sent else '**non**'}", inline=False)
+    if bot_voice.get("channel_id"):
+        add_field(embed, "Bot dans Discord", f"<#{bot_voice['channel_id']}> · muet (serveur) : {'**oui**' if bot_voice.get('server_mute') else 'non'}")
+    if frames is not None:
+        sent, nulled, deficit = frames
+        add_field(embed, "Trames audio (Lavalink, dernière minute)", f"envoyées {sent} · vides {nulled} · manquantes {deficit}")
+    if problems:
+        add_field(embed, "⚠️ Cause probable", "\n".join(f"• {design.escape_markdown(p)}" for p in problems[:4]), inline=False)
+    elif report.all_ok:
+        add_field(embed, "Résultat", "Le son part bien vers Discord. Si personne n'entend : vérifiez le volume du bot dans "
+                  "Discord (clic droit sur le bot > Volume de l'utilisateur) et que votre application Discord est à jour.", inline=False)
+    return fit_embed(embed)

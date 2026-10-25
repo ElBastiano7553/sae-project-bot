@@ -1,14 +1,16 @@
 """Vérifie que les commandes slash se chargent correctement, sans se connecter à Discord."""
 
+import discord
 import pytest
 from discord import app_commands
 
 from src.config import Settings
-from src.discord_bot.bot import EXTENSIONS, SaeBot
+from src.discord_bot.bot import EXTENSIONS, HOME_ONLY_COMMANDS, SaeBot
+from src.discord_bot.cogs.music import COMMAND_NAMES as MUSIC_COMMANDS
 from src.services.help import HELP_ENTRIES
 
-ADMIN_COMMANDS = {"admin", "refonte"}
-PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion", "musique"}
+ADMIN_COMMANDS = {"admin", "refonte", "setup"}
+PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion", *MUSIC_COMMANDS}
 
 
 @pytest.fixture
@@ -40,6 +42,26 @@ def all_commands(bot):
 async def test_slash_commands_are_registered(bot):
     names = {command.name for command in bot.tree.get_commands()}
     assert names == ADMIN_COMMANDS | PUBLIC_COMMANDS
+    assert "musique" not in names  # remplacée par /play, /skip, /queue… (voir docs/music.md)
+
+
+async def test_music_commands_are_top_level_without_duplicates(bot):
+    assert len(MUSIC_COMMANDS) == len(set(MUSIC_COMMANDS))
+    expected = {"play", "pause", "resume", "skip", "stop", "queue", "nowplaying", "volume", "shuffle", "remove",
+                "clear", "loop", "join", "leave", "search", "favorite", "history"}
+    assert expected <= set(MUSIC_COMMANDS)
+    music = {c.name: c for c in bot.tree.get_commands() if c.name in MUSIC_COMMANDS}
+    assert all(c.guild_only for c in music.values())  # jamais en message privé
+    assert {c.name for c in music["favorite"].commands} == {"add", "remove", "list"}
+
+
+async def test_team_space_commands_are_split_from_global_ones(bot):
+    bot.split_commands()  # serveur principal 42 (DISCORD_GUILD_ID)
+    global_names = {c.name for c in bot.tree.get_commands()}
+    home_names = {c.name for c in bot.tree.get_commands(guild=discord.Object(id=42))}
+    assert home_names == set(HOME_ONLY_COMMANDS)
+    assert global_names == (ADMIN_COMMANDS | PUBLIC_COMMANDS) - set(HOME_ONLY_COMMANDS)
+    assert "setup" in global_names and "play" in global_names
 
 
 async def test_admin_commands_require_manage_guild_by_default(bot):
@@ -89,9 +111,9 @@ async def test_members_intent_only_when_welcome_is_enabled(db):
 
 
 async def test_command_tree_is_compact_and_fits_discord_limits(bot):
-    """10 commandes au premier niveau (/musique compris) ; au plus 25 sous-commandes par groupe, descriptions ≤ 100 caractères."""
+    """Au plus 100 commandes au premier niveau (limite Discord) ; au plus 25 sous-commandes par groupe, descriptions ≤ 100 caractères."""
     top = bot.tree.get_commands()
-    assert len(top) <= 10
+    assert len(top) <= 30  # bien sous la limite de 100 : place pour d'autres commandes
 
     def check(command):
         assert 1 <= len(command.description) <= 100, command.qualified_name
