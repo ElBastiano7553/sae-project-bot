@@ -2,14 +2,14 @@
 
 Samae est le bot Discord de l'équipe SAE EPITA (serveur « SAE · GAME DEV »). Il centralise les
 informations du projet, publie des messages permanents tenus à jour, relaie
-l'activité GitLab et GitHub, anime les réunions, joue de la musique et propose des bilans
+l'activité GitLab et GitHub, anime les réunions et propose des bilans
 assistés par IA.
 
 Depuis 1.12.0, Samae s'installe **sur n'importe quelle machine et n'importe quel serveur** :
 seul le token du bot est obligatoire, le reste se règle depuis Discord avec `/setup`.
 Guide : [docs/installation.md](docs/installation.md).
 
-## État actuel : version 1.12.0 (commandes de musique `/play`, `/skip`… ; diagnostic du son ; multi-serveurs et `/setup`)
+## État actuel : version 1.13.0 (musique retirée ; multi-serveurs et `/setup`)
 
 | Fonction | État |
 |---|---|
@@ -38,8 +38,8 @@ Guide : [docs/installation.md](docs/installation.md).
 | Multi-projets, étape B3 : réception commune des événements GitHub et GitLab des projets enregistrés (127.0.0.1:8090, désactivée par défaut), filtres et anti-doublons par projet, guide Nginx/DNS/certificat ; aucun projet n'est encore relié (B4/B5) | ✅ 1.8.0 ([guide](docs/projets-reception.md)) |
 | Multi-projets, étape B4 : `/projet configurer` (admins) relie un dépôt GitHub par la GitHub App de Samae (lien d'installation personnel et à usage unique, vérification OAuth puis révocation, aucune clé privée ni token gardé), message de test ; désactivée sans configuration | ✅ 1.9.0 ([guide](docs/github-app.md)) |
 | Multi-projets, étape B5 : `/projet configurer projet:` (admins) relie un projet GitLab par une application OAuth en lecture seule (rôle Maintainer vérifié puis accès révoqué, secret du webhook affiché une seule fois et gardé seulement sous forme d'empreinte) ; désactivée sans configuration | ✅ 1.10.0 ([guide](docs/gitlab-app.md)) |
-| Musique (désactivée par défaut) : `/musique` (recherche multi-sources, liens, file par serveur, panneau à boutons, volume, historique, favoris), lecture par un serveur Lavalink 4 local ; aucune installation faite sur le VPS | ✅ 1.11.0 ([guide](docs/music.md), [procédure VPS](docs/music-vps-checklist.md)) |
-| Musique : commandes au premier niveau (`/play`, `/search`, `/skip`, `/queue`, `/loop`, `/shuffle`, `/remove`, `/clear`, `/join`, `/favorite`…), diagnostic du son en 5 étapes (`/audiocheck`, version de Lavalink, codes de fermeture vocale) ; installation sans serveur préconfiguré (`DISCORD_GUILD_ID` facultatif), `/setup etat` · `role-dj` · `serveur-principal`, données isolées par serveur (migration v14) | ✅ 1.12.0 ([installation](docs/installation.md), [musique](docs/music.md)) ; son à vérifier sur Discord |
+| Installation sans serveur préconfiguré (`DISCORD_GUILD_ID` facultatif), `/setup etat` · `serveur-principal`, données isolées par serveur (migration v14) | ✅ 1.12.0 ([installation](docs/installation.md)) |
+| Musique (1.11.0 et 1.12.0, Lavalink/wavelink) **retirée** : plus aucune commande musicale, plus de dépendance à Lavalink ni à wavelink ; les anciennes tables musicales restent dans la base, inutilisées | ✅ 1.13.0 |
 | Multi-projets, étapes B6 et B7 : déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
 | Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
 
@@ -106,8 +106,7 @@ Les commandes sont regroupées par système : tapez `/` puis le nom du groupe, D
 | `/admin installer` · `actualiser` · `reconstruire` · `messages` · `annonce` | admins | associer les salons, publier et tenir à jour les messages permanents, annonce en cours |
 | `/admin config` · `diagnostic` · `historique` · `sauvegarde` | admins | réglages sans secret, permissions par salon et rôles proposés, journal, sauvegarde |
 | `/refonte lancer` · `retour` · `journal` | admins | réorganise le serveur selon `config/server.toml` : aperçu, confirmation, suppressions séparées, retour arrière ([guide](docs/refonte.md)) |
-| `/play` · `/search` · `/pause` · `/resume` · `/skip` · `/stop` · `/leave` · `/join` · `/queue` · `/nowplaying` · `/remove` · `/clear` · `/shuffle` · `/loop` · `/volume` · `/history` · `/favorite` · `/audiocheck` | tout le monde (certaines : « DJ ») | musique dans les salons vocaux, si activée ([guide](docs/music.md)) |
-| `/setup etat` · `role-dj` · `serveur-principal` | admins (serveur principal : propriétaire du bot) | configurer Samae sur ce serveur depuis Discord |
+| `/setup etat` · `serveur-principal` | admins (serveur principal : propriétaire du bot) | configurer Samae sur ce serveur depuis Discord |
 
 `/admin`, `/refonte`, `/ia`, `/activite` et `/roles` forment l'**espace d'équipe** : ils n'existent que sur le
 serveur principal (`DISCORD_GUILD_ID`, ou `/setup serveur-principal`). Tout le reste fonctionne sur tous les serveurs.

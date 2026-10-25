@@ -24,7 +24,6 @@ from src.services.health import (
     ProjectsReceptionSummary,
     HistorySummary,
     MessagesSummary,
-    MusicSummary,
     build_health_checks,
 )
 from src.services.help import GUIDE_PAGES
@@ -47,7 +46,6 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot", guild_id: in
         report = bot.resolve_structure(guild) if guild else None
     except ConfigError:
         log.exception("Configuration invalide pendant /etat")
-    backend_info = getattr(bot.music_backend, "info", None)
     checks = build_health_checks(
         team_space=team_space and home is not None,
         latency_ms=bot.latency * 1000,
@@ -96,15 +94,6 @@ def build_status_embed(bot: SaeBot, *, title: str = "État du bot", guild_id: in
             github_connect_error=bot.settings.github_app_error,
             gitlab_connect=bot.gitlab_setup is not None,
             gitlab_connect_error=bot.settings.gitlab_app_error,
-        ),
-        music=MusicSummary(
-            enabled=bot.music is not None,
-            config_error=bot.settings.music_config_error,
-            lavalink_ready=bot.music is not None and bot.music.available,
-            active_players=sum(1 for p in bot.music.players.all() if p.connected) if bot.music is not None else 0,
-            sources=bot.settings.music_sources,
-            lavalink_version=backend_info.version if backend_info is not None else None,
-            problems=tuple(bot.music.lavalink_problems()) if bot.music is not None else (),
         ),
     )
     uptime = dt.datetime.now(dt.UTC) - bot.started_at

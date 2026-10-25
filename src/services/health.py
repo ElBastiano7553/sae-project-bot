@@ -60,14 +60,13 @@ def build_health_checks(
     interactions: InteractionSummary | None = None,
     github: GitHubSummary | None = None,
     projects: ProjectsReceptionSummary | None = None,
-    music: MusicSummary | None = None,
     team_space: bool = True,
 ) -> list[HealthCheck]:
     """Construit la liste des vérifications à partir de valeurs déjà mesurées.
 
     ``guild_found`` : None = aucun serveur principal (facultatif), True/False = le bot y est ou non.
     ``team_space=False`` (autre serveur que le serveur principal) : seules les lignes utiles à ce serveur sont
-    gardées (Discord, base, musique, réactivité) ; l'espace d'équipe d'un autre serveur n'y est jamais décrit.
+    gardées (Discord, base, réactivité) ; l'espace d'équipe d'un autre serveur n'y est jamais décrit.
     """
     db_detail = "SQLite répond" if database_ok else "SQLite ne répond pas : consultez logs/bot.log"
     if database_ok and database_schema is not None:
@@ -83,8 +82,6 @@ def build_health_checks(
     ]
     if not team_space:
         checks = checks[:3]
-        if music is not None:
-            checks.append(_music_check(music))
         if interactions is not None:
             checks.append(_interactions_check(interactions))
         return checks
@@ -92,8 +89,6 @@ def build_health_checks(
         checks.insert(-1, _github_check(github))
     if projects is not None:
         checks.insert(-1, _projects_check(projects))
-    if music is not None:
-        checks.insert(-1, _music_check(music))
     if history is not None:
         checks.append(_history_check(history))
     if alerts is not None:
@@ -110,7 +105,7 @@ def _home_check(guild_found: bool | None, team_space: bool) -> HealthCheck:
     if guild_found is None:
         return HealthCheck(name, HealthStatus.DISABLED, "aucun (facultatif : seulement pour l'espace d'équipe, voir /setup serveur-principal)")
     if not team_space:
-        return HealthCheck(name, HealthStatus.OK, "un autre serveur : ici, musique, réunions, /projet et /aide seulement")
+        return HealthCheck(name, HealthStatus.OK, "un autre serveur : ici, réunions, /projet et /aide seulement")
     if guild_found:
         return HealthCheck(name, HealthStatus.OK, "ce serveur (espace d'équipe disponible)")
     return HealthCheck(name, HealthStatus.ERROR, "le bot n'est pas sur son serveur principal (DISCORD_GUILD_ID ou /setup)")
@@ -345,32 +340,3 @@ def _structure_check(structure: StructureReport | None) -> HealthCheck:
     return HealthCheck(
         "Salons", HealthStatus.WARNING, f"{usable}/{total} salons utilisables, détails avec /admin installer"
     )
-
-
-@dataclass(frozen=True)
-class MusicSummary:
-    """Musique (docs/music.md), mesurée au moment de /etat."""
-
-    enabled: bool = False
-    config_error: str | None = None
-    lavalink_ready: bool = False
-    active_players: int = 0
-    sources: tuple[str, ...] = ()
-    lavalink_version: str | None = None
-    problems: tuple[str, ...] = ()  # incompatibilités de Lavalink (DAVE, source manquante)
-
-
-def _music_check(summary: MusicSummary) -> HealthCheck:
-    name = "Musique"
-    if summary.config_error:
-        return HealthCheck(name, HealthStatus.WARNING, f"désactivée, configuration invalide : {summary.config_error}")
-    if not summary.enabled:
-        return HealthCheck(name, HealthStatus.DISABLED, "désactivée (MUSIC_ENABLED=false)")
-    if not summary.lavalink_ready:
-        return HealthCheck(name, HealthStatus.ERROR, "Lavalink injoignable : /play et les autres commandes de musique sont indisponibles (voir docs/music.md)")
-    players = f"{summary.active_players} salon(s) vocal(aux) en cours" if summary.active_players else "aucune lecture en cours"
-    version = f" {summary.lavalink_version}" if summary.lavalink_version else ""
-    detail = f"Lavalink{version} connecté, {players} ; sources : {', '.join(summary.sources)}"
-    if summary.problems:
-        return HealthCheck(name, HealthStatus.WARNING, detail + " ; " + " ".join(summary.problems))
-    return HealthCheck(name, HealthStatus.OK, detail)

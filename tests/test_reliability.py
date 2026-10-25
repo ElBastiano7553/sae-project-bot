@@ -67,7 +67,8 @@ async def test_team_space_commands_are_only_sent_to_the_home_guild(bot, monkeypa
     await bot.sync_commands()
     assert set(HOME_ONLY_COMMANDS) == sent[42]
     assert not (set(HOME_ONLY_COMMANDS) & sent[None])  # jamais visibles sur les autres serveurs
-    assert {"play", "skip", "setup", "aide", "etat", "reunion"} <= sent[None]
+    assert {"setup", "aide", "etat", "reunion"} <= sent[None]
+    assert not {"play", "skip", "audiocheck"} & sent[None]  # musique retirée (1.13.0)
     assert not (sent[None] & sent[42])  # aucune commande en double sur le serveur principal
 
 

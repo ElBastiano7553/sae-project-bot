@@ -5,7 +5,6 @@ Aucun token, aucun Discord réel : bases SQLite temporaires et faux objets Disco
 
 from __future__ import annotations
 
-import random
 import sqlite3
 from types import SimpleNamespace
 
@@ -15,14 +14,9 @@ from discord.ext import commands
 from src.config import Settings
 from src.database import Database
 from src.database.connection import MIGRATIONS
-from src.database.guild_settings import GuildSettingsRepository
 from src.database.meetings import MeetingRepository
 from src.discord_bot.bot import EXTENSIONS, HOME_GUILD_KEY, SaeBot, TeamSpaceOnly, require_team_space
-from src.music.models import QueueEntry
-from src.music.queue import TrackQueue
-from src.music.search import normalize_track
 from src.services.meetings import Actor, MeetingError, MeetingService
-from tests.music_fakes import raw_track
 
 HOME, OTHER = 42, 43
 V14 = 14
@@ -47,7 +41,7 @@ def test_v14_only_adds_a_table_a_column_and_an_index():
     assert "DROP " not in script and "DELETE " not in script and "UPDATE " not in script
 
 
-def test_upgrade_from_v13_keeps_meetings_and_music_settings(tmp_path):
+def test_upgrade_from_v13_keeps_meetings_and_old_music_data(tmp_path):
     path = tmp_path / "v13.sqlite3"
     build_v13(path)
     db = Database(path, backup_dir=tmp_path / "backups")
@@ -55,6 +49,7 @@ def test_upgrade_from_v13_keeps_meetings_and_music_settings(tmp_path):
         assert db.schema_version == len(MIGRATIONS) >= V14
         row = db.conn.execute("SELECT title, guild_id FROM meetings").fetchone()
         assert row["title"] == "Ancienne réunion" and row["guild_id"] is None  # rattachée plus tard au serveur principal
+        # Musique retirée (1.13.0) : ses anciennes tables restent, aucune donnée n'est supprimée.
         assert db.conn.execute("SELECT volume FROM music_guild_settings WHERE guild_id = 42").fetchone()[0] == 30
         assert list((tmp_path / "backups").glob("*avantv*"))  # sauvegarde vérifiée avant la migration
         assert db.integrity_ok()
@@ -63,23 +58,6 @@ def test_upgrade_from_v13_keeps_meetings_and_music_settings(tmp_path):
         assert db.conn.execute("SELECT guild_id FROM meetings").fetchone()[0] == HOME
     finally:
         db.close()
-
-
-# --- Réglages par serveur ----------------------------------------------------------------------
-
-
-def test_guild_settings_are_per_guild(db):
-    repo = GuildSettingsRepository(db)
-    assert repo.get(HOME).music_dj_role_id is None
-    repo.set_dj_role(HOME, 555)
-    repo.set_dj_role(OTHER, 666)
-    repo.set_dj_role(HOME, 777)  # remplacement, sans doublon
-    assert repo.get(HOME).music_dj_role_id == 777 and repo.get(OTHER).music_dj_role_id == 666
-    repo.set_dj_role(HOME, None)
-    assert repo.get(HOME).music_dj_role_id is None and repo.get(OTHER).music_dj_role_id == 666
-    repo.forget(OTHER)
-    assert repo.get(OTHER).music_dj_role_id is None
-    assert db.conn.execute("SELECT COUNT(*) FROM guild_settings").fetchone()[0] == 1
 
 
 # --- Réunions isolées par serveur ---------------------------------------------------------------
@@ -103,29 +81,6 @@ def test_meetings_of_another_guild_are_invisible(db):
     assert service.resolve(None, alice_other, 100).meeting.id == theirs.meeting.id
     with pytest.raises(MeetingError, match="n'existe pas"):
         service.report(theirs.meeting.id, HOME)
-
-
-# --- File d'attente : nouvelles opérations -------------------------------------------------------
-
-
-def entry(title: str) -> QueueEntry:
-    return QueueEntry(normalize_track(raw_track(title)), 1, "Alice")
-
-
-def titles(queue: TrackQueue) -> list[str]:
-    return [e.track.title for e in queue]
-
-
-def test_queue_remove_peek_shuffle_and_room():
-    queue = TrackQueue(3)
-    for title in "abc":
-        queue.add(entry(title))
-    assert queue.peek_at(2).track.title == "b" and queue.peek_at(0) is None and queue.peek_at(4) is None
-    assert queue.remove_at(2).track.title == "b" and titles(queue) == ["a", "c"]
-    assert queue.remove_at(5) is None
-    assert queue.push_front(entry("z")) and titles(queue) == ["z", "a", "c"]
-    assert not queue.push_front(entry("plein")) and not queue.append_if_room(entry("plein"))  # limite respectée
-    assert queue.shuffle(random.Random(1)) == 3 and sorted(titles(queue)) == ["a", "c", "z"]
 
 
 # --- Serveur principal et espace d'équipe -------------------------------------------------------
@@ -206,7 +161,7 @@ async def test_team_space_cogs_are_guarded(db, cog_name):
         await bot.close()
 
 
-@pytest.mark.parametrize("cog_name", ["MusicCog", "MeetingsCog", "ProjectsCog", "GeneralCog", "SetupCog"])
+@pytest.mark.parametrize("cog_name", ["MeetingsCog", "ProjectsCog", "GeneralCog", "SetupCog"])
 async def test_general_cogs_work_on_any_guild(db, cog_name):
     bot = await make_bot(db, DISCORD_GUILD_ID=str(HOME))
     try:
@@ -243,21 +198,12 @@ class Followup:
         self.sent.append({"content": content, **kwargs})
 
 
-class Role:
-    def __init__(self, role_id, name="DJ", *, default=False, managed=False, guild=None) -> None:
-        self.id, self.name, self.managed, self._default, self.guild = role_id, name, managed, default, guild
-        self.mention = f"<@&{role_id}>"
-
-    def is_default(self) -> bool:
-        return self._default
-
-
 class Guild:
     def __init__(self, guild_id: int) -> None:
         self.id, self.name = guild_id, f"Serveur {guild_id}"
         self.me = SimpleNamespace(voice=None)
         self.voice_channels, self.text_channels = [], []
-        self.roles: dict[int, Role] = {}
+        self.roles: dict[int, object] = {}
 
     def get_role(self, role_id):
         return self.roles.get(role_id)
@@ -292,32 +238,10 @@ async def test_setup_status_works_on_any_guild_without_secrets(db):
         interaction = Interaction(bot, Guild(OTHER))
         await cog.status.callback(cog, interaction)
         text = text_of(interaction)
-        assert "Musique" in text and "Espace d'équipe" in text and "serveur-principal" in text
+        assert "Espace d'équipe" in text and "serveur-principal" in text
+        assert "Musique" not in text and "DJ" not in text and "Lavalink" not in text
         assert "faux-token-secret" not in text
         assert interaction.response.sent[0]["ephemeral"]
-    finally:
-        await bot.close()
-
-
-async def test_setup_dj_role_is_saved_for_this_guild_only(db):
-    bot = await make_bot(db)
-    try:
-        cog = bot.get_cog("SetupCog")
-        guild = Guild(OTHER)
-        role = Role(555, guild=guild)
-        interaction = Interaction(bot, guild)
-        await cog.dj_role.callback(cog, interaction, role)
-        assert "Rôle DJ de ce serveur" in text_of(interaction)
-        assert bot.guild_settings_repo.get(OTHER).music_dj_role_id == 555
-        assert bot.guild_settings_repo.get(HOME).music_dj_role_id is None
-        for bad in (Role(OTHER, "@everyone", default=True, guild=guild), Role(9, "Bot", managed=True, guild=guild)):
-            refused = Interaction(bot, guild)
-            await cog.dj_role.callback(cog, refused, bad)
-            assert "rôle normal" in text_of(refused)
-        assert bot.guild_settings_repo.get(OTHER).music_dj_role_id == 555
-        cleared = Interaction(bot, guild)
-        await cog.dj_role.callback(cog, cleared, None)
-        assert bot.guild_settings_repo.get(OTHER).music_dj_role_id is None
     finally:
         await bot.close()
 
@@ -390,7 +314,7 @@ async def test_setup_commands_are_admin_only(db):
     try:
         group = bot.tree.get_command("setup")
         assert group.default_permissions.manage_guild and group.guild_only
-        assert {c.name for c in group.commands} == {"etat", "role-dj", "serveur-principal"}
+        assert {c.name for c in group.commands} == {"etat", "serveur-principal"}
         assert all(c.checks for c in group.commands)
     finally:
         await bot.close()

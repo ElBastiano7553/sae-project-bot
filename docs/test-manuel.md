@@ -254,34 +254,28 @@ Avec l'application OAuth de test (section 3 du guide) et l'adresse HTTPS :
 
 ## 1.11.0 : musique (`/musique`)
 
-Guide et procédure détaillée : [music.md](music.md) §8. Sauvegarde `…-avantv13.sqlite3` créée au démarrage.
-
-- [ ] `MUSIC_ENABLED=false` : `/etat` « Musique désactivée » ; `/musique jouer` l'explique, rien d'autre ne change.
-- [ ] Lavalink lancé, `MUSIC_ENABLED=true` : `/etat` « prête ». Lavalink arrêté puis relancé : « injoignable » puis « prête » sans redémarrer le bot.
-- [ ] `/musique jouer` hors salon vocal : refus clair. Dans un salon : menu de 5 résultats, le bot rejoint, **le son s'entend**, le panneau apparaît.
-- [ ] Lien SoundCloud, lien YouTube, playlist (limite annoncée). Lien `http://127.0.0.1/…` ou site inconnu : refus.
-- [ ] Boutons pause / reprise / passer / file / favori / arrêter ; bouton d'un ancien panneau : « ne correspond plus ».
-- [ ] Second compte dans un autre salon : contrôles refusés. Avec `MUSIC_DJ_ROLE_NAME` : arrêt et volume réservés au rôle.
-- [ ] `/musique volume valeur:20`, redémarrage du bot, `/musique volume` → 20.
-- [ ] `/musique historique`, `/musique favoris` (rejouer), `/musique favori retirer:1`.
-- [ ] Bot laissé sans musique : il quitte le salon après `MUSIC_IDLE_MINUTES`.
-- [ ] `logs/bot.log` et journal de Lavalink : aucun mot de passe.
+Retirée en 1.13.0 : plus rien à tester.
 
 
-## 1.12.0 : commandes de musique, son, multi-serveurs, `/setup`
+## 1.12.0 : multi-serveurs, `/setup`
 
-À faire sur un **serveur Discord de test** avec un **bot de test**. Guide : [music.md](music.md) §8 et §8 bis,
-[installation.md](installation.md). Sauvegarde `…-avantv14.sqlite3` créée au démarrage.
+À faire sur un **serveur Discord de test** avec un **bot de test**. Guide :
+[installation.md](installation.md). (Les tests de musique de 1.12.0 n'ont plus lieu d'être : musique retirée en 1.13.0.) Sauvegarde `…-avantv14.sqlite3` créée au démarrage.
 
-- [ ] Après la mise à jour : `/musique` a disparu, `/play`, `/skip`, `/queue`… sont là ; aucune commande en double.
-- [ ] Journal au démarrage : liste des fonctions facultatives et leur état ; `Lavalink 4.2.2 : sources …` ; aucun secret.
-- [ ] **Son** : procédure de [music.md](music.md) §8 bis ; `/audiocheck` avec les 5 étapes ✅ ; **son entendu** (noter oui/non, réseau, version de Lavalink).
-- [ ] `/play query:<texte>` lance le 1er résultat ; `/search` propose 5 résultats.
-- [ ] `/join`, `/remove` (autocomplétion), `/clear`, `/shuffle`, `/loop` (titre, file, désactivée), bouton 🔁 du panneau.
-- [ ] `/favorite add` · `list` (rejouer) · `remove number:1` ; `/history`, `/volume`.
-- [ ] Bot rendu muet par le serveur (clic droit > Rendre muet) : avertissement sur le panneau et dans `/audiocheck`.
+- [ ] Journal au démarrage : liste des fonctions facultatives et leur état ; aucun secret.
 - [ ] `/setup etat` sur le serveur principal et sur un second serveur de test ; aucun secret affiché.
-- [ ] `/setup role-dj role:@DJ` : seul le rôle peut arrêter / volume / vider ; un autre serveur n'est pas concerné.
-- [ ] Second serveur : musique en même temps sur les deux, files et panneaux séparés ; `/reunion` et `/projet liste` ne montrent que les données de ce serveur ; `/admin`, `/refonte`, `/ia`, `/activite`, `/roles` absents.
+- [ ] Second serveur : `/reunion` et `/projet liste` ne montrent que les données de ce serveur ; `/admin`, `/refonte`, `/ia`, `/activite`, `/roles` absents.
 - [ ] `/setup serveur-principal` par un admin qui n'est pas le propriétaire du bot : refus.
 - [ ] Installation de zéro sur une autre machine en suivant [installation.md](installation.md), avec seulement `DISCORD_BOT_TOKEN` dans `.env`.
+
+
+## 1.13.0 : musique retirée
+
+À faire sur un **serveur Discord de test** avec un **bot de test**, avec un `.env` qui contient encore les anciennes
+variables `MUSIC_*` / `LAVALINK_*` (elles doivent être ignorées).
+
+- [ ] `pip install -r requirements.txt` dans un environnement neuf : ni `wavelink` ni `async-timeout` installés.
+- [ ] Le bot démarre sans Lavalink ; journal : aucune ligne « Musique » ni « Lavalink » ; aucun secret.
+- [ ] Commandes : `/play`, `/search`, `/join`, `/audiocheck`, `/skip`, `/queue`… ont disparu (redémarrer Discord si besoin) ; `/setup` ne propose plus que `etat` et `serveur-principal`.
+- [ ] `/aide` : plus de catégorie « Musique » ; `/etat` et `/setup etat` : plus de ligne « Musique ».
+- [ ] `/reunion`, `/projet liste`, `/admin config`, `/etat` fonctionnent comme avant.
