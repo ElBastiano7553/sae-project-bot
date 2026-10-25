@@ -6,11 +6,15 @@ from discord import app_commands
 
 from src.config import Settings
 from src.discord_bot.bot import EXTENSIONS, HOME_ONLY_COMMANDS, SaeBot
-from src.discord_bot.cogs.music import COMMAND_NAMES as MUSIC_COMMANDS
 from src.services.help import HELP_ENTRIES
 
 ADMIN_COMMANDS = {"admin", "refonte", "setup"}
-PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion", *MUSIC_COMMANDS}
+PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion"}
+# Musique retirée en 1.13.0 : aucune de ces commandes ne doit revenir.
+REMOVED_MUSIC_COMMANDS = {
+    "musique", "play", "pause", "resume", "skip", "stop", "queue", "nowplaying", "volume", "shuffle", "remove",
+    "clear", "loop", "join", "leave", "search", "favorite", "history", "audiocheck",
+}
 
 
 @pytest.fixture
@@ -42,17 +46,12 @@ def all_commands(bot):
 async def test_slash_commands_are_registered(bot):
     names = {command.name for command in bot.tree.get_commands()}
     assert names == ADMIN_COMMANDS | PUBLIC_COMMANDS
-    assert "musique" not in names  # remplacée par /play, /skip, /queue… (voir docs/music.md)
+    assert not names & REMOVED_MUSIC_COMMANDS
 
 
-async def test_music_commands_are_top_level_without_duplicates(bot):
-    assert len(MUSIC_COMMANDS) == len(set(MUSIC_COMMANDS))
-    expected = {"play", "pause", "resume", "skip", "stop", "queue", "nowplaying", "volume", "shuffle", "remove",
-                "clear", "loop", "join", "leave", "search", "favorite", "history"}
-    assert expected <= set(MUSIC_COMMANDS)
-    music = {c.name: c for c in bot.tree.get_commands() if c.name in MUSIC_COMMANDS}
-    assert all(c.guild_only for c in music.values())  # jamais en message privé
-    assert {c.name for c in music["favorite"].commands} == {"add", "remove", "list"}
+async def test_setup_has_no_music_subcommand(bot):
+    setup = bot.tree.get_command("setup")
+    assert {c.name for c in setup.commands} == {"etat", "serveur-principal"}
 
 
 async def test_team_space_commands_are_split_from_global_ones(bot):
@@ -61,7 +60,7 @@ async def test_team_space_commands_are_split_from_global_ones(bot):
     home_names = {c.name for c in bot.tree.get_commands(guild=discord.Object(id=42))}
     assert home_names == set(HOME_ONLY_COMMANDS)
     assert global_names == (ADMIN_COMMANDS | PUBLIC_COMMANDS) - set(HOME_ONLY_COMMANDS)
-    assert "setup" in global_names and "play" in global_names
+    assert "setup" in global_names and "play" not in global_names
 
 
 async def test_admin_commands_require_manage_guild_by_default(bot):
@@ -236,3 +235,35 @@ async def test_port_in_use_keeps_v1(db, unused_tcp_port):
     finally:
         await instance.close()
         blocker.close()
+
+
+async def test_bot_starts_without_any_music_system(db, monkeypatch):
+    """Musique retirée (1.13.0) : même avec un ancien .env musical, le démarrage ne charge ni Lavalink ni wavelink."""
+    import sys
+
+    settings = Settings.from_env(
+        {"DISCORD_GUILD_ID": "42", "MUSIC_ENABLED": "true", "LAVALINK_URI": "http://127.0.0.1:2333"}, require_token=False
+    )
+    instance = SaeBot(settings, db)
+
+    async def nothing(*args, **kwargs):
+        return 0
+
+    for name in ("sync_commands", "start_gitlab_webhooks", "start_github_webhooks", "start_project_reception"):
+        monkeypatch.setattr(instance, name, nothing)
+    try:
+        await instance.setup_hook()
+        assert not [e for e in EXTENSIONS if "music" in e]
+        assert not {"MusicCog"} & set(instance.cogs)
+        assert not any(hasattr(instance, name) for name in ("music", "music_backend", "music_repo", "guild_settings_repo"))
+        assert not [m for m in sys.modules if m == "wavelink" or m.startswith(("wavelink.", "src.music"))]
+        names = {c.name for c in instance.tree.get_commands()} | {c.name for c in instance.tree.get_commands(guild=discord.Object(id=42))}
+        assert not names & REMOVED_MUSIC_COMMANDS
+        assert {"aide", "etat", "reunion", "projet", "setup", "admin", "refonte"} <= names
+    finally:
+        await instance.close()
+
+
+def test_help_has_no_music_entry():
+    assert not [e for e in HELP_ENTRIES if e.category == "musique" or e.command.split()[0] in REMOVED_MUSIC_COMMANDS]
+    assert not [e for e in HELP_ENTRIES if e.command == "setup role-dj"]

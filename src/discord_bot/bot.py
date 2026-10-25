@@ -39,9 +39,6 @@ from src.database.project_deliveries import ProjectDeliveryRepository
 from src.database.github_setup import GithubSetupRepository
 from src.database.gitlab_setup import GitlabSetupRepository
 from src.database.projects import ProjectRepository
-from src.database.guild_settings import GuildSettingsRepository
-from src.database.music import MusicRepository
-from src.music.service import MusicConfig, MusicService
 from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
 from src.gitlab.api import GitLabAPI
@@ -96,7 +93,6 @@ EXTENSIONS = (
     "src.discord_bot.cogs.redesign",
     "src.discord_bot.cogs.welcome",
     "src.discord_bot.cogs.projects",
-    "src.discord_bot.cogs.music",
     "src.discord_bot.cogs.setup",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
@@ -130,8 +126,6 @@ class SaeBot(commands.Bot):
         self.bindings_repo = ChannelBindingRepository(database)
         self.state_repo = KeyValueRepository(database)
         self.admin_log = AdminActionRepository(database)
-        # Réglages choisis depuis Discord pour chaque serveur (/setup), isolés par serveur.
-        self.guild_settings_repo = GuildSettingsRepository(database)
         self._home_commands: dict[str, app_commands.Command | app_commands.Group] = {}
         self.gateway = DiscordMessageGateway(self)
         self.gitlab_events_repo = GitLabEventRepository(database)
@@ -187,31 +181,6 @@ class SaeBot(commands.Bot):
             else None
         )
         self._github_task: asyncio.Task | None = None
-        # Musique (docs/music.md) : None sans MUSIC_ENABLED=true. Lavalink n'est contacté qu'au démarrage (setup_hook).
-        self.music_repo = MusicRepository(database)
-        self.music_backend = None
-        self.music: MusicService | None = None
-        if settings.music_enabled:
-            from src.music.lavalink import WavelinkBackend  # import local : wavelink n'est chargé que si la musique est activée
-
-            self.music_backend = WavelinkBackend(
-                self,
-                uri=settings.lavalink_uri,
-                password=settings.lavalink_password,
-                idle_timeout_seconds=settings.music_idle_minutes * 60,
-            )
-            self.music = MusicService(
-                self.music_backend,
-                self.music_repo,
-                MusicConfig(
-                    sources=settings.music_sources,
-                    default_volume=settings.music_default_volume,
-                    max_queue=settings.music_max_queue,
-                    max_playlist=settings.music_max_playlist,
-                    max_track_minutes=settings.music_max_track_minutes,
-                    dj_role_configured=bool(settings.music_dj_role_name),
-                ),
-            )
         self.errors = errors or RecentErrors()
         self.errors.add_listener(self._on_error)
         self.interaction_stats = InteractionStats()
@@ -246,22 +215,6 @@ class SaeBot(commands.Bot):
         await self.start_gitlab_webhooks()
         await self.start_github_webhooks()
         await self.start_project_reception()
-        self.start_music()
-
-    def start_music(self) -> None:
-        """Connexion à Lavalink en tâche de fond : jamais bloquante, et sans effet sur le reste du bot."""
-        if self.settings.music_config_error:
-            log.error("Musique désactivée, configuration invalide : %s", self.settings.music_config_error)
-            return
-        if self.music_backend is None:
-            log.info("Musique désactivée : MUSIC_ENABLED n'est pas à true.")
-            return
-        try:
-            self.music_backend.start()
-        except Exception:
-            log.exception("Musique désactivée : connexion à Lavalink impossible à lancer")
-            return
-        log.info("Musique : connexion à Lavalink (%s) lancée en arrière-plan", self.settings.lavalink_uri)
 
     def commands_fingerprint(self, guild: discord.abc.Snowflake | None) -> str:
         """Empreinte de ce qui serait envoyé à Discord : change dès qu'une commande, une option ou un texte change."""
@@ -287,7 +240,7 @@ class SaeBot(commands.Bot):
     async def sync_commands(self, *, force: bool = False) -> int | None:
         """Synchronise les commandes slash avec Discord, seulement si elles ont changé.
 
-        * Commandes **globales** (musique, réunions, /projet, /aide, /etat, /setup) : visibles sur tous les
+        * Commandes **globales** (réunions, /projet, /aide, /etat, /setup) : visibles sur tous les
           serveurs où le bot est invité, sans aucun identifiant à configurer.
         * Commandes de l'**espace d'équipe** (HOME_ONLY_COMMANDS) : envoyées au serveur principal seulement
           (et retirées de l'ancien serveur principal s'il a changé).
@@ -502,16 +455,6 @@ class SaeBot(commands.Bot):
             self._projects_task = None
         if self.projects_server is not None:
             await self.projects_server.stop()
-        if self.music is not None:
-            try:
-                await self.music.shutdown()
-            except Exception:
-                log.warning("Arrêt de la musique incomplet", exc_info=True)
-        if self.music_backend is not None:
-            try:
-                await self.music_backend.close()
-            except Exception:
-                log.warning("Fermeture de la connexion à Lavalink impossible", exc_info=True)
         for client in (self.ai_provider, self.gitlab_api):
             if client is not None:
                 try:
@@ -533,7 +476,7 @@ class SaeBot(commands.Bot):
         home = self.home_guild_id
         if home is None:
             log.info(
-                "Aucun serveur principal : la musique, les réunions, /projet et /aide fonctionnent partout. Pour l'espace "
+                "Aucun serveur principal : les réunions, /projet et /aide fonctionnent partout. Pour l'espace "
                 "d'équipe (messages permanents, /refonte, /ia), le propriétaire du bot peut lancer /setup serveur-principal."
             )
             return
@@ -700,15 +643,6 @@ class SaeBot(commands.Bot):
                 continue
             if purged[label]:
                 log.info("Historique : %d %s de plus de %d jours oublié(s)", purged[label], label, days)
-        # Historique musical : durée propre (MUSIC_HISTORY_RETENTION_DAYS), plus courte par défaut.
-        label, music_days = "lecture(s) musicale(s)", self.settings.music_history_days
-        try:
-            purged[label] = self.music_repo.purge_older_than(music_days)
-        except Exception:
-            log.exception("Nettoyage de l'historique impossible (%s)", label)
-        else:
-            if purged[label]:
-                log.info("Historique : %d %s de plus de %d jours oubliée(s)", purged[label], label, music_days)
         return purged
 
     # --- Fiabilité : arrêt propre, fichier de vie, sauvegardes ------------------------

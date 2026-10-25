@@ -18,7 +18,6 @@ Hébergement permanent sur un VPS : [deployment-vps.md](deployment-vps.md).
 |---|---|---|
 | Python | 3.11, 3.12 ou 3.13 | oui |
 | Git | n'importe laquelle | conseillé (sinon : archive ZIP du dépôt) |
-| Java + Lavalink | Java 17 ou plus, Lavalink **4.2.2** | seulement pour la musique (§6) |
 
 Tout est gratuit ; aucune dépendance payante.
 
@@ -35,16 +34,15 @@ Tout est gratuit ; aucune dépendance payante.
 
 | Permission | Pour |
 |---|---|
-| View Channels, Send Messages, Embed Links, Read Message History | répondre, panneaux (musique, réunions) |
-| Connect, Speak | musique |
+| View Channels, Send Messages, Embed Links, Read Message History | répondre, panneaux (réunions) |
 | Manage Messages | épingler les messages permanents (espace d'équipe, facultatif) |
 | Manage Channels, Manage Roles | `/refonte` seulement (espace d'équipe, facultatif) |
 
-Lien d'invitation **minimal** (réponses, panneaux, musique), à compléter avec votre
+Lien d'invitation **minimal** (réponses, panneaux), à compléter avec votre
 identifiant d'application (onglet General Information > Application ID) :
 
 ```
-https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=3230720
+https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=84992
 ```
 
 Le bot ne demande jamais la permission Administrateur.
@@ -93,8 +91,8 @@ Au démarrage, le bot :
 - vérifie `.env` : une valeur **obligatoire** manquante ou invalide arrête le bot avec un
   message clair (code 2) ; une fonction **facultative** mal configurée est seulement
   désactivée, avec la raison dans le journal et dans `/etat` ;
-- écrit la liste des fonctions facultatives et leur état (« Musique : désactivée
-  (MUSIC_ENABLED=false) »…), sans jamais écrire de secret ;
+- écrit la liste des fonctions facultatives et leur état (« IA : désactivée
+  (AI_PROVIDER vide) »…), sans jamais écrire de secret ;
 - crée `data/` et la base SQLite s'ils n'existent pas, et applique les migrations (avec une
   sauvegarde vérifiée avant chaque migration d'une base existante) ;
 - envoie les commandes slash à Discord **seulement si elles ont changé**.
@@ -102,24 +100,16 @@ Au démarrage, le bot :
 Ouvrez le lien d'invitation de l'étape 2, choisissez votre serveur, puis sur Discord :
 
 1. `/setup etat` (admins) : ce qui fonctionne sur ce serveur, ce qui manque et comment le régler ;
-2. `/aide`, `/reunion creer`, `/projet liste`, `/etat` : utilisables tout de suite ;
-3. musique : voir §6.
+2. `/aide`, `/reunion creer`, `/projet liste`, `/etat` : utilisables tout de suite.
 
 Les commandes globales peuvent mettre quelques minutes à apparaître la toute première fois
 (Discord). Redémarrez l'application Discord si elles n'apparaissent pas.
 
-## 6. Activer la musique (facultatif)
+## 6. Musique (retirée en 1.13.0)
 
-1. Installer Java 17+ et télécharger Lavalink 4.2.2 et le plugin youtube 1.18.2 (liens et
-   empreintes SHA-256 : [music-vps-checklist.md](music-vps-checklist.md), étape 3).
-2. Copier `deploy/lavalink/application.yml.example` en `application.yml` à côté du jar.
-3. Générer un mot de passe : `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-4. Lancer Lavalink : `LAVALINK_SERVER_PASSWORD=<mot de passe> java -Xmx512m -jar Lavalink.jar`.
-5. Dans `.env` : `MUSIC_ENABLED=true` et `LAVALINK_PASSWORD=<le même mot de passe>`, puis relancer le bot.
-6. Sur Discord : rejoindre un salon vocal, `/play query:<titre ou lien>`. Pas de son ?
-   `/audiocheck` et [music.md](music.md), §8 bis.
-7. Facultatif : `/setup role-dj role:@DJ` pour réserver « passer le titre d'un autre »,
-   « arrêter » et « volume » à un rôle sur ce serveur.
+La musique (Lavalink, wavelink, `/play`…) a été retirée en 1.13.0 : rien à installer, ni Java ni
+Lavalink. Les variables `MUSIC_*` et `LAVALINK_*` d'un ancien `.env` sont ignorées et peuvent être
+supprimées. Un bot déjà invité avec les permissions Connect et Speak n'en a plus besoin.
 
 ## 7. Espace d'équipe (facultatif)
 
@@ -132,7 +122,7 @@ webhooks GitLab/GitHub du `.env`) n'existe que sur **un** serveur : le **serveur
   l'administrateur d'un autre serveur ne peut jamais s'approprier l'espace d'équipe.
 
 Ensuite : `/admin installer` sur ce serveur. Sur les autres serveurs, ces commandes
-n'apparaissent pas ; la musique, les réunions et `/projet` y fonctionnent normalement, avec
+n'apparaissent pas ; les réunions et `/projet` y fonctionnent normalement, avec
 des données séparées par serveur.
 
 ## 8. Que faire si…
@@ -144,4 +134,3 @@ des données séparées par serveur.
 | `DISCORD_GUILD_ID doit contenir uniquement des chiffres, ou rester vide` | nom du serveur au lieu de son identifiant | laisser vide, ou copier l'identifiant (mode développeur) |
 | Les commandes n'apparaissent pas | Discord met en cache | attendre quelques minutes, redémarrer Discord ; `python -m src.ops resync` puis relancer le bot |
 | « Cette commande fait partie de l'espace d'équipe » | commande d'équipe hors du serveur principal | §7 |
-| La musique répond « pas activée » | `MUSIC_ENABLED=false` | §6 |

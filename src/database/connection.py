@@ -365,6 +365,7 @@ MIGRATIONS: list[str] = [
     # Seul le nécessaire à l'affichage est gardé (aucun nom de membre : l'identifiant Discord suffit).
     # La file d'attente n'est pas enregistrée : elle repart vide après un redémarrage.
     # Uniquement des créations de tables : rien d'existant n'est modifié.
+    # 1.13.0 : musique retirée. Ces tables restent (migrations figées, aucune donnée supprimée) mais ne sont plus lues.
     """
     CREATE TABLE music_history (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,6 +406,7 @@ MIGRATIONS: list[str] = [
     # supprimée. Les réunions déjà créées gardent guild_id NULL jusqu'à ce que le bot connaisse son serveur
     # principal (elles lui sont alors rattachées, voir MeetingRepository.adopt_orphans) ; d'ici là, elles ne
     # sont visibles nulle part, plutôt que sur un mauvais serveur.
+    # 1.13.0 : guild_settings (seul réglage : le rôle DJ de la musique) n'est plus lue ; la table reste.
     """
     CREATE TABLE guild_settings (
         guild_id         INTEGER PRIMARY KEY,

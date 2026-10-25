@@ -43,6 +43,7 @@ DEFAULT_AI_COOLDOWN_SECONDS = 20
 DEFAULT_WELCOME_DELETE_HOURS = 24
 MAX_WELCOME_DELETE_HOURS = 168
 # Variables contenant des secrets : leurs valeurs sont masquées dans tous les journaux.
+# LAVALINK_PASSWORD n'est plus lu (musique retirée en 1.13.0) mais reste masqué : un ancien .env peut encore le contenir.
 SECRET_ENV_VARS = (
     "DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET",
     "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_CLIENT_SECRET", "GITLAB_APP_CLIENT_SECRET", "LAVALINK_PASSWORD",
@@ -63,18 +64,6 @@ _PUBLIC_URL = re.compile(r"^https://[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0
 _GITLAB_CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 _GITLAB_URL = re.compile(r"^https://[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?(?:/[a-z0-9._~-]+)*$")
 _GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
-# Musique (docs/music.md) : Lavalink écoute en local par défaut ; ses réglages et les limites par serveur.
-DEFAULT_LAVALINK_URI = "http://127.0.0.1:2333"
-# Mot de passe d'exemple de la documentation de Lavalink : refusé, tout le monde le connaît.
-LAVALINK_EXAMPLE_PASSWORD = "youshallnotpass"
-DEFAULT_MUSIC_VOLUME = 50
-DEFAULT_MUSIC_MAX_QUEUE = 100
-MAX_MUSIC_QUEUE = 500
-DEFAULT_MUSIC_MAX_PLAYLIST = 25
-MAX_MUSIC_PLAYLIST = 100
-DEFAULT_MUSIC_MAX_TRACK_MINUTES = 180
-DEFAULT_MUSIC_HISTORY_DAYS = 90
-DEFAULT_MUSIC_IDLE_MINUTES = 5
 
 
 class ConfigError(Exception):
@@ -93,7 +82,7 @@ class Settings:
     discord_token: str = field(repr=False)
     # Serveur principal FACULTATIF (DISCORD_GUILD_ID) : seulement pour l'espace d'équipe (messages permanents,
     # /refonte, /ia, /activite, webhooks du .env). None : choisi depuis Discord avec /setup serveur-principal,
-    # ou aucun. La musique, les réunions, /projet et /aide fonctionnent sur tous les serveurs sans lui.
+    # ou aucun. Les réunions, /projet et /aide fonctionnent sur tous les serveurs sans lui.
     guild_id: int | None
     database_path: Path
     admin_role_name: str | None = None
@@ -153,20 +142,6 @@ class Settings:
     gitlab_app_client_secret: str = field(default="", repr=False)
     # Erreur dans GITLAB_APP_* (ou PROJECTS_PUBLIC_URL) : seule la connexion GitLab est désactivée.
     gitlab_app_error: str | None = None
-    # Musique (docs/music.md) : désactivée par défaut ; nécessite un serveur Lavalink v4.
-    music_enabled: bool = False
-    lavalink_uri: str = DEFAULT_LAVALINK_URI
-    lavalink_password: str = field(default="", repr=False)
-    music_sources: tuple[str, ...] = ("youtubemusic", "soundcloud")
-    music_default_volume: int = DEFAULT_MUSIC_VOLUME
-    music_max_queue: int = DEFAULT_MUSIC_MAX_QUEUE
-    music_max_playlist: int = DEFAULT_MUSIC_MAX_PLAYLIST
-    music_max_track_minutes: int = DEFAULT_MUSIC_MAX_TRACK_MINUTES  # 0 = pas de limite
-    music_dj_role_name: str | None = None
-    music_history_days: int = DEFAULT_MUSIC_HISTORY_DAYS
-    music_idle_minutes: int = DEFAULT_MUSIC_IDLE_MINUTES
-    # Erreur dans MUSIC_* / LAVALINK_* : la musique reste désactivée, le reste du bot démarre.
-    music_config_error: str | None = None
 
     def feature_summary(self) -> list[tuple[str, str]]:
         """(fonction, état) de chaque fonction FACULTATIVE, pour le journal de démarrage. Aucun secret, aucune valeur.
@@ -184,7 +159,6 @@ class Settings:
                 "aucun dans .env (facultatif : /setup serveur-principal depuis Discord)")
         return [
             ("Serveur principal", home),
-            ("Musique", state(self.music_enabled, self.music_config_error, "MUSIC_ENABLED=false")),
             ("IA", state(self.ai_enabled, self.ai_config_error, "AI_PROVIDER vide")),
             ("Webhooks GitLab", state(self.gitlab_webhooks_enabled, self.gitlab_config_error, "GITLAB_WEBHOOK_SECRET vide")),
             ("Webhooks GitHub", state(self.github_webhooks_enabled, self.github_config_error, "GITHUB_WEBHOOK_SECRET vide")),
@@ -324,7 +298,6 @@ class Settings:
         projects_http = _parse_projects_http(env, used_ports=used_ports, legacy_github_secret=github["github_webhook_secret"])
         github_app = _parse_github_app(env, projects_http)
         gitlab_app = _parse_gitlab_app(env, projects_http)
-        music = _parse_music(env)
         if gitlab_app.pop("public_url"):
             github_app["projects_public_url"] = gitlab_app_public_url(env)
         gitlab_base_url = (env.get("GITLAB_BASE_URL", "").strip() or "https://gitlab.com").rstrip("/")
@@ -369,7 +342,6 @@ class Settings:
             **projects_http,
             **github_app,
             **gitlab_app,
-            **music,
         )
 
 
@@ -602,70 +574,6 @@ def _parse_ai(env: Mapping[str, str]) -> dict:
     if problems:
         return {"ai_provider": "none", "ai_config_error": " ; ".join(problems), **limits}
     return {"ai_provider": provider, "ai_api_key": key, "ai_model": model, **limits}
-
-
-def _parse_music(env: Mapping[str, str]) -> dict:
-    """Réglages de la musique. Une erreur désactive la musique (``music_config_error``) sans bloquer le bot."""
-    from src.music.search import parse_sources  # import local : la configuration reste sans dépendance au démarrage
-
-    problems: list[str] = []
-    enabled = _parse_bool(env, "MUSIC_ENABLED", False, problems)
-    uri = (env.get("LAVALINK_URI", "").strip() or DEFAULT_LAVALINK_URI).rstrip("/")
-    password = env.get("LAVALINK_PASSWORD", "").strip()
-    try:
-        parts = urlsplit(uri)
-        port = parts.port
-    except ValueError:
-        parts, port = None, None
-    if parts is None or parts.scheme not in ("http", "https") or not parts.hostname or parts.path or parts.query:
-        problems.append(f"LAVALINK_URI doit être de la forme http://127.0.0.1:2333 (valeur actuelle : {uri!r})")
-    elif parts.username or parts.password:
-        problems.append("LAVALINK_URI ne doit pas contenir d'identifiants : le mot de passe va dans LAVALINK_PASSWORD")
-    elif parts.scheme == "http" and parts.hostname not in LOOPBACK_HOSTS:
-        problems.append(
-            "LAVALINK_URI en http:// doit rester local (127.0.0.1) : le mot de passe circulerait en clair. "
-            "Utilisez https:// pour un Lavalink sur une autre machine."
-        )
-    elif port is None:
-        problems.append("LAVALINK_URI doit indiquer le port de Lavalink (2333 par défaut)")
-    if not password:
-        problems.append("LAVALINK_PASSWORD est vide : recopiez le mot de passe de la configuration de Lavalink")
-    elif password == LAVALINK_EXAMPLE_PASSWORD or len(password) < MIN_WEBHOOK_SECRET_LENGTH:
-        problems.append(
-            f"LAVALINK_PASSWORD doit faire au moins {MIN_WEBHOOK_SECRET_LENGTH} caractères et ne pas être le mot de passe "
-            "d'exemple de Lavalink : générez-en un avec la commande indiquée dans .env.example"
-        )
-    sources, source_errors = parse_sources(env.get("MUSIC_SOURCES", "") or "youtubemusic,soundcloud")
-    problems += [f"MUSIC_SOURCES : {error}" for error in source_errors]
-    values = {}
-    for name, var, default, minimum, maximum in (
-        ("music_default_volume", "MUSIC_DEFAULT_VOLUME", DEFAULT_MUSIC_VOLUME, 0, 100),
-        ("music_max_queue", "MUSIC_MAX_QUEUE", DEFAULT_MUSIC_MAX_QUEUE, 1, MAX_MUSIC_QUEUE),
-        ("music_max_playlist", "MUSIC_MAX_PLAYLIST", DEFAULT_MUSIC_MAX_PLAYLIST, 1, MAX_MUSIC_PLAYLIST),
-        ("music_max_track_minutes", "MUSIC_MAX_TRACK_MINUTES", DEFAULT_MUSIC_MAX_TRACK_MINUTES, 0, 24 * 60),
-        ("music_history_days", "MUSIC_HISTORY_RETENTION_DAYS", DEFAULT_MUSIC_HISTORY_DAYS, 1, 3650),
-        ("music_idle_minutes", "MUSIC_IDLE_MINUTES", DEFAULT_MUSIC_IDLE_MINUTES, 1, 60),
-    ):
-        raw = env.get(var, "").strip() or str(default)
-        if raw.isdigit() and minimum <= int(raw) <= maximum:
-            values[name] = int(raw)
-        else:
-            values[name] = default
-            problems.append(f"{var} doit être un nombre entier entre {minimum} et {maximum} (valeur actuelle : {raw!r})")
-    dj_role = env.get("MUSIC_DJ_ROLE_NAME", "").strip() or None
-    if not enabled and not any(p.startswith("MUSIC_ENABLED") for p in problems):
-        # Musique non demandée : les autres variables ne comptent pas, mais la durée de l'historique s'applique.
-        return {"music_history_days": values["music_history_days"]}
-    if problems:
-        return {"music_config_error": " ; ".join(problems), "music_history_days": values["music_history_days"]}
-    return {
-        "music_enabled": True,
-        "lavalink_uri": uri,
-        "lavalink_password": password,
-        "music_sources": sources,
-        "music_dj_role_name": dj_role,
-        **values,
-    }
 
 
 def secret_values(env: Mapping[str, str] | None = None) -> list[str]:

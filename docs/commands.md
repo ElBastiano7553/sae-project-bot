@@ -117,35 +117,11 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 | `/reunion terminer` · `annuler` | responsable ou admin | Clôture après confirmation (2 min) ; `terminer` fige et publie le compte rendu. |
 | `/reunion compte-rendu [reunion] [publier]` | tous ; `publier` : responsable ou admin | Compte rendu paginé (aperçu provisoire avant la fin) ; `publier:True` republie un compte rendu supprimé. |
 
-## Musique (1.12.0, si `MUSIC_ENABLED=true`) : sur tous les serveurs
-
-Guide complet (sources, règles, installation de Lavalink, « pas de son ») : [music.md](music.md). Les réponses
-sont éphémères ; seul le panneau du lecteur est public. « DJ » : voir [music.md](music.md#5-qui-peut-faire-quoi)
-(rôle DJ choisi par serveur avec `/setup role-dj`). Anciens noms `/musique …` : [music.md](music.md#correspondance-avec-les-anciennes-commandes-avant-1120).
-
-| Commande | Qui | Effet |
-|---|---|---|
-| `/play query [source]` | personnes dans le salon vocal du bot (ou dans un salon vocal si le bot n'est connecté nulle part) | Lance le 1er résultat d'une recherche, ou ouvre un lien (titre, playlist) ; ajoute à la file sans interrompre le titre en cours. |
-| `/search query [source]` | idem | 5 résultats au choix dans un menu. |
-| `/join` | idem | Fait venir le bot dans votre salon vocal sans rien lancer. |
-| `/pause` · `/resume` | personnes du salon vocal du bot | Pause et reprise (aussi par le bouton du panneau). |
-| `/skip` | qui a demandé le titre, ou « DJ » | Titre suivant. |
-| `/stop` | « DJ » (admin : depuis n'importe où) | Arrête et vide la file ; historique et favoris conservés. |
-| `/leave` | « DJ » (admin : depuis n'importe où) | Arrête et fait quitter le salon vocal au bot. |
-| `/remove position` | son propre titre, ou « DJ » | Retire un titre de la file (autocomplétion). |
-| `/clear` · `/shuffle` · `/loop mode` | « DJ » | Vide la file (le titre en cours continue), mélange, répétition (titre, file, désactivée). |
-| `/volume [level]` | voir : tous ; régler : « DJ » | Volume de 0 à 100 %, retenu pour le serveur. |
-| `/nowplaying` · `/queue` | tous | Titre en cours (progression au moment de la commande), file paginée. |
-| `/history` | tous | Dernières lectures de CE serveur. |
-| `/favorite add` · `list` · `remove number` | tous | Vos favoris sur ce serveur ; `list` propose un menu pour en rejouer un. |
-| `/audiocheck` | tous | Pas de son ? Les 5 étapes du son (recherche → audio envoyé) et la cause probable. |
-
 ## Configuration depuis Discord : `/setup` (1.12.0, admins de CE serveur)
 
 | Commande | Effet |
 |---|---|
-| `/setup etat` | Ce qui fonctionne sur ce serveur (musique, Lavalink, rôle DJ, espace d'équipe, permissions du bot dans les salons vocaux) et comment régler ce qui manque. Aucun secret. |
-| `/setup role-dj [role]` | Rôle DJ de la musique pour ce serveur (vide : retirer). Ni @everyone, ni le rôle d'un bot. |
+| `/setup etat` | Ce qui fonctionne sur ce serveur (réunions, projets, espace d'équipe, salons invisibles pour le bot) et comment régler ce qui manque. Aucun secret. |
 | `/setup serveur-principal [reinitialiser]` | **Propriétaire du bot seulement** : fait de ce serveur le serveur principal (espace d'équipe). Refusé si `DISCORD_GUILD_ID` désigne un autre serveur. Confirmation (2 min). |
 
 Les commandes de l'**espace d'équipe** (`/admin`, `/refonte`, `/ia`, `/activite`, `/roles`) ne sont envoyées
@@ -188,7 +164,5 @@ pose sur un salon (voir le détail dans [refonte.md](refonte.md#7-permissions-n�
 | Salons des notifications GitLab (`#gitlab-activite`, `#builds-et-tests`) | Voir le salon, Envoyer des messages, Intégrer des liens (et Voir les anciens messages, Épingler pour le tableau de bord de `#gitlab-activite`) |
 | Salon des alertes (`ALERTS_CHANNEL`, facultatif) | Voir le salon, Envoyer des messages, Intégrer des liens |
 | Salons où sont créées les réunions, et `#comptes-rendus` (ou, avant la refonte, `#decisions-et-comptes-rendus`) pour les comptes rendus | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
-| Salons vocaux où l'on écoute de la musique (`/play`, si activée) | Voir le salon, Se connecter, Parler |
-| Salons texte où l'on lance `/play` (panneau du lecteur) | Voir le salon, Envoyer des messages, Intégrer des liens, Voir les anciens messages (pour modifier le panneau) |
 
 `/admin diagnostic` indique, salon par salon, les permissions qui manquent.

@@ -3,7 +3,6 @@
 Aucun identifiant de serveur, de salon ou de rôle n'est à écrire dans le code ni dans .env :
 
 * ``/setup etat`` : ce qui fonctionne sur ce serveur, ce qui manque et comment le régler ;
-* ``/setup role-dj`` : rôle « DJ » de la musique pour CE serveur (rangé par serveur en base) ;
 * ``/setup serveur-principal`` : fait de ce serveur le serveur principal (espace d'équipe : messages
   permanents, /refonte, /ia, /activite, /roles). Réservé au **propriétaire du bot** (compte qui a créé
   l'application sur le portail développeur) : l'administrateur d'un autre serveur ne peut jamais
@@ -29,8 +28,7 @@ from src.services.design import Tone
 
 log = logging.getLogger(__name__)
 
-# Permissions dont la musique a besoin dans un salon vocal, et le reste du bot dans un salon textuel.
-VOICE_PERMISSIONS = {"view_channel": "Voir les salons", "connect": "Se connecter", "speak": "Parler"}
+# Permissions dont le bot a besoin dans un salon textuel.
 TEXT_PERMISSIONS = {"send_messages": "Envoyer des messages", "embed_links": "Intégrer des liens"}
 
 
@@ -41,7 +39,7 @@ def _missing(perms, wanted: dict[str, str]) -> list[str]:
 class SetupCog(commands.Cog):
     setup = app_commands.Group(
         name="setup",
-        description="Configurer Samae sur ce serveur : état, rôle DJ, serveur principal",
+        description="Configurer Samae sur ce serveur : état et serveur principal",
         guild_only=True,
         default_permissions=discord.Permissions(manage_guild=True),
     )
@@ -56,33 +54,6 @@ class SetupCog(commands.Cog):
         bot, settings = self.bot, self.bot.settings
         me = guild.me
         sections: list[tuple[str, str]] = []
-
-        # Musique
-        if bot.music is None:
-            reason = f"configuration invalide : {settings.music_config_error}" if settings.music_config_error else "MUSIC_ENABLED=false dans .env"
-            music = f"❌ désactivée ({reason}). Guide : docs/music.md."
-        elif not bot.music.available:
-            music = "⚠️ activée, mais Lavalink est injoignable (lancez Lavalink, vérifiez LAVALINK_PASSWORD)."
-        else:
-            problems = bot.music.lavalink_problems()
-            music = "✅ prête : `/play` dans un salon vocal." + ("".join(f"\n⚠️ {p}" for p in problems))
-        role_id = bot.guild_settings_repo.get(guild.id).music_dj_role_id
-        if role_id is not None:
-            role = guild.get_role(role_id)
-            music += f"\nRôle DJ : {role.mention if role else '⚠️ rôle supprimé, choisissez-en un autre'} (`/setup role-dj`)."
-        elif settings.music_dj_role_name:
-            music += f"\nRôle DJ : nom « {settings.music_dj_role_name} » (MUSIC_DJ_ROLE_NAME) ; `/setup role-dj` pour en choisir un ici."
-        else:
-            music += "\nRôle DJ : aucun (toute personne du salon vocal du bot peut tout contrôler) ; `/setup role-dj` pour en choisir un."
-        if me is not None:
-            blocked = []
-            for channel in getattr(guild, "voice_channels", ()):
-                missing = _missing(channel.permissions_for(me), VOICE_PERMISSIONS)
-                if missing:
-                    blocked.append(f"{channel.mention} ({', '.join(missing)})")
-            if blocked:
-                music += "\nSalons vocaux où le bot ne peut pas jouer : " + ", ".join(blocked[:8]) + ("…" if len(blocked) > 8 else "")
-        sections.append(("🎵 Musique", music))
 
         sections.append(("📅 Réunions et 📁 projets", "✅ disponibles sur ce serveur (`/reunion creer`, `/projet liste`) ; données propres à ce serveur."))
 
@@ -121,30 +92,6 @@ class SetupCog(commands.Cog):
         for title, text in self.status_lines(guild):
             add_field(embed, title, text, inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # --- Rôle DJ ---------------------------------------------------------------------------
-
-    @setup.command(name="role-dj", description="Choisir le rôle « DJ » de la musique pour ce serveur (vide : retirer)")
-    @app_commands.describe(role="Rôle DJ (laisser vide pour retirer le rôle DJ de ce serveur)")
-    @admin_only()
-    async def dj_role(self, interaction: discord.Interaction, role: discord.Role | None = None) -> None:
-        guild = interaction.guild
-        if guild is None:
-            await send_error(interaction, "Cette commande s'utilise sur un serveur.")
-            return
-        if role is not None and (role.is_default() or role.managed or getattr(role, "guild", guild).id != guild.id):
-            await send_error(interaction, "Choisissez un rôle normal de ce serveur (ni @everyone, ni le rôle d'un bot).", tone="warning")
-            return
-        self.bot.guild_settings_repo.set_dj_role(guild.id, role.id if role else None)
-        self.bot.record_admin_action(interaction, "setup role-dj", role.name if role else "(aucun)")
-        if role is None:
-            text = "Rôle DJ retiré : toute personne présente dans le salon vocal du bot peut passer, arrêter et régler le volume."
-        else:
-            text = (
-                f"Rôle DJ de ce serveur : {role.mention}. Passer le titre d'un autre, arrêter, vider la file et régler le volume "
-                "sont réservés à ce rôle, aux administrateurs et à la personne seule avec le bot."
-            )
-        await interaction.response.send_message(embed=success_embed(text, "Rôle DJ"), ephemeral=True)
 
     # --- Serveur principal -----------------------------------------------------------------
 
@@ -195,7 +142,7 @@ class SetupCog(commands.Cog):
         text = (
             f"**Faire de « {guild.name} » le serveur principal ?**\n"
             "Les commandes de l'espace d'équipe (/admin, /refonte, /ia, /activite, /roles) y apparaîtront, et disparaîtront "
-            "de l'ancien serveur principal s'il y en avait un. La musique, les réunions et /projet ne changent pas."
+            "de l'ancien serveur principal s'il y en avait un. Les réunions et /projet ne changent pas."
             + ("\nL'installation faite sur l'autre serveur sera oubliée (rien n'y est supprimé)." if conflict is not None else "")
             + " (Expiration : 2 minutes.)"
         )
@@ -228,10 +175,6 @@ class SetupCog(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         log.info("Bot retiré du serveur %s (%s)", guild.name, guild.id)
-        if self.bot.music is not None:
-            player = self.bot.music.players.get(guild.id)
-            if player is not None and player.connected:
-                player.disconnected()  # plus aucun salon vocal sur ce serveur : la file est vidée
 
 
 async def setup(bot: SaeBot) -> None:

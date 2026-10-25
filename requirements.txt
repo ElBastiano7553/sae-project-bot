@@ -5,8 +5,3 @@ aiohttp==3.14.5
 python-dotenv==1.2.4
 # IA (lot 3) : SDK officiel d'Anthropic, utilisé seulement si AI_PROVIDER=anthropic.
 anthropic==1.12.1
-# Musique (docs/music.md) : client Lavalink v4, chargé seulement si MUSIC_ENABLED=true.
-# wavelink 3.5.2 exige discord.py ≥ 2.7.0 et transmet le salon vocal à Lavalink (nécessaire au chiffrement DAVE).
-wavelink==3.5.2
-# Dépendance de wavelink sans version imposée par lui : épinglée ici pour des installations identiques.
-async-timeout==5.0.1

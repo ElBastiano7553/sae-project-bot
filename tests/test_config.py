@@ -3,7 +3,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
-from src.config import ConfigError, Settings, load_links, load_planning, load_server_layout, resolve_path
+from src.config import ConfigError, Settings, load_links, load_planning, load_server_layout, resolve_path, secret_values
 
 VALID_ENV = {"DISCORD_BOT_TOKEN": "faux-token-de-test", "DISCORD_GUILD_ID": "123456789012345678"}
 
@@ -359,14 +359,23 @@ def test_settings_paths_with_linux_semantics(env, database_path, backup_dir):
 
 
 def test_feature_summary_separates_optional_features_and_never_shows_secrets():
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "faux-token-secret"})
+    summary = dict(settings.feature_summary())
+    assert "facultatif" in summary["Serveur principal"]
+    assert summary["IA"].startswith("désactivée") and summary["Webhooks GitLab"].startswith("désactivée")
+    assert "faux-token-secret" not in repr(summary)
+
+
+def test_old_music_variables_are_ignored():
+    """Musique retirée (1.13.0) : un ancien .env avec MUSIC_* / LAVALINK_* démarre comme avant, sans musique."""
     settings = Settings.from_env({
         "DISCORD_BOT_TOKEN": "faux-token-secret",
         "MUSIC_ENABLED": "true",
-        "LAVALINK_PASSWORD": "court",  # invalide : seule la musique est désactivée
+        "LAVALINK_URI": "pas une adresse",
+        "LAVALINK_PASSWORD": "un-ancien-mot-de-passe-lavalink",
+        "MUSIC_SOURCES": "inconnue",
     })
-    summary = dict(settings.feature_summary())
-    assert "facultatif" in summary["Serveur principal"]
-    assert summary["Musique"].startswith("désactivée, configuration invalide")
-    assert summary["IA"].startswith("désactivée") and summary["Webhooks GitLab"].startswith("désactivée")
-    text = repr(summary)
-    assert "faux-token-secret" not in text and "court" not in text.replace("LAVALINK_PASSWORD", "")
+    assert "Musique" not in dict(settings.feature_summary())
+    assert not any(name.startswith(("music", "lavalink")) for name in vars(settings))
+    # Toujours masqué dans les journaux, au cas où un ancien .env le contient encore.
+    assert "un-ancien-mot-de-passe-lavalink" in secret_values({"LAVALINK_PASSWORD": "un-ancien-mot-de-passe-lavalink"})
