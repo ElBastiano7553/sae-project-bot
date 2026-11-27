@@ -131,11 +131,11 @@ async def test_member_pages_never_cite_admin_commands(bot):
 
 def test_planned_features_are_never_presented_as_available():
     everything = "\n".join(page_text(p) for p in (*GUIDE_PAGES, *MEETING_PAGES))
-    for planned in ("/idee", "/sondage", "/debat", "/classement", "/ressources", "/reunion classer"):
+    for planned in ("/sondage", "/classement", "/ressources", "/reunion classer"):
         assert planned not in everything
     organisation = next(p for p in GUIDE_PAGES if p.key == "organisation")
     unavailable = next(s for s in organisation.sections if s.title == "Pas encore disponible").body
-    for feature in ("tier lists", "sondages", "Proposer une décision"):
+    for feature in ("Sondages", "Proposer une décision"):
         assert feature in unavailable
 
 

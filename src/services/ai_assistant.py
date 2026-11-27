@@ -65,6 +65,16 @@ REVIEW_SYSTEM = (
     "400 mots au plus. Rappelle en une phrase que cette relecture ne remplace pas celle d'un membre de l'équipe."
 )
 
+PROJECT_SYSTEM = (
+    f"{TEAM_CONTEXT}\n\n"
+    "Tu es Samae, l'assistant de projet de l'équipe. Réponds à la demande à partir de l'<etat_du_projet> (données "
+    "enregistrées par Samae : suivi des fonctionnalités, décisions, idées, réunions) et des <sources> (documents de "
+    "l'équipe), en citant les sources utilisées par leur numéro entre crochets. Si les données ne suffisent pas, dis-le "
+    "et indique quelle commande ou quel document compléter. Tu ne modifies rien : pour une modification, indique la "
+    "commande Samae à utiliser (/idee proposer, /suivi proposer, /debat proposer…), car toute modification importante "
+    "est validée par un humain. Ne présente jamais une suggestion comme une décision. 250 mots au plus."
+)
+
 _SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.S),
     re.compile(r"\bglpat-[\w-]{20,}"),
@@ -247,3 +257,16 @@ class AIAssistant:
             response.text, response.model, (f"diff de !{mr.iid} ({len(parts)}/{len(diffs)} fichier(s))",),
             self._notes(response, masked, note),
         )
+
+    async def project(self, user_id: int, question: str, snapshot: list[str], passages: list[Passage]) -> AssistantAnswer:
+        """Question libre à l'assistant de projet (/samae) : état du projet + documents de l'équipe."""
+        question = question.strip()[:MAX_QUESTION_CHARS]
+        sources = "\n\n".join(f'<source id="{i}" titre="{p.source}">\n{p.text}\n</source>' for i, p in enumerate(passages, 1))
+        state = "\n".join(f"- {line}" for line in snapshot if line.strip()) or "- (aucune donnée enregistrée)"
+        prompt = (
+            f"<etat_du_projet>\n{state}\n</etat_du_projet>\n\n<sources>\n{sources}\n</sources>\n\n"
+            f"<demande>\n{question}\n</demande>"
+        )
+        response, masked = await self._run(user_id, "project", PROJECT_SYSTEM, prompt)
+        cited = tuple(f"[{i}] {p.source}" for i, p in enumerate(passages, 1))
+        return AssistantAnswer(response.text, response.model, ("état du projet enregistré par Samae", *cited), self._notes(response, masked))

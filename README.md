@@ -9,7 +9,7 @@ Depuis 1.12.0, Samae s'installe **sur n'importe quelle machine et n'importe quel
 seul le token du bot est obligatoire, le reste se règle depuis Discord avec `/setup`.
 Guide : [docs/installation.md](docs/installation.md).
 
-## État actuel : version 1.13.0 (musique retirée ; multi-serveurs et `/setup`)
+## État actuel : version 1.14.0 (idées, tier lists, débats, suivi Excel, `/samae`)
 
 | Fonction | État |
 |---|---|
@@ -40,12 +40,17 @@ Guide : [docs/installation.md](docs/installation.md).
 | Multi-projets, étape B5 : `/projet configurer projet:` (admins) relie un projet GitLab par une application OAuth en lecture seule (rôle Maintainer vérifié puis accès révoqué, secret du webhook affiché une seule fois et gardé seulement sous forme d'empreinte) ; désactivée sans configuration | ✅ 1.10.0 ([guide](docs/gitlab-app.md)) |
 | Installation sans serveur préconfiguré (`DISCORD_GUILD_ID` facultatif), `/setup etat` · `serveur-principal`, données isolées par serveur (migration v14) | ✅ 1.12.0 ([installation](docs/installation.md)) |
 | Musique (1.11.0 et 1.12.0, Lavalink/wavelink) **retirée** : plus aucune commande musicale, plus de dépendance à Lavalink ni à wavelink ; les anciennes tables musicales restent dans la base, inutilisées | ✅ 1.13.0 |
+| Idées (`/idee`, formulaire, 5 en attente par membre, idées proches, familles), tier lists S à F à votes masqués (moyenne, médiane, égalités, avis extrêmes anonymes, désaccords), débats (arguments, départage, décision confirmée par un admin), sections ajoutées au compte rendu des réunions (migration v15) | ✅ 1.14.0, testé hors Discord ([guide](docs/meeting-manager.md)) |
+| Suivi du projet à partir du classeur Excel (`/suivi`) : analyse automatique de la structure, import avec aperçu et sauvegarde, propositions validées par un admin, export dans une nouvelle copie (formules conservées, original intact) | ✅ 1.14.0, testé sur un classeur de test ; **le vrai classeur n'a pas encore été importé** ([guide](docs/suivi-excel.md)) |
+| Assistant de projet `/samae` : bilan, fonctionnalités restantes, décisions, préparation de réunion, idées en attente, questions ouvertes ; questions libres par l'IA si elle est configurée | ✅ 1.14.0 ([guide](docs/assistant.md)) |
+| Parler à Claude Code depuis Discord (plugin officiel, PC de Romain) | 📄 guide prêt, non configuré ([guide](docs/claude-code-discord.md)) |
 | Multi-projets, étapes B6 et B7 : déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |
-| Idées et tier lists · débats, sondages, ressources · finitions | ⏳ Samae 2.0 lots 2 à 4 ([plan](docs/samae-2-plan.md)) |
+| Sondages, ressources · finitions | ⏳ Samae 2.0 lots 3 et 4 ([plan](docs/samae-2-plan.md)) |
 
 `/aide` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :
 [docs/deployment-vps.md](docs/deployment-vps.md) ; avec Docker : [docs/deployment-linux.md](docs/deployment-linux.md) ;
-sécurité : [docs/security.md](docs/security.md) ; plan de test manuel : [docs/test-manuel.md](docs/test-manuel.md).
+sécurité : [docs/security.md](docs/security.md) ; plan de test manuel : [docs/test-manuel.md](docs/test-manuel.md) ;
+Skills Claude Code du dépôt : [docs/skills.md](docs/skills.md) ; rapport du travail autonome de 1.14.0 : [AUTONOMOUS_WORK_REPORT.md](AUTONOMOUS_WORK_REPORT.md).
 
 ## Démarrage rapide (Windows, PowerShell)
 

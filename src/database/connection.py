@@ -417,6 +417,163 @@ MIGRATIONS: list[str] = [
     ALTER TABLE meetings ADD COLUMN guild_id INTEGER;
     CREATE INDEX meetings_guild ON meetings (guild_id, status, id);
     """,
+    # v15 (1.14.0, gestionnaire de réunions et suivi du projet, docs/meeting-manager.md et docs/suivi-excel.md).
+    # Uniquement des créations de tables : aucune donnée existante n'est modifiée ni supprimée.
+    # * ideas : catalogue d'idées par serveur (au plus 5 idées actives par membre, vérifié dans la transaction) ;
+    # * tierlists : classements S/A/B/C/D/F à votes masqués, validés par chaque votant ;
+    # * debates : idées controversées, arguments, votes de départage, décision confirmée par un humain ;
+    # * tracker_* : copie du classeur « GAME DESIGN DATABASE » (une ligne = une ligne Excel), propositions
+    #   de modifications en attente de validation humaine et historique complet.
+    """
+    CREATE TABLE ideas (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id    INTEGER,
+        author_id   INTEGER NOT NULL,
+        author_name TEXT    NOT NULL,
+        name        TEXT    NOT NULL,
+        play_style  TEXT    NOT NULL DEFAULT '',
+        genre       TEXT    NOT NULL DEFAULT '',
+        description TEXT    NOT NULL DEFAULT '',
+        status      TEXT    NOT NULL DEFAULT 'active'
+                            CHECK (status IN ('active', 'retained', 'rejected', 'withdrawn')),
+        group_id    INTEGER REFERENCES ideas (id),
+        meeting_id  INTEGER REFERENCES meetings (id),
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX ideas_guild ON ideas (guild_id, status, id);
+    CREATE INDEX ideas_author ON ideas (guild_id, author_id, status);
+
+    CREATE TABLE idea_history (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        idea_id   INTEGER NOT NULL REFERENCES ideas (id),
+        at        TEXT    NOT NULL DEFAULT (datetime('now')),
+        user_id   INTEGER NOT NULL,
+        user_name TEXT    NOT NULL,
+        action    TEXT    NOT NULL,
+        detail    TEXT    NOT NULL DEFAULT ''
+    );
+    CREATE INDEX idea_history_idea ON idea_history (idea_id, id);
+
+    CREATE TABLE tierlists (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id    INTEGER,
+        title       TEXT    NOT NULL,
+        meeting_id  INTEGER REFERENCES meetings (id),
+        status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed', 'cancelled')),
+        created_by  INTEGER NOT NULL,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        closed_at   TEXT,
+        results     TEXT
+    );
+    CREATE INDEX tierlists_guild ON tierlists (guild_id, status, id);
+
+    CREATE TABLE tierlist_items (
+        tierlist_id INTEGER NOT NULL REFERENCES tierlists (id),
+        idea_id     INTEGER NOT NULL REFERENCES ideas (id),
+        position    INTEGER NOT NULL,
+        PRIMARY KEY (tierlist_id, idea_id)
+    );
+
+    CREATE TABLE tierlist_votes (
+        tierlist_id INTEGER NOT NULL REFERENCES tierlists (id),
+        idea_id     INTEGER NOT NULL REFERENCES ideas (id),
+        voter_id    INTEGER NOT NULL,
+        tier        TEXT    NOT NULL CHECK (tier IN ('S', 'A', 'B', 'C', 'D', 'F')),
+        updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (tierlist_id, idea_id, voter_id)
+    );
+
+    CREATE TABLE tierlist_voters (
+        tierlist_id  INTEGER NOT NULL REFERENCES tierlists (id),
+        voter_id     INTEGER NOT NULL,
+        voter_name   TEXT    NOT NULL,
+        validated_at TEXT,
+        PRIMARY KEY (tierlist_id, voter_id)
+    );
+
+    CREATE TABLE debates (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id             INTEGER,
+        title                TEXT    NOT NULL,
+        idea_id              INTEGER REFERENCES ideas (id),
+        tierlist_id          INTEGER REFERENCES tierlists (id),
+        meeting_id           INTEGER REFERENCES meetings (id),
+        status               TEXT    NOT NULL DEFAULT 'open'
+                                     CHECK (status IN ('open', 'voting', 'proposed', 'decided', 'cancelled')),
+        created_by           INTEGER NOT NULL,
+        created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+        proposal             TEXT,
+        proposal_idea_status TEXT,
+        proposed_by          INTEGER,
+        decision             TEXT,
+        decided_by           INTEGER,
+        decided_at           TEXT
+    );
+    CREATE INDEX debates_guild ON debates (guild_id, status, id);
+
+    CREATE TABLE debate_entries (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        debate_id   INTEGER NOT NULL REFERENCES debates (id),
+        kind        TEXT    NOT NULL CHECK (kind IN ('pour', 'contre', 'objection')),
+        content     TEXT    NOT NULL,
+        author_id   INTEGER NOT NULL,
+        author_name TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX debate_entries_debate ON debate_entries (debate_id, id);
+
+    CREATE TABLE debate_options (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        debate_id INTEGER NOT NULL REFERENCES debates (id),
+        label     TEXT    NOT NULL
+    );
+
+    CREATE TABLE debate_votes (
+        debate_id INTEGER NOT NULL REFERENCES debates (id),
+        voter_id  INTEGER NOT NULL,
+        option_id INTEGER NOT NULL REFERENCES debate_options (id),
+        voted_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (debate_id, voter_id)
+    );
+
+    CREATE TABLE tracker_imports (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_name  TEXT    NOT NULL,
+        source_hash  TEXT    NOT NULL,
+        imported_by  INTEGER NOT NULL,
+        imported_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        report       TEXT    NOT NULL DEFAULT '{}'
+    );
+
+    CREATE TABLE tracker_rows (
+        sheet      TEXT    NOT NULL,
+        row_key    TEXT    NOT NULL,
+        excel_row  INTEGER,
+        data       TEXT    NOT NULL,
+        origin     TEXT    NOT NULL DEFAULT 'excel' CHECK (origin IN ('excel', 'samae')),
+        updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (sheet, row_key)
+    );
+
+    CREATE TABLE tracker_changes (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind         TEXT    NOT NULL CHECK (kind IN ('add', 'update')),
+        sheet        TEXT    NOT NULL,
+        row_key      TEXT,
+        payload      TEXT    NOT NULL,
+        reason       TEXT    NOT NULL DEFAULT '',
+        status       TEXT    NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'rejected')),
+        proposed_by  INTEGER NOT NULL,
+        proposer     TEXT    NOT NULL,
+        proposed_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        decided_by   INTEGER,
+        decider      TEXT,
+        decided_at   TEXT,
+        before_data  TEXT
+    );
+    CREATE INDEX tracker_changes_status ON tracker_changes (status, id);
+    """,
 ]
 
 

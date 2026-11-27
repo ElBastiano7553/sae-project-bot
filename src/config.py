@@ -95,6 +95,9 @@ class Settings:
     # Accueil des nouveaux membres (content/accueil.toml) : demande l'intent « Server Members » sur le portail.
     welcome_on_join: bool = False
     welcome_delete_hours: int = DEFAULT_WELCOME_DELETE_HOURS  # 0 = le message d'accueil reste
+    # Assistant de projet (1.14.0) : répondre aussi quand on mentionne @Samae (aucun intent privilégié :
+    # Discord transmet le texte des messages qui mentionnent le bot). Désactivé par défaut.
+    assistant_on_mention: bool = False
     gitlab_webhook_secret: str = field(default="", repr=False)
     gitlab_project_id: int | None = None
     webhook_host: str = "127.0.0.1"
@@ -241,6 +244,7 @@ class Settings:
         pin_messages = _parse_bool(env, "PIN_PERMANENT_MESSAGES", True, errors)
         auto_recreate = _parse_bool(env, "AUTO_RECREATE_DELETED_MESSAGES", True, errors)
         welcome_on_join = _parse_bool(env, "WELCOME_ON_JOIN", False, errors)
+        assistant_on_mention = _parse_bool(env, "ASSISTANT_ON_MENTION", False, errors)
         welcome_delete_hours = _parse_int(env, "WELCOME_DELETE_AFTER_HOURS", DEFAULT_WELCOME_DELETE_HOURS, 0, errors)
         if welcome_delete_hours > MAX_WELCOME_DELETE_HOURS:
             errors.append(
@@ -325,6 +329,7 @@ class Settings:
             alerts_channel=env.get("ALERTS_CHANNEL", "").strip() or None,
             welcome_on_join=welcome_on_join,
             welcome_delete_hours=welcome_delete_hours,
+            assistant_on_mention=assistant_on_mention,
             gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
             gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
             gitlab_project_id=project_id,

@@ -53,7 +53,11 @@ from src.services.ai_assistant import AIAssistant
 from src.services.alerts import Alert, AlertManager
 from src.services.backup import BackupError, BackupInfo, create_backup, list_backups
 from src.services.content import Announcement, EmbedField, MessagePayload, load_message_templates, render_message
+from src.database.ideas import DebateRepository, IdeaRepository, TierListRepository
+from src.services.ideas import DebateService, IdeaService, TierListService, meeting_sections
 from src.services.meetings import MeetingService
+from src.services.project_assistant import ProjectAssistant
+from src.services.tracker import DECISIONS, TrackerError, TrackerService
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
 from src.services.monitoring import ErrorRecord, InteractionStats, RecentErrors
 from src.services.permanent_messages import PermanentMessageService, SyncAction
@@ -83,7 +87,7 @@ TEAM_SPACE_GUILD_KEY = "team_space_guild_id"
 # Commandes de l'espace d'équipe : elles lisent ou modifient des données d'UN seul serveur (messages
 # permanents, structure, projet GitLab du .env, documents de l'équipe). Elles ne sont envoyées à Discord
 # que pour le serveur principal ; partout ailleurs, elles n'apparaissent pas.
-HOME_ONLY_COMMANDS = ("admin", "refonte", "ia", "activite", "roles")
+HOME_ONLY_COMMANDS = ("admin", "refonte", "ia", "activite", "roles", "suivi", "samae")
 EXTENSIONS = (
     "src.discord_bot.cogs.general",
     "src.discord_bot.cogs.activity",
@@ -94,6 +98,9 @@ EXTENSIONS = (
     "src.discord_bot.cogs.welcome",
     "src.discord_bot.cogs.projects",
     "src.discord_bot.cogs.setup",
+    "src.discord_bot.cogs.ideas",
+    "src.discord_bot.cogs.tracker",
+    "src.discord_bot.cogs.assistant",
 )
 # Délai avant de recréer un message permanent supprimé (regroupe les suppressions en rafale).
 RECREATE_DELAY_SECONDS = 5.0
@@ -113,6 +120,9 @@ class SaeBot(commands.Bot):
         # « membres », demandé uniquement si l'accueil des nouveaux membres est activé (WELCOME_ON_JOIN).
         intents = discord.Intents.default()
         intents.members = settings.welcome_on_join
+        # Messages des salons (intent NON privilégié) : sans « contenu des messages », Discord ne transmet que le
+        # texte des messages qui mentionnent le bot, ce qui suffit à l'assistant (ASSISTANT_ON_MENTION).
+        intents.guild_messages = True
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
@@ -132,8 +142,23 @@ class SaeBot(commands.Bot):
         self.bot_errors_repo = BotErrorRepository(database)
         self.alerts = AlertManager(self.bot_errors_repo)
         self.ai_requests_repo = AIRequestRepository(database)
-        # Samae 2.0 : réunions (règles et permissions dans services.meetings).
-        self.meetings = MeetingService(MeetingRepository(database))
+        # Gestionnaire de réunions (1.14.0) : idées, tier lists, débats (règles dans services.ideas).
+        self.ideas_repo = IdeaRepository(database)
+        self.tierlists_repo = TierListRepository(database)
+        self.debates_repo = DebateRepository(database)
+        self.ideas = IdeaService(self.ideas_repo)
+        self.tierlists = TierListService(self.tierlists_repo, self.ideas_repo)
+        self.debates = DebateService(self.debates_repo, self.ideas_repo, self.tierlists_repo, on_decided=self._record_debate_decision)
+        # Suivi du projet (classeur Excel) : fichiers dans <dossier de la base>/tracker, sauvegardes dans backups/suivi.
+        self.tracker = TrackerService(database, settings.database_path.parent / "tracker", backup_dir=settings.backup_dir)
+        # Samae 2.0 : réunions (règles et permissions dans services.meetings) ; le compte rendu reprend
+        # les idées, tier lists et débats rattachés à la réunion.
+        self.meetings = MeetingService(
+            MeetingRepository(database),
+            extra_sections=lambda detail: meeting_sections(
+                detail.meeting.id, detail.meeting.guild_id, self.ideas_repo, self.tierlists_repo, self.debates_repo
+            ),
+        )
         # IA (lot 3) : None si désactivée. Aucun appel n'est fait au démarrage.
         self.ai_provider = build_provider(settings.ai_provider, settings.ai_api_key, settings.ai_model)
         self.assistant = (
@@ -146,6 +171,11 @@ class SaeBot(commands.Bot):
             )
             if self.ai_provider is not None
             else None
+        )
+        # Assistant de projet (/samae) : fonctionne sans IA ; l'IA, si configurée, ne sert qu'aux questions libres.
+        self.project_assistant = ProjectAssistant(
+            meetings=self.meetings.repo, ideas=self.ideas_repo, tierlists=self.tierlists_repo, debates=self.debates_repo,
+            tracker=self.tracker, ai=self.assistant, passages=_knowledge_passages,
         )
         # API GitLab en lecture seule (/ia relecture) : None sans GITLAB_ACCESS_TOKEN et GITLAB_PROJECT_ID.
         self.gitlab_api = (
@@ -198,6 +228,20 @@ class SaeBot(commands.Bot):
         self._gitlab_task: asyncio.Task | None = None
         self.started_at = dt.datetime.now(dt.UTC)
         self._startup_done = False
+
+    def _record_debate_decision(self, debate, actor) -> None:
+        """Décision confirmée par un administrateur : ajoutée aux DECISIONS du suivi (déjà validée par un humain)."""
+        if debate.guild_id is None or debate.guild_id != self.home_guild_id:
+            return
+        try:
+            self.tracker.propose_add(
+                DECISIONS, actor, title=debate.decision or "", description=f"Débat Samae #{debate.id} : {debate.title}",
+                reason=f"débat #{debate.id}", validated_by=actor,
+            )
+        except TrackerError:
+            log.info("Décision du débat %s non reportée au suivi (classeur non importé ou onglet absent)", debate.id)
+        except Exception:
+            log.exception("Impossible de reporter la décision du débat %s au suivi", debate.id)
 
     # --- Cycle de vie ------------------------------------------------------
 
@@ -962,6 +1006,17 @@ class SaeBot(commands.Bot):
             self.admin_log.record(interaction.user.id, str(interaction.user), action, target, outcome)
         except Exception:  # le journal ne doit jamais empêcher l'action elle-même
             log.exception("Impossible d'enregistrer l'action d'administration %s", action)
+
+
+def _knowledge_passages(question: str) -> list:
+    from src.services.content import load_message_templates
+    from src.services.knowledge import load_passages, search
+
+    try:
+        return search(load_passages(planning=load_planning(), catalog=load_link_catalog(), templates=load_message_templates()), question)
+    except Exception:  # documents illisibles : l'assistant répond quand même, sans sources
+        log.exception("Documents de l'équipe illisibles pour l'assistant")
+        return []
 
 
 class TeamSpaceOnly(app_commands.CheckFailure):

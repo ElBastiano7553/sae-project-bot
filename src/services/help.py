@@ -40,6 +40,8 @@ CATEGORIES = {
     "projets": "Projets suivis",
     "ia": "Assistant IA",
     "reunions": "Réunions",
+    "idees": "Idées, tier lists et débats",
+    "suivi": "Suivi du projet et assistant",
     "administration": "Administrer",
 }
 
@@ -161,6 +163,50 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
     HelpEntry("reunion annuler", "reunions", "Annule une réunion prévue ou en cours, après confirmation ; l'historique est conservé.", "/reunion annuler reunion:4"),
     HelpEntry("reunion compte-rendu", "reunions", "Compte rendu paginé (aperçu provisoire si la réunion n'est pas terminée).", "/reunion compte-rendu reunion:3"),
     HelpEntry("reunion aide", "reunions", "Guide pas à pas des réunions : créer, participer, animer, décisions, compte rendu, dépannage.", "/reunion aide sujet:Terminer"),
+    HelpEntry("idee proposer", "idees", "Propose une idée de jeu par un formulaire (nom, style, genre, description) ; 5 idées en attente au plus par membre.", "/idee proposer"),
+    HelpEntry("idee catalogue", "idees", "Catalogue collectif : idées regroupées par famille et par genre, filtrables par statut.", "/idee catalogue statut:Retenues"),
+    HelpEntry("idee voir", "idees", "Détail d'une idée, idées proches déjà au catalogue et historique.", "/idee voir idee:3"),
+    HelpEntry("idee chercher", "idees", "Recherche dans le nom, le style, le genre et la description des idées.", "/idee chercher texte:roguelike"),
+    HelpEntry("idee mes-idees", "idees", "Vos idées et le nombre d'idées en attente qu'il vous reste.", "/idee mes-idees"),
+    HelpEntry("idee modifier", "idees", "Modifie votre idée tant qu'elle est en attente (auteur ou admin).", "/idee modifier idee:3 genre:Plateforme"),
+    HelpEntry("idee retirer", "idees", "Retire votre idée (elle reste dans l'historique et libère une place).", "/idee retirer idee:3"),
+    HelpEntry("idee regrouper", "idees", "Regroupe deux idées proches dans la même famille du catalogue.", "/idee regrouper idee:3 avec:5"),
+    HelpEntry("idee statut", "idees", "Déclare une idée retenue, écartée ou de nouveau en attente (jamais automatique).", "/idee statut idee:3 statut:Retenue", admin=True),
+    HelpEntry("tierlist creer", "idees", "Crée une tier list S à F (toutes les idées en attente, ou une liste), rattachable à une réunion.", "/tierlist creer titre:Concepts de jeu reunion:2", admin=True),
+    HelpEntry("tierlist voter", "idees", "Ouvre votre bulletin : un menu S à F par idée, votes masqués, modifiables jusqu'à la validation.", "/tierlist voter tierlist:1"),
+    HelpEntry("tierlist classer", "idees", "Classe une seule idée sans ouvrir le bulletin.", "/tierlist classer tierlist:1 idee:3 rang:A (5)"),
+    HelpEntry("tierlist valider", "idees", "Valide votre bulletin : il est verrouillé et compté à la clôture.", "/tierlist valider tierlist:1"),
+    HelpEntry("tierlist progression", "idees", "Qui a validé son bulletin (aucun vote n'est jamais montré).", "/tierlist progression tierlist:1"),
+    HelpEntry("tierlist cloturer", "idees", "Clôture et publie les résultats agrégés : moyennes, égalités, avis extrêmes, désaccords.", "/tierlist cloturer tierlist:1", admin=True),
+    HelpEntry("tierlist resultats", "idees", "Résultats d'une tier list clôturée ; une idée classée F n'est jamais éliminée d'office.", "/tierlist resultats tierlist:1"),
+    HelpEntry("tierlist liste", "idees", "Tier lists ouvertes et clôturées.", "/tierlist liste"),
+    HelpEntry("debat controverses", "idees", "Idées controversées ou à égalité d'une tier list clôturée, à mettre en débat.", "/debat controverses tierlist:1"),
+    HelpEntry("debat ouvrir", "idees", "Ouvre un débat sur une idée ou un sujet libre.", "/debat ouvrir idee:3 tierlist:1"),
+    HelpEntry("debat voir", "idees", "Arguments pour et contre, objections, départage et décision d'un débat.", "/debat voir debat:1"),
+    HelpEntry("debat liste", "idees", "Débats ouverts, en vote et décidés.", "/debat liste"),
+    HelpEntry("debat argument", "idees", "Ajoute un argument pour, contre, ou une objection.", "/debat argument debat:1 type:Objection texte:Trop long à développer"),
+    HelpEntry("debat departage", "idees", "Lance un vote de départage (2 à 5 options séparées par « ; »).", "/debat departage debat:1 options:Garder ; Simplifier ; Abandonner", admin=True),
+    HelpEntry("debat voter", "idees", "Vote au départage (un vote par membre, modifiable tant que le vote est ouvert).", "/debat voter debat:1"),
+    HelpEntry("debat proposer", "idees", "Propose la décision d'un débat ; elle ne devient officielle qu'après confirmation d'un admin.", "/debat proposer debat:1 decision:On garde une version simplifiée"),
+    HelpEntry("debat confirmer", "idees", "Confirme la décision proposée (officielle, ajoutée aux DECISIONS du suivi).", "/debat confirmer debat:1", admin=True),
+    HelpEntry("debat annuler", "idees", "Annule un débat (auteur ou admin) ; son contenu reste consultable.", "/debat annuler debat:1"),
+    HelpEntry("suivi importer", "suivi", "Importe le classeur Excel du projet : aperçu, sauvegarde, confirmation ; l'original n'est jamais modifié.", "/suivi importer fichier:LUNASTEH.xlsx", admin=True),
+    HelpEntry("suivi analyse", "suivi", "Rapport de structure du classeur importé : colonnes, formules, identifiants, statuts.", "/suivi analyse", admin=True),
+    HelpEntry("suivi exporter", "suivi", "Nouvelle copie Excel à jour (formules conservées, CHANGELOG complété).", "/suivi exporter", admin=True),
+    HelpEntry("suivi progression", "suivi", "Fonctionnalités terminées, répartition par statut, questions ouvertes.", "/suivi progression"),
+    HelpEntry("suivi chercher", "suivi", "Recherche dans tout le classeur ou dans un onglet.", "/suivi chercher texte:inventaire"),
+    HelpEntry("suivi fonctionnalites", "suivi", "Fonctionnalités restantes (par défaut), toutes, ou d'un statut.", "/suivi fonctionnalites restantes:True"),
+    HelpEntry("suivi decisions", "suivi", "Décisions officielles du classeur, les plus récentes d'abord.", "/suivi decisions"),
+    HelpEntry("suivi idees", "suivi", "Idées enregistrées dans le classeur.", "/suivi idees"),
+    HelpEntry("suivi questions", "suivi", "Questions encore ouvertes.", "/suivi questions"),
+    HelpEntry("suivi voir", "suivi", "Toutes les colonnes d'une ligne du classeur.", "/suivi voir onglet:FEATURES cle:F-001"),
+    HelpEntry("suivi ajouter", "suivi", "Ajoute une ligne : direct pour IDEAS et OPEN_QUESTIONS, validation d'un admin pour le reste.", "/suivi ajouter onglet:IDEAS texte:Mode photo"),
+    HelpEntry("suivi statut", "suivi", "Propose un nouveau statut pour une ligne (appliqué après validation d'un admin).", "/suivi statut onglet:FEATURES cle:F-002 statut:Terminé"),
+    HelpEntry("suivi en-attente", "suivi", "Propositions de modification en attente de validation.", "/suivi en-attente"),
+    HelpEntry("suivi historique", "suivi", "Dernières modifications appliquées ou refusées, avec leurs auteurs.", "/suivi historique"),
+    HelpEntry("suivi valider", "suivi", "Applique une proposition après confirmation (sauvegarde automatique avant).", "/suivi valider proposition:4", admin=True),
+    HelpEntry("suivi refuser", "suivi", "Refuse (admins) ou retire (son auteur) une proposition en attente.", "/suivi refuser proposition:4"),
+    HelpEntry("samae", "suivi", "Demande en français : bilan, fonctionnalités restantes, décisions, idées en attente, préparer la réunion…", "/samae demande:Fais-moi le bilan de notre avancement"),
     HelpEntry("setup etat", "administration", "Ce qui fonctionne sur CE serveur, ce qui manque et comment le régler (sans aucun secret).", "/setup etat", True),
     HelpEntry(
         "setup serveur-principal",
@@ -430,14 +476,25 @@ GUIDE_PAGES: tuple[HelpPage, ...] = (
                 "jamais par le choix des rôles.",
             ),
             HelpSection(
+                "Idées, tier lists, débats et suivi",
+                "• **Idées** : `/idee proposer` ouvre un formulaire (5 idées en attente par membre), `/idee catalogue` "
+                "regroupe les idées proches.\n"
+                "• **Tier lists** S à F à votes masqués : `/tierlist voter`, puis `/tierlist resultats` (moyennes, égalités, "
+                "désaccords ; une idée classée F n'est jamais éliminée d'office).\n"
+                "• **Débats** : `/debat argument`, `/debat voter`, `/debat proposer` ; une décision ne devient officielle "
+                "qu'après la confirmation d'un administrateur.\n"
+                "• **Suivi du projet** (classeur Excel) : `/suivi progression`, `/suivi chercher`, `/suivi ajouter` ; "
+                "les changements importants attendent la validation d'un administrateur.\n"
+                "• **Assistant** : `/samae demande:Quelles idées sont en attente ?`",
+            ),
+            HelpSection(
                 "Pas encore disponible",
-                "• **Idées et tier lists** (propositions, votes secrets, classements) : prévues, pas encore "
-                "développées. En attendant, utilisez le salon des idées.\n"
-                "• **Votes de départage, sondages, catalogue de ressources** : prévus.\n"
-                "• **Proposer une décision** en réunion pour validation par le responsable : prévu ; aujourd'hui, "
-                "seuls le responsable et les administrateurs enregistrent une décision.\n"
+                "• **Sondages et catalogue de ressources** : prévus.\n"
+                "• **Proposer une décision** pendant une réunion pour validation par le responsable : prévu ; aujourd'hui, "
+                "seuls le responsable et les administrateurs enregistrent une décision de réunion (les débats, eux, "
+                "acceptent des propositions).\n"
                 "• **Suivi des tâches hors réunion** (marquer une action comme faite) : pas encore ; les tâches "
-                "officielles restent dans les Issues GitLab.",
+                "officielles restent dans les Issues GitLab ou le classeur de suivi.",
             ),
         ),
     ),
