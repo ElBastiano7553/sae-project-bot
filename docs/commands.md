@@ -23,6 +23,7 @@ les réunions, `/admin` tout ce qui concerne l'administration, etc.
 | `/refonte` | admins | `lancer`, `retour`, `journal` |
 
 La version 1.5.0 ajoute une 9ᵉ commande, `/projet`, demandée pour le suivi de plusieurs projets.
+La version 1.14.0 ajoute `/idee`, `/tierlist`, `/debat` (globales) et `/suivi`, `/samae` (serveur principal).
 
 Choix retenus :
 
@@ -117,6 +118,39 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 | `/reunion terminer` · `annuler` | responsable ou admin | Clôture après confirmation (2 min) ; `terminer` fige et publie le compte rendu. |
 | `/reunion compte-rendu [reunion] [publier]` | tous ; `publier` : responsable ou admin | Compte rendu paginé (aperçu provisoire avant la fin) ; `publier:True` republie un compte rendu supprimé. |
 
+## Idées, tier lists et débats : `/idee`, `/tierlist`, `/debat` (1.14.0)
+
+Guide complet : [meeting-manager.md](meeting-manager.md). Données isolées par serveur.
+
+| Commande | Qui | Effet |
+|---|---|---|
+| `/idee proposer` | tous | Formulaire : nom, style de jeu, genre de gameplay, description facultative. 5 idées en attente au plus par membre ; signale les idées proches. |
+| `/idee catalogue [statut]` · `voir idee` · `chercher texte` · `mes-idees` | tous | Catalogue par genre et par famille, détail, recherche, vos idées. |
+| `/idee modifier idee` · `retirer idee` | auteur ou admin | Modifier (formulaire) ou retirer une idée en attente. |
+| `/idee regrouper idee avec` | auteur de l'une ou admin | Range deux idées proches dans la même famille. |
+| `/idee statut idee statut` | admins | Retenue, écartée ou de nouveau en attente. |
+| `/tierlist creer titre [idees] [reunion]` · `cloturer` | admins | Crée une tier list (25 idées au plus) ; clôture après confirmation et publie les résultats agrégés. |
+| `/tierlist voter` · `classer` · `valider` | tous | Bulletin privé S à F, modifiable jusqu'à la validation. |
+| `/tierlist progression` · `resultats` · `liste` | tous | Qui a validé (jamais les votes), résultats après clôture, liste. |
+| `/debat controverses tierlist` · `ouvrir` · `voir` · `liste` · `argument` · `voter` · `proposer` | tous | Idées qui divisent, débat, arguments pour/contre/objections, vote de départage, proposition de décision. |
+| `/debat departage options` · `confirmer` | admins | Vote de départage (2 à 5 options) ; confirmation de la décision (bouton). |
+| `/debat annuler` | auteur ou admin | Annule un débat. |
+
+## Suivi du projet et assistant : `/suivi`, `/samae` (1.14.0, serveur principal)
+
+Guides : [suivi-excel.md](suivi-excel.md) et [assistant.md](assistant.md).
+
+| Commande | Qui | Effet |
+|---|---|---|
+| `/suivi importer fichier` | admins | Aperçu du classeur .xlsx (lignes nouvelles, modifiées, gardées), puis import après confirmation, sauvegarde avant ; l'original n'est jamais modifié. |
+| `/suivi analyse` · `exporter` | admins | Structure du classeur importé (fichier .md) ; nouvelle copie .xlsx à jour, formules conservées. |
+| `/suivi progression` · `chercher` · `fonctionnalites` · `decisions` · `idees` · `questions` · `voir` | tous | Consultation du suivi. |
+| `/suivi ajouter onglet texte` · `statut` | tous | Ajout direct dans IDEAS et OPEN_QUESTIONS ; le reste devient une proposition en attente. |
+| `/suivi en-attente` · `historique` | tous | Propositions en attente ; historique des modifications. |
+| `/suivi valider proposition` | admins | Applique une proposition (sauvegarde puis confirmation). |
+| `/suivi refuser proposition` | admin ou auteur | Refuse une proposition. |
+| `/samae demande` | tous | Questions sur le projet (bilan, fonctionnalités restantes, décisions, préparer une réunion…) ; ne modifie jamais rien sans validation. |
+
 ## Configuration depuis Discord : `/setup` (1.12.0, admins de CE serveur)
 
 | Commande | Effet |
@@ -124,7 +158,7 @@ défaut, la réunion prévue ou en cours de ce salon (ou celle dont vous êtes p
 | `/setup etat` | Ce qui fonctionne sur ce serveur (réunions, projets, espace d'équipe, salons invisibles pour le bot) et comment régler ce qui manque. Aucun secret. |
 | `/setup serveur-principal [reinitialiser]` | **Propriétaire du bot seulement** : fait de ce serveur le serveur principal (espace d'équipe). Refusé si `DISCORD_GUILD_ID` désigne un autre serveur. Confirmation (2 min). |
 
-Les commandes de l'**espace d'équipe** (`/admin`, `/refonte`, `/ia`, `/activite`, `/roles`) ne sont envoyées
+Les commandes de l'**espace d'équipe** (`/admin`, `/refonte`, `/ia`, `/activite`, `/roles`, `/suivi`, `/samae`) ne sont envoyées
 qu'au serveur principal ; le bot les refuse aussi ailleurs. Toutes les autres sont globales.
 
 ## Administration : `/admin` et `/refonte` (admins du bot)

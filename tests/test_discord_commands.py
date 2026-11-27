@@ -9,7 +9,7 @@ from src.discord_bot.bot import EXTENSIONS, HOME_ONLY_COMMANDS, SaeBot
 from src.services.help import HELP_ENTRIES
 
 ADMIN_COMMANDS = {"admin", "refonte", "setup"}
-PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion"}
+PUBLIC_COMMANDS = {"aide", "etat", "roles", "activite", "projet", "ia", "reunion", "idee", "tierlist", "debat", "suivi", "samae"}
 # Musique retirée en 1.13.0 : aucune de ces commandes ne doit revenir.
 REMOVED_MUSIC_COMMANDS = {
     "musique", "play", "pause", "resume", "skip", "stop", "queue", "nowplaying", "volume", "shuffle", "remove",
@@ -75,7 +75,12 @@ async def test_admin_commands_require_manage_guild_by_default(bot):
 
 
 # Sous-commandes d'administration dans un groupe ouvert à tous (vérifiées par le bot à chaque appel).
-ADMIN_SUBCOMMANDS = {"projet ajouter", "projet modifier", "projet configurer", "projet diagnostic"}
+ADMIN_SUBCOMMANDS = {
+    "projet ajouter", "projet modifier", "projet configurer", "projet diagnostic",
+    # 1.14.0 : gestionnaire de réunions et suivi du projet.
+    "idee statut", "tierlist creer", "tierlist cloturer", "debat departage", "debat confirmer",
+    "suivi importer", "suivi analyse", "suivi exporter", "suivi valider",
+}
 
 
 async def test_admin_subcommands_of_public_groups_are_checked_by_the_bot(bot):

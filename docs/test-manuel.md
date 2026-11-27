@@ -279,3 +279,23 @@ variables `MUSIC_*` / `LAVALINK_*` (elles doivent être ignorées).
 - [ ] Commandes : `/play`, `/search`, `/join`, `/audiocheck`, `/skip`, `/queue`… ont disparu (redémarrer Discord si besoin) ; `/setup` ne propose plus que `etat` et `serveur-principal`.
 - [ ] `/aide` : plus de catégorie « Musique » ; `/etat` et `/setup etat` : plus de ligne « Musique ».
 - [ ] `/reunion`, `/projet liste`, `/admin config`, `/etat` fonctionnent comme avant.
+
+
+## 1.14.0 : idées, tier lists, débats, suivi Excel, `/samae`
+
+À faire sur un **serveur Discord de test** avec un **bot de test** et un deuxième compte non admin.
+Sauvegarde `…-avantv15.sqlite3` créée au démarrage ; `pip install -r requirements.txt` installe openpyxl.
+
+- [ ] `/idee proposer` : le formulaire s'ouvre sur ordinateur **et sur téléphone** ; l'idée est ajoutée ; une deuxième idée proche affiche « Idées proches ».
+- [ ] Sixième idée en attente d'un même membre : refusée.
+- [ ] `/tierlist creer` (admin), puis `/tierlist voter` avec deux comptes : menus S à F, pages, « Valider mon bulletin » grisé tant que tout n'est pas classé.
+- [ ] `/tierlist progression` : aucun vote visible ; `/tierlist cloturer` : résultats publiés sans aucun nom de votant.
+- [ ] `/debat ouvrir`, `argument`, `departage` (admin), `voter`, `proposer`, puis `confirmer` (admin) : rien ne change avant le clic sur le bouton.
+- [ ] `/reunion terminer` sur une réunion liée à une tier list : sections « Tier lists », « Idées retenues », « Décisions issues des débats ».
+- [ ] `/suivi importer` avec **une copie** du vrai classeur : aperçu cohérent (onglets, nombre de lignes), puis import ; `/suivi analyse` : colonnes ID, titre et statut reconnues dans chaque onglet.
+- [ ] `/suivi progression` et `/suivi fonctionnalites` : chiffres identiques au DASHBOARD du classeur.
+- [ ] `/suivi ajouter onglet:DECISIONS` par un membre : « en attente de validation humaine » ; `/suivi valider` par un admin.
+- [ ] `/suivi exporter` : la copie s'ouvre dans Excel, formules et DASHBOARD recalculés ; l'original est inchangé.
+- [ ] `/samae demande:Quelles fonctionnalités restent à développer ?` et « Prépare notre prochaine réunion. » : réponses cohérentes ; « Ajoute cette idée : … » ouvre un formulaire prérempli et n'enregistre rien sans validation.
+- [ ] Second serveur : `/suivi` et `/samae` absents ; `/idee` ne montre que les idées de ce serveur.
+

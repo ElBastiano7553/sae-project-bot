@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 import time
 from collections import defaultdict, deque
@@ -49,6 +50,8 @@ MIN_MINUTES, MAX_MINUTES = 5, 600
 CREATIONS_PER_HOUR = 5
 # Modifications par membre : au plus 30 par minute (protège contre les clics en rafale et les scripts).
 CHANGES_PER_MINUTE = 30
+
+log = logging.getLogger(__name__)
 
 _MENTION = re.compile(r"<@!?(\d{15,22})>")
 
@@ -196,7 +199,7 @@ def _minutes_between(start: str | None, end: str | None) -> int | None:
     return max(int((b - a).total_seconds() // 60), 0)
 
 
-def build_report(detail: MeetingDetail, *, final: bool = False) -> MeetingReport:
+def build_report(detail: MeetingDetail, *, final: bool = False, extras: list[ReportSection] | tuple = ()) -> MeetingReport:
     """Compte rendu calculé uniquement à partir de ce qui a été enregistré."""
     m = detail.meeting
     general = [
@@ -241,6 +244,8 @@ def build_report(detail: MeetingDetail, *, final: bool = False) -> MeetingReport
         ReportSection(f"Décisions adoptées ({len(decisions)})", decisions),
         ReportSection(f"Réserves et désaccords ({len(reserves)})", reserves),
         ReportSection(f"Actions à effectuer ({len(actions)})", actions),
+        # Gestionnaire de réunions (1.14.0) : idées, tier lists et débats rattachés à la réunion.
+        *extras,
     ]
     return MeetingReport(m.id, m.title, m.status, m.started_at or m.created_at, sections, final)
 
@@ -255,8 +260,11 @@ class MeetingService:
         *,
         limiter: RateLimiter | None = None,
         now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
+        extra_sections: Callable[[MeetingDetail], list[ReportSection]] | None = None,
     ) -> None:
         self.repo = repo
+        # Sections supplémentaires du compte rendu (idées, tier lists, débats) ; une erreur ne bloque jamais la clôture.
+        self.extra_sections = extra_sections
         self.limiter = limiter or RateLimiter(CHANGES_PER_MINUTE, 60)
         self._now = now
 
@@ -290,7 +298,16 @@ class MeetingService:
                 return MeetingReport.from_json(detail.meeting.report)
             except (TypeError, ValueError, KeyError):
                 pass  # compte rendu figé illisible : on le recalcule à partir des données
-        return build_report(detail, final=detail.meeting.status in (FINISHED, CANCELLED))
+        return build_report(detail, final=detail.meeting.status in (FINISHED, CANCELLED), extras=self._extras(detail))
+
+    def _extras(self, detail: MeetingDetail) -> list[ReportSection]:
+        if self.extra_sections is None:
+            return []
+        try:
+            return list(self.extra_sections(detail))
+        except Exception:  # le compte rendu de base reste toujours disponible
+            log.exception("Sections complémentaires du compte rendu indisponibles (réunion %s)", detail.meeting.id)
+            return []
 
     # --- Contrôles communs --------------------------------------------------------
 
@@ -550,7 +567,7 @@ class MeetingService:
             change.set_status(status, ended=True)
             # Lecture dans la transaction en cours : le compte rendu figé décrit exactement l'état clôturé.
             closed = self.repo.detail(detail.meeting.id)
-            change.set_report(build_report(closed, final=True).to_json())
+            change.set_report(build_report(closed, final=True, extras=self._extras(closed)).to_json())
 
         return self._run(detail, actor, action, "", body)
 

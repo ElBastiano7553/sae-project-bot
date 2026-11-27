@@ -187,6 +187,13 @@ Le script affiche les changements et demande confirmation, puis :
 
 Ensuite : `/etat` et `/aide` sur Discord.
 
+> **Passage à 1.14.0** : `update.sh` installe la nouvelle dépendance `openpyxl` ; au redémarrage, la
+> migration v15 ajoute 13 tables (aucune table modifiée ni supprimée) après une sauvegarde
+> `…-avantv15.sqlite3`. Les fichiers Excel importés et exportés vont dans `data/tracker/`, les
+> sauvegardes du suivi dans `<BACKUP_DIR>/suivi/` : les deux sont déjà couverts par `ReadWritePaths`.
+> Rien à ajouter dans `.env` (`ASSISTANT_ON_MENTION` est facultative). En cas de retour à 1.13.0,
+> `rollback.sh` restaure la sauvegarde d'avant mise à jour, car l'ancienne version refuse un schéma v15.
+
 ## 6. Revenir en arrière
 
 ```bash
