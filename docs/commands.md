@@ -24,6 +24,7 @@ les réunions, `/admin` tout ce qui concerne l'administration, etc.
 
 La version 1.5.0 ajoute une 9ᵉ commande, `/projet`, demandée pour le suivi de plusieurs projets.
 La version 1.14.0 ajoute `/idee`, `/tierlist`, `/debat` (globales) et `/suivi`, `/samae` (serveur principal).
+La version 1.15.0 ajoute `/suivi verifier`, `/suivi synchroniser` et `/suivi code`.
 
 Choix retenus :
 
@@ -147,6 +148,9 @@ Guides : [suivi-excel.md](suivi-excel.md) et [assistant.md](assistant.md).
 | `/suivi progression` · `chercher` · `fonctionnalites` · `decisions` · `idees` · `questions` · `voir` | tous | Consultation du suivi. |
 | `/suivi ajouter onglet texte` · `statut` | tous | Ajout direct dans IDEAS et OPEN_QUESTIONS ; le reste devient une proposition en attente. |
 | `/suivi en-attente` · `historique` | tous | Propositions en attente ; historique des modifications. |
+| `/suivi verifier [fichier]` | tous | Vérifie le classeur (fichier joint, sinon le Google Sheet de `TRACKER_GOOGLE_SHEET`, sinon le dernier import) : statuts, renvois, décisions, DASHBOARD ; rapport .md joint, rien n'est modifié (1.15.0). |
+| `/suivi synchroniser` | admins | Relit le dépôt GitHub (commits de la branche principale, PR) et propose EN COURS ou TERMINÉ pour les lignes citées (1.15.0). |
+| `/suivi code cle` | tous | Commits et PR qui citent une ligne du suivi, par exemple `FEAT-002` (1.15.0). |
 | `/suivi valider proposition` | admins | Applique une proposition (sauvegarde puis confirmation). |
 | `/suivi refuser proposition` | admin ou auteur | Refuse une proposition. |
 | `/samae demande` | tous | Questions sur le projet (bilan, fonctionnalités restantes, décisions, préparer une réunion…) ; ne modifie jamais rien sans validation. |

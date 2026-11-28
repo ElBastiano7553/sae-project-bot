@@ -299,3 +299,17 @@ Sauvegarde `…-avantv15.sqlite3` créée au démarrage ; `pip install -r requir
 - [ ] `/samae demande:Quelles fonctionnalités restent à développer ?` et « Prépare notre prochaine réunion. » : réponses cohérentes ; « Ajoute cette idée : … » ouvre un formulaire prérempli et n'enregistre rien sans validation.
 - [ ] Second serveur : `/suivi` et `/samae` absents ; `/idee` ne montre que les idées de ce serveur.
 
+
+## 1.15.0 : socle, vérification du classeur, synchronisation GitHub
+
+Sauvegarde `…-avantv16.sqlite3` créée au démarrage (migration v16 : une table ajoutée, rien de modifié).
+
+- [ ] Arrêt du bot (`sudo systemctl stop samae`) pendant qu'une notification part : au redémarrage, elle n'est pas publiée une deuxième fois.
+- [ ] `/etat` : webhooks GitLab, GitHub et réception des projets « en écoute » comme avant.
+- [ ] `TRACKER_GOOGLE_SHEET` rempli, Google Sheet partagé par lien : `/suivi verifier` donne le même résultat que la ligne de commande sur le PC ; aujourd'hui, 5 avertissements attendus (FEAT-002, 003, 004, 007, 008 VALIDÉ sans décision, voir Q-014).
+- [ ] Google Sheet repassé en privé : `/suivi verifier` explique comment le partager (puis le remettre en partage par lien).
+- [ ] `/suivi verifier fichier:` avec un .xlsx dont un statut est faux : erreur située (onglet, identifiant, cellule).
+- [ ] `GITHUB_SYNC_REPOSITORY` rempli : `/suivi synchroniser` (admin) lit les commits ; un commit « FEAT-00X : … » sur une ligne VALIDÉ donne une proposition EN COURS dans `/suivi en-attente` ; le classeur ne change qu'après `/suivi valider`.
+- [ ] Deuxième `/suivi synchroniser` aussitôt : aucune nouvelle proposition.
+- [ ] `/suivi code cle:FEAT-00X` : le commit apparaît, avec son lien.
+- [ ] Membre non admin : `/suivi synchroniser` refusé ; `/suivi verifier` et `/suivi code` autorisés.

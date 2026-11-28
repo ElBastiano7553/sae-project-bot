@@ -106,7 +106,7 @@ def sheets() -> dict[str, list[list[str]]]:
     return copy.deepcopy(data)
 
 
-def xlsx(data: dict[str, list[list[str]]] | None = None, *, typed_dates: bool = True) -> bytes:
+def xlsx(data: dict[str, list[list[str]]] | None = None, *, typed_dates: bool = True, validations: bool = True) -> bytes:
     """Le même classeur en .xlsx ; les dates JJ/MM/AAAA deviennent de vraies dates Excel (comme l'export Google)."""
     from openpyxl import Workbook
 
@@ -125,6 +125,25 @@ def xlsx(data: dict[str, list[list[str]]] | None = None, *, typed_dates: bool = 
                 else:
                     values.append(value or None)
             ws.append(values)
+        if validations:
+            _add_status_list(ws, rows)
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+def _add_status_list(ws, rows) -> None:
+    """Liste déroulante sur la colonne de statut (comme le Google Sheet exporté en .xlsx)."""
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    from src.tracker.checks import SPEC_BY_NAME
+
+    spec = SPEC_BY_NAME.get(ws.title)
+    if spec is None or spec.status_column is None or len(rows) < 2 or spec.status_column not in rows[1]:
+        return
+    values = spec.lists[spec.status_column]
+    letter = get_column_letter(rows[1].index(spec.status_column) + 1)
+    dv = DataValidation(type="list", formula1='"' + ",".join(values) + '"', allow_blank=True)
+    ws.add_data_validation(dv)
+    dv.add(f"{letter}3:{letter}1000")

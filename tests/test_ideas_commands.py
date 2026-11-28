@@ -232,3 +232,37 @@ async def test_tracker_verify_command_checks_an_attached_file_then_the_last_impo
     await cog.verify.callback(cog, latest, fichier=None)
     embed_text = text_of(latest.followup.sent[0]["embed"])
     assert "dernier import (lunasteh.xlsx)" in embed_text and "aucune erreur" in embed_text
+
+
+async def test_tracker_sync_commands(env):
+    from aiohttp.test_utils import TestServer
+
+    from src.services.repo_sync import RepoSyncService
+    from tests import lunasteh_fixture
+    from tests.test_repo_sync import REPO, FakeGitHub, commit
+
+    bot, channel = env
+    cog = bot.get_cog("TrackerCog")
+    assert not bot.repo_sync.enabled  # rien dans .env : la commande l'explique
+    disabled = interaction(bot, ADMIN, channel)
+    await cog.synchronize.callback(cog, disabled)
+    assert "GITHUB_SYNC_REPOSITORY" in text_of(disabled.response.sent[0]["embed"])
+
+    start = interaction(bot, ADMIN, channel)
+    await cog.import_workbook.callback(cog, start, fichier=FakeAttachment(lunasteh_fixture.xlsx(), filename="lunasteh.xlsx"))
+    await start.followup.sent[0]["view"]._on_confirm(start)
+    fake = FakeGitHub()
+    fake.commits = [commit(1, "FEAT-001 : animations du saut")]
+    server = TestServer(fake.app())
+    await server.start_server()
+    try:
+        bot.repo_sync = RepoSyncService(bot.database, bot.tracker, REPO, api_url=str(server.make_url("")).rstrip("/"))
+        run = interaction(bot, ADMIN, channel)
+        await cog.synchronize.callback(cog, run)
+        text = text_of(run.followup.sent[0]["embed"])
+        assert "1 nouveau(x) commit(s)" in text and "Propositions à valider (1)" in text and "EN COURS" in text
+    finally:
+        await server.close()
+    linked = interaction(bot, BOB, channel)
+    await cog.code.callback(cog, linked, cle="feat-001")
+    assert "animations du saut" in text_of(linked.response.sent[0]["embed"])

@@ -125,6 +125,16 @@ KNOWN_PREFIXES = {s.prefix for s in SPECS if s.prefix}
 # Colonnes dont le contenu est un identifiant (un renvoi cassé y est une erreur, pas un avertissement).
 ID_FIELDS = ("Remplace (ID décision)", "Décision liée (ID)", "Fonctionnalités concernées")
 
+
+
+def reference_statuses(sheet: str) -> tuple[str, ...]:
+    """Liste de statuts du classeur de l'équipe pour cet onglet (vide si l'onglet n'en a pas)."""
+    spec = SPEC_BY_NAME.get(sheet)
+    if spec is None or spec.status_column is None:
+        return ()
+    return tuple(spec.lists.get(spec.status_column, ()))
+
+
 _ID = re.compile(r"\b([A-Z]{1,6})-(\d{3,4})\b")
 _RANGE = re.compile(r"\b([A-Z]{1,6})-(\d{3,4})\s*(?:à|a|au|-|–|—)\s*(?:\1-)?(\d{3,4})\b")
 _DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")

@@ -88,3 +88,43 @@ du DASHBOARD ; les formules du DASHBOARD, elles, sont conservées dans l'export.
   `<BACKUP_DIR>/suivi/` (30 gardées). Couverts par `ReadWritePaths` du service systemd.
 - Tables : `tracker_imports`, `tracker_rows` (une ligne Excel = un JSON « en-tête → valeur »),
   `tracker_changes` (propositions et historique).
+
+## Vérification du classeur (1.15.0)
+
+`/suivi verifier` (tout le monde, réponse privée) et `python -m src.tracker.verify` contrôlent la
+**cohérence** du classeur, sans rien modifier. Le classeur vérifié est, dans l'ordre :
+
+1. le fichier .xlsx joint à la commande ;
+2. sinon le Google Sheet indiqué dans `TRACKER_GOOGLE_SHEET` (.env) ;
+3. sinon la copie du dernier classeur importé avec `/suivi importer`.
+
+### Lire le Google Sheet sans clé d'API
+
+Le Google Sheet doit être partagé en lecture : « Partager » → « Accès général » → « Tous les
+utilisateurs disposant du lien » (Lecteur). Samae télécharge alors la copie .xlsx que Google propose
+(`https://docs.google.com/spreadsheets/d/<identifiant>/export?format=xlsx`) : aucune clé, aucun compte,
+aucun droit d'écriture. Seules les adresses `docs.google.com` sont acceptées. Un classeur privé donne
+un message qui explique comment le partager.
+
+### Ce qui est contrôlé
+
+| Code | Gravité | Contrôle |
+|---|---|---|
+| `onglet`, `entete`, `colonne` | erreur / avertissement | Les 9 onglets, la ligne d'en-tête (ligne 2) et les colonnes attendues. |
+| `id-manquant`, `id-double`, `id-format`, `id-trou` | erreur / information | Identifiants présents, uniques, sur le modèle `FEAT-001`, `IDEA-001`, `DEC-001`, `GP-001`, `ART-001`, `Q-001` ; numérotation continue. |
+| `liste` | erreur / avertissement | Statuts, catégories, priorités, domaines, types et états conformes aux listes déroulantes. Une variante (« Proposé » au lieu de « PROPOSÉ ») est signalée : les compteurs du DASHBOARD l'ignorent. |
+| `obligatoire` | avertissement | Nom, catégorie, statut, date d'ajout… remplis. |
+| `date-format`, `date-future`, `date-ordre` | erreur / avertissement | Dates JJ/MM/AAAA, pas dans le futur, validation après l'ajout. |
+| `renvoi` | avertissement (erreur dans « Remplace », « Décision liée », « Fonctionnalités concernées ») | Tout identifiant cité existe, plages comprises (« FEAT-001 à FEAT-008 »). |
+| `decision-absente` | avertissement | Un élément VALIDÉ, EN COURS ou TERMINÉ est cité par une décision ACTIVE du registre DECISIONS. |
+| `decision-remplacee`, `question-reponse` | avertissement | Décision REMPLACÉE avec sa remplaçante ; question RÉSOLUE avec sa réponse. |
+| `dashboard` | avertissement | Chaque compteur et la répartition par catégorie sont recalculés à partir des onglets. |
+| `changelog-absent`, `changelog-ordre` | avertissement / information | Chaque élément apparaît dans le CHANGELOG ; historique chronologique. |
+
+Les listes de référence sont celles du Google Sheet de l'équipe (lues le 28/11/2026) ; elles sont dans
+`src/tracker/checks.py`. Code de sortie de la ligne de commande : 0 sans erreur, 1 avec des erreurs,
+2 si le classeur est illisible.
+
+```powershell
+python -m src.tracker.verify --google "https://docs.google.com/spreadsheets/d/<identifiant>/edit" --markdown verification.md
+```

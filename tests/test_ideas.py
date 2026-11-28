@@ -312,8 +312,8 @@ def test_upgrade_from_v14_keeps_data_and_backs_up_first(tmp_path):
     conn.close()
     db = Database(path)
     try:
-        assert db.schema_version == 15
+        assert db.schema_version == len(MIGRATIONS)
         assert db.conn.execute("SELECT title FROM meetings").fetchone()[0] == "Réunion"
-        assert list((tmp_path / "backups").glob("*-avantv15.sqlite3"))
+        assert list((tmp_path / "backups").glob(f"*-avantv{len(MIGRATIONS)}.sqlite3"))
     finally:
         db.close()

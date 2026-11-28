@@ -9,7 +9,7 @@ Depuis 1.12.0, Samae s'installe **sur n'importe quelle machine et n'importe quel
 seul le token du bot est obligatoire, le reste se règle depuis Discord avec `/setup`.
 Guide : [docs/installation.md](docs/installation.md).
 
-## État actuel : version 1.14.0 (idées, tier lists, débats, suivi Excel, `/samae`)
+## État actuel : version 1.15.0 (socle consolidé, vérification du classeur, synchronisation GitHub)
 
 | Fonction | État |
 |---|---|
@@ -42,6 +42,8 @@ Guide : [docs/installation.md](docs/installation.md).
 | Musique (1.11.0 et 1.12.0, Lavalink/wavelink) **retirée** : plus aucune commande musicale, plus de dépendance à Lavalink ni à wavelink ; les anciennes tables musicales restent dans la base, inutilisées | ✅ 1.13.0 |
 | Idées (`/idee`, formulaire, 5 en attente par membre, idées proches, familles), tier lists S à F à votes masqués (moyenne, médiane, égalités, avis extrêmes anonymes, désaccords), débats (arguments, départage, décision confirmée par un admin), sections ajoutées au compte rendu des réunions (migration v15) | ✅ 1.14.0, testé hors Discord ([guide](docs/meeting-manager.md)) |
 | Suivi du projet à partir du classeur Excel (`/suivi`) : analyse automatique de la structure, import avec aperçu et sauvegarde, propositions validées par un admin, export dans une nouvelle copie (formules conservées, original intact) | ✅ 1.14.0, testé sur un classeur de test ; **le vrai classeur n'a pas encore été importé** ([guide](docs/suivi-excel.md)) |
+| Vérification du classeur (`/suivi verifier`, `python -m src.tracker.verify`) : Google Sheet partagé par lien, fichier .xlsx ou dernier import ; statuts, identifiants, renvois, décisions, DASHBOARD recalculé, CHANGELOG ; lecture seule | ✅ 1.15.0, testé sur la structure du vrai Google Sheet ([guide](docs/suivi-excel.md#vérification-du-classeur-1150)) |
+| Synchronisation avec le dépôt GitHub (`/suivi synchroniser`, `/suivi code`) : commits et PR reliés aux lignes du suivi, propositions EN COURS / TERMINÉ validées par un admin (migration v16) | ✅ 1.15.0, testé avec un faux GitHub ([guide](docs/synchronisation-github.md)) |
 | Assistant de projet `/samae` : bilan, fonctionnalités restantes, décisions, préparation de réunion, idées en attente, questions ouvertes ; questions libres par l'IA si elle est configurée | ✅ 1.14.0 ([guide](docs/assistant.md)) |
 | Parler à Claude Code depuis Discord (plugin officiel, PC de Romain) | 📄 guide prêt, non configuré ([guide](docs/claude-code-discord.md)) |
 | Multi-projets, étapes B6 et B7 : déconnexion, autres serveurs | ⏳ ([plan](docs/projets.md#suite)) |

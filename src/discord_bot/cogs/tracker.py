@@ -16,6 +16,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.database.tracker import TrackerChange
+from src.github.repo_sync import GitHubSyncError
 from src.discord_bot.bot import SaeBot, require_team_space, send_error
 from src.discord_bot.cogs.admin import admin_only
 from src.discord_bot.embeds import add_field, make_embed, success_embed
@@ -25,6 +26,7 @@ from src.discord_bot.views import ConfirmView
 from src.services import text_limits as limits
 from src.services.design import escape_markdown as _md
 from src.services.meetings import Actor, MeetingError
+from src.services.repo_sync import SyncResult
 from src.services.tracker import DECISIONS, FEATURES, IDEAS, OPEN_QUESTIONS, RowView, TrackerError
 from src.tracker.checks import Level, Report, finding_line, sheets_from_xlsx, verify_workbook
 from src.tracker.checks import report_markdown as verification_markdown
@@ -66,6 +68,35 @@ def verification_embed(report: Report) -> discord.Embed:
         if len(items) > VERIFY_SHOWN:
             lines.append(f"… et {len(items) - VERIFY_SHOWN} autre(s) : voir le rapport joint.")
         add_field(embed, f"{label} ({len(items)})", "\n".join(lines))
+    return embed
+
+
+def _item_line(item) -> str:
+    kind = "PR" if item.kind == "pull" else "commit"
+    state = {"merged": " · fusionnée", "closed": " · fermée", "open": " · ouverte"}.get(item.state, "")
+    link = f"[{kind} {item.label}]({item.url})" if item.url else f"{kind} {item.label}"
+    when = f" · {item.occurred_at[:10]}" if item.occurred_at else ""
+    return f"{link} {_md(limits.truncate(item.title, 120))} · {_md(item.author) or '?'}{when}{state}"
+
+
+def sync_embed(result: SyncResult) -> discord.Embed:
+    embed = make_embed(
+        f"Synchronisation GitHub · {result.repository}",
+        f"Branche {result.branch} : {result.new_commits} nouveau(x) commit(s) sur {result.commits_read} lu(s), "
+        f"{result.new_pulls} nouvelle(s) PR, {result.newly_merged} PR fusionnée(s) depuis la dernière fois. Rien n'est écrit sur GitHub.",
+    )
+    if not result.tracker_loaded:
+        add_field(embed, "Suivi", "Aucun classeur importé : importez-le (/suivi importer) pour relier le code aux fonctionnalités.")
+    if result.touched:
+        lines = [f"`{_md(k)}` : {', '.join(v[:4])}" + (f" (+{len(v) - 4})" if len(v) > 4 else "") for k, v in sorted(result.touched.items())]
+        add_field(embed, f"Éléments du suivi cités ({len(result.touched)})", "\n".join(lines))
+    if result.proposals:
+        lines = [_change_line(c) for c in result.proposals]
+        add_field(embed, f"Propositions à valider ({len(result.proposals)})", "\n".join(lines) + "\nValidez ou refusez avec /suivi valider et /suivi refuser.")
+    if result.unvalidated:
+        add_field(embed, "Code sur des éléments non validés", ", ".join(result.unvalidated) + " : statut inchangé (décision de l'équipe d'abord).")
+    if result.unknown:
+        add_field(embed, "Identifiants inconnus du suivi", ", ".join(result.unknown[:20]))
     return embed
 
 
@@ -316,6 +347,41 @@ class TrackerCog(commands.Cog):
         for header, value in list(row.data.items())[:24]:
             add_field(embed, header, _md(str(value)) if value not in (None, "") else "—", inline=len(str(value or "")) < 40)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # --- Synchronisation avec le dépôt GitHub ------------------------------------------------
+
+    @suivi.command(name="synchroniser", description="Admins : relire le dépôt GitHub et proposer les statuts (EN COURS, TERMINÉ)",
+                   extras={"admin": True})
+    @admin_only()
+    async def synchronize(self, interaction: discord.Interaction) -> None:
+        sync = self.bot.repo_sync
+        if not sync.enabled:
+            await send_error(interaction, "Synchronisation non configurée : indiquez GITHUB_SYNC_REPOSITORY=propriétaire/dépôt "
+                             "dans .env (voir docs/synchronisation-github.md).", tone="warning")
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            result = await sync.sync()
+        except GitHubSyncError as exc:
+            await interaction.followup.send(embed=make_embed("Synchronisation impossible", str(exc)), ephemeral=True)
+            return
+        self.bot.record_admin_action(interaction, "suivi synchroniser", f"{len(result.proposals)} proposition(s)")
+        await interaction.followup.send(embed=sync_embed(result), ephemeral=True)
+
+    @suivi.command(name="code", description="Commits et pull requests GitHub qui citent une ligne du suivi")
+    @app_commands.describe(cle="Identifiant cité dans les commits ou les PR, par exemple FEAT-002")
+    async def code(self, interaction: discord.Interaction, cle: str) -> None:
+        sync = self.bot.repo_sync
+        if not sync.enabled:
+            await send_error(interaction, "Synchronisation GitHub non configurée (GITHUB_SYNC_REPOSITORY).", tone="warning")
+            return
+        key = cle.strip().upper()
+        items = sync.mentioning(key)
+        lines = [_item_line(i) for i in items]
+        last = sync.last_run()
+        empty = (f"Aucun commit ni aucune pull request ne cite {key}" + (" depuis la dernière synchronisation." if last else
+                 " : la synchronisation n'a encore jamais été lancée (/suivi synchroniser)."))
+        await self._list(interaction, f"Code lié à {key} ({len(items)})", lines, empty=empty)
 
     # --- Modifications -----------------------------------------------------------------
 

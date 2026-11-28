@@ -25,7 +25,7 @@ from src.gitlab import dispatcher as gitlab_dispatcher
 from src.gitlab.events import Notification
 from src.notifications import EventStatus, NotificationQueue, send_with_retries
 from src.providers.dispatcher import ChannelLookupError, ProjectDispatcher
-from src.providers.github_app import GitHubAccessError, GitHubUnavailable, GitHubUserClient, _rate_limited
+from src.providers.github_app import GitHubAccessError, GitHubUnavailable, GitHubUserClient, is_rate_limited
 from src.providers.translate import ProjectEvent
 from tests.test_projects import GUILD
 
@@ -228,7 +228,7 @@ def test_pending_notifications_are_restored_before_the_port_opens():
     ],
 )
 def test_rate_limit_detection(status, headers, limited):
-    assert _rate_limited(status, headers) is limited
+    assert is_rate_limited(status, headers) is limited
 
 
 async def _github(handler):

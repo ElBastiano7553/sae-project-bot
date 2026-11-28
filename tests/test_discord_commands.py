@@ -80,6 +80,8 @@ ADMIN_SUBCOMMANDS = {
     # 1.14.0 : gestionnaire de réunions et suivi du projet.
     "idee statut", "tierlist creer", "tierlist cloturer", "debat departage", "debat confirmer",
     "suivi importer", "suivi analyse", "suivi exporter", "suivi valider",
+    # 1.15.0 : synchronisation avec le dépôt GitHub.
+    "suivi synchroniser",
 }
 
 

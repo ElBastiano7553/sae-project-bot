@@ -574,6 +574,25 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX tracker_changes_status ON tracker_changes (status, id);
     """,
+    # v16 (1.15.0, synchronisation avec le dépôt GitHub, docs/synchronisation-github.md). Création seulement.
+    # repo_sync_items : commits et pull requests lus par /suivi synchroniser (un par dépôt, type et référence),
+    # avec les éléments du suivi qu'ils citent (FEAT-002…). Sert à /suivi code et à ne rien proposer deux fois.
+    """
+    CREATE TABLE repo_sync_items (
+        repository  TEXT    NOT NULL,
+        kind        TEXT    NOT NULL CHECK (kind IN ('commit', 'pull')),
+        ref         TEXT    NOT NULL,
+        title       TEXT    NOT NULL,
+        author      TEXT    NOT NULL DEFAULT '',
+        url         TEXT,
+        state       TEXT    NOT NULL DEFAULT '',
+        occurred_at TEXT,
+        refs        TEXT    NOT NULL DEFAULT '[]',
+        seen_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (repository, kind, ref)
+    );
+    CREATE INDEX repo_sync_items_seen ON repo_sync_items (repository, seen_at);
+    """,
 ]
 
 

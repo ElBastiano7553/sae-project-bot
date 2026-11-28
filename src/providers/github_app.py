@@ -65,7 +65,7 @@ def _hash(token: str) -> str:
 
 
 
-def _rate_limited(status: int, headers) -> bool:
+def is_rate_limited(status: int, headers) -> bool:
     """Vrai si GitHub refuse la requête à cause de sa limite de débit (primaire ou secondaire).
 
     https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api : HTTP 429, ou
@@ -177,7 +177,7 @@ class GitHubUserClient:
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": API_VERSION}
         for page in range(1, MAX_PAGES + 1):
             async with session.get(f"{self.api_url}{path}", params={"per_page": PAGE_SIZE, "page": page}, headers=headers) as response:
-                if _rate_limited(response.status, response.headers):
+                if is_rate_limited(response.status, response.headers):
                     # Un 403 « limite de débit » n'est pas un refus d'accès : il suffit de réessayer plus tard.
                     raise GitHubUnavailable(f"{path} : limite de requêtes GitHub atteinte (HTTP {response.status})")
                 if response.status in (401, 403, 404):

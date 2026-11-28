@@ -39,6 +39,7 @@ from src.database.project_deliveries import ProjectDeliveryRepository
 from src.database.github_setup import GithubSetupRepository
 from src.database.gitlab_setup import GitlabSetupRepository
 from src.database.projects import ProjectRepository
+from src.github.repo_sync import GitHubSyncError
 from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
 from src.gitlab.api import GitLabAPI
@@ -58,6 +59,7 @@ from src.database.ideas import DebateRepository, IdeaRepository, TierListReposit
 from src.services.ideas import DebateService, IdeaService, TierListService, meeting_sections
 from src.services.meetings import MeetingService
 from src.services.project_assistant import ProjectAssistant
+from src.services.repo_sync import RepoSyncService
 from src.services.tracker import DECISIONS, TrackerError, TrackerService
 from src.services.dashboard import DASHBOARD_KEY, collect_dashboard, dashboard_fields
 from src.services.monitoring import ErrorRecord, InteractionStats, RecentErrors
@@ -152,6 +154,12 @@ class SaeBot(commands.Bot):
         self.debates = DebateService(self.debates_repo, self.ideas_repo, self.tierlists_repo, on_decided=self._record_debate_decision)
         # Suivi du projet (classeur Excel) : fichiers dans <dossier de la base>/tracker, sauvegardes dans backups/suivi.
         self.tracker = TrackerService(database, settings.database_path.parent / "tracker", backup_dir=settings.backup_dir)
+        # Synchronisation du suivi avec le dépôt GitHub (1.15.0) : GITHUB_SYNC_REPOSITORY, sinon le dépôt des webhooks GitHub.
+        self.repo_sync = RepoSyncService(
+            database, self.tracker,
+            settings.github_sync_repository or (settings.github_repository if settings.github_webhooks_enabled else ""),
+            token=settings.github_sync_token, guild_id=lambda: self.home_guild_id,
+        )
         # Samae 2.0 : réunions (règles et permissions dans services.meetings) ; le compte rendu reprend
         # les idées, tier lists et débats rattachés à la réunion.
         self.meetings = MeetingService(
@@ -668,18 +676,34 @@ class SaeBot(commands.Bot):
 
     async def _maintenance_loop(self) -> None:
         elapsed = 0
+        since_sync = 0
+        sync_every = self.settings.github_sync_interval_minutes * 60
         while True:
             await asyncio.sleep(DASHBOARD_REFRESH_SECONDS)
             elapsed += DASHBOARD_REFRESH_SECONDS
+            since_sync += DASHBOARD_REFRESH_SECONDS
             try:
                 if elapsed >= PURGE_INTERVAL_SECONDS:
                     elapsed = 0
                     self.purge_history()
+                if sync_every and since_sync >= sync_every and self.repo_sync.enabled and not self.repo_sync.running:
+                    since_sync = 0
+                    await self._periodic_sync()
                 await self.refresh_dashboard()
             except asyncio.CancelledError:
                 raise
             except Exception:  # la boucle de maintenance ne doit jamais s'arrêter
                 log.exception("Erreur pendant la maintenance périodique")
+
+    async def _periodic_sync(self) -> None:
+        """Synchronisation automatique (GITHUB_SYNC_INTERVAL_MINUTES) : silencieuse, les propositions attendent /suivi valider."""
+        try:
+            result = await self.repo_sync.sync()
+        except GitHubSyncError as exc:
+            log.warning("Synchronisation GitHub automatique impossible : %s", exc)
+            return
+        if result.proposals:
+            log.info("Synchronisation GitHub : %d proposition(s) de statut à valider (/suivi en-attente)", len(result.proposals))
 
     def purge_history(self) -> dict[str, int]:
         """Oublie l'historique plus ancien que HISTORY_RETENTION_DAYS (jamais moins de 30 jours)."""

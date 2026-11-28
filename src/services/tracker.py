@@ -26,6 +26,7 @@ from src.database.connection import Database
 from src.database.tracker import ChangeConflict, TrackerChange, TrackerRepository, TrackerRow
 from src.services.backup import create_backup
 from src.services.meetings import Actor, MeetingError, PermissionDenied
+from src.tracker.checks import reference_statuses
 from src.tracker.workbook import (
     AUTHOR_HEADERS,
     DATE_HEADERS,
@@ -268,6 +269,12 @@ class TrackerService:
             return []
         if col.validation and not col.validation[0].startswith("(liste"):
             return col.validation
+        # Sans liste déroulante lisible : les valeurs observées, complétées par la liste de référence du
+        # classeur de l'équipe si elles en font toutes partie (sinon un statut jamais utilisé, comme
+        # TERMINÉ au début du projet, ne pourrait jamais être proposé).
+        reference = reference_statuses(sheet)
+        if reference and all(v in reference for v in col.values):
+            return list(reference)
         return col.values
 
     # --- Propositions ---------------------------------------------------------------

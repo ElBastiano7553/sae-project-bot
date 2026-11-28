@@ -194,6 +194,13 @@ Ensuite : `/etat` et `/aide` sur Discord.
 > Rien à ajouter dans `.env` (`ASSISTANT_ON_MENTION` est facultative). En cas de retour à 1.13.0,
 > `rollback.sh` restaure la sauvegarde d'avant mise à jour, car l'ancienne version refuse un schéma v15.
 
+> **Passage à 1.15.0** : aucune nouvelle dépendance. Au redémarrage, la migration v16 ajoute la table
+> `repo_sync_items` (rien d'autre) après une sauvegarde `…-avantv16.sqlite3`. Variables facultatives :
+> `TRACKER_GOOGLE_SHEET` (vérification du Google Sheet) et `GITHUB_SYNC_REPOSITORY`, `GITHUB_SYNC_TOKEN`,
+> `GITHUB_SYNC_INTERVAL_MINUTES` (synchronisation avec le dépôt). Le bot doit pouvoir joindre
+> `docs.google.com` et `api.github.com` en HTTPS sortant (déjà le cas pour la GitHub App). L'arrêt
+> laisse jusqu'à 10 secondes à l'envoi en cours (systemd en accorde 30). Retour à 1.14.0 : `rollback.sh`.
+
 ## 6. Revenir en arrière
 
 ```bash
