@@ -31,7 +31,6 @@ from src.services.redesign_target import NEUTRAL, Rule, Target, build_target
 from src.services.server_structure import (
     TYPE_FAMILY,
     ChannelStatus,
-    GuildCategory,
     GuildChannel,
     GuildRole,
     GuildSnapshot,

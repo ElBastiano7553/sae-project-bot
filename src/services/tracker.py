@@ -36,7 +36,6 @@ from src.tracker.workbook import (
     SheetInfo,
     WorkbookInfo,
     export_workbook,
-    file_hash,
     inspect_workbook,
     norm,
     read_rows,

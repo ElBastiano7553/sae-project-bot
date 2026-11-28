@@ -13,7 +13,7 @@ Avant l'envoi, le salon est revérifié : il doit encore exister et appartenir a
 Discord du projet. Un salon d'un autre serveur n'est jamais utilisé, même si la base a été
 modifiée à la main.
 
-Mêmes garanties que les webhooks historiques (``src/gitlab/dispatcher.py``) : réponse
+Mêmes garanties que les webhooks historiques (``src/notifications.py``) : réponse
 immédiate au fournisseur, envoi en tâche de fond, renvoi après redémarrage, essais répétés,
 et aucune erreur ne peut arrêter la tâche de fond.
 """
@@ -27,11 +27,12 @@ from dataclasses import dataclass
 
 from src.database.project_deliveries import ProjectDeliveryRepository
 from src.database.projects import ProjectRecord, ProjectRepository
-from src.gitlab.dispatcher import (
+from src.notifications import (
     DEFAULT_QUEUE_SIZE,
     REPLAY_MAX_AGE_HOURS,
     RETRY_DELAYS,
     EventStatus,
+    NotificationQueue,
     NotificationSender,
     SubmitStatus,
     notification_from_json,
@@ -47,6 +48,13 @@ log = logging.getLogger(__name__)
 FILTERED = "filtered"
 
 
+class ChannelLookupError(Exception):
+    """Vérification du salon impossible pour l'instant (Discord indisponible…) : à réessayer.
+
+    À distinguer de ``None`` (salon supprimé ou invisible), qui est définitif.
+    """
+
+
 @dataclass(frozen=True)
 class _Job:
     project_id: int
@@ -56,7 +64,9 @@ class _Job:
     notification: Notification
 
 
-class ProjectDispatcher:
+class ProjectDispatcher(NotificationQueue[_Job]):
+    label = "des projets"
+
     def __init__(
         self,
         projects: ProjectRepository,
@@ -73,9 +83,7 @@ class ProjectDispatcher:
         self.deliveries = deliveries
         self.sender = sender
         self._channel_guild = channel_guild
-        self._wait_until_ready = wait_until_ready
-        self._retry_delays = tuple(retry_delays)
-        self._queue: asyncio.Queue[_Job] = asyncio.Queue(maxsize=queue_size)
+        super().__init__(wait_until_ready=wait_until_ready, queue_size=queue_size, retry_delays=retry_delays)
 
     def submit(self, event: ProjectEvent, targets: Iterable[ProjectRecord]) -> SubmitStatus:
         """Enregistre et met en file l'événement pour chaque projet visé. Résume le résultat en un statut."""
@@ -116,10 +124,6 @@ class ProjectDispatcher:
             return SubmitStatus.BUSY
         return SubmitStatus.QUEUED
 
-    @property
-    def pending(self) -> int:
-        return self._queue.qsize()
-
     def restore_pending(self) -> int:
         """Remet en file les notifications acceptées mais jamais envoyées (bot arrêté avant l'envoi)."""
         expired = self.deliveries.expire_queued(REPLAY_MAX_AGE_HOURS)
@@ -143,20 +147,28 @@ class ProjectDispatcher:
             log.info("%d notification(s) de projets non envoyée(s) avant l'arrêt remise(s) en file", restored)
         return restored
 
-    async def run(self) -> None:
-        if self._wait_until_ready is not None:
-            await self._wait_until_ready()
-        while True:
-            job = await self._queue.get()
+    def describe(self, job: _Job) -> str:
+        return f"{job.delivery_key} du projet {job.project_id}"
+
+    async def _guild_of(self, job: _Job) -> int | None:
+        """Serveur du salon, avec les mêmes nouveaux essais qu'un envoi si Discord ne répond pas."""
+        for delay in (*self._retry_delays, None):
             try:
-                await self.deliver(job)
-            except Exception:  # dernier filet : la tâche ne doit jamais mourir
-                log.exception("Erreur inattendue en traitant la notification %s du projet %d", job.delivery_key, job.project_id)
-            finally:
-                self._queue.task_done()
+                return await self._channel_guild(job.channel_id)
+            except ChannelLookupError as exc:
+                if delay is None:
+                    raise
+                log.warning("Vérification du salon de %s impossible (%s), nouvel essai dans %g s", self.describe(job), exc, delay)
+                await asyncio.sleep(delay)
+        return None  # inatteignable
 
     async def deliver(self, job: _Job) -> EventStatus:
-        guild_id = await self._channel_guild(job.channel_id)
+        try:
+            guild_id = await self._guild_of(job)
+        except ChannelLookupError as exc:
+            log.error("Notification %s abandonnée : %s", self.describe(job), exc)
+            self.deliveries.set_status(job.project_id, job.delivery_key, EventStatus.FAILED)
+            return EventStatus.FAILED
         if guild_id != job.guild_id:
             log.warning(
                 "Notification %s du projet %d non publiée : le salon %d est introuvable ou n'appartient pas au serveur du projet.",
@@ -169,12 +181,3 @@ class ProjectDispatcher:
             )
         self.deliveries.set_status(job.project_id, job.delivery_key, status)
         return status
-
-    async def drain(self) -> None:
-        """Traite immédiatement les notifications en attente (utilisé par les tests)."""
-        while not self._queue.empty():
-            job = self._queue.get_nowait()
-            try:
-                await self.deliver(job)
-            finally:
-                self._queue.task_done()

@@ -43,9 +43,10 @@ from src.github.dispatcher import GitHubDispatcher
 from src.github.webhook import GitHubWebhookServer, create_github_app
 from src.gitlab.api import GitLabAPI
 from src.gitlab.dispatcher import DEFAULT_BRANCH_KEY, NotificationDispatcher
+from src.notifications import NotificationQueue
 from src.gitlab.rules import load_gitlab_rules
 from src.gitlab.webhook import GitLabWebhookServer, create_webhook_app
-from src.providers.dispatcher import ProjectDispatcher
+from src.providers.dispatcher import ChannelLookupError, ProjectDispatcher
 from src.providers.github_app import GitHubSetupFlow, build_flow
 from src.providers.gitlab_oauth import GitLabSetupFlow, build_gitlab_flow
 from src.providers.server import ProjectsHttpServer, create_projects_app
@@ -226,6 +227,10 @@ class SaeBot(commands.Bot):
         self.redesign_lock = asyncio.Lock()
         self._recreate_tasks: dict[str, asyncio.Task] = {}
         self._gitlab_task: asyncio.Task | None = None
+        # Files d'envoi des notifications : gardées pour les arrêter proprement (close).
+        self._gitlab_queue: NotificationQueue | None = None
+        self._github_queue: NotificationQueue | None = None
+        self._projects_queue: NotificationQueue | None = None
         self.started_at = dt.datetime.now(dt.UTC)
         self._startup_done = False
 
@@ -367,11 +372,13 @@ class SaeBot(commands.Bot):
             project_id=self.settings.gitlab_project_id,
             dispatcher=dispatcher,
         )
+        # Remise en file AVANT d'ouvrir le port : un webhook reçu entre les deux serait sinon mis en file deux fois.
+        dispatcher.restore_pending()
         self.gitlab_server = GitLabWebhookServer(app, self.settings.webhook_host, self.settings.webhook_port)
         if not await self.gitlab_server.start():
             self.gitlab_error = self.gitlab_server.error
             return
-        dispatcher.restore_pending()
+        self._gitlab_queue = dispatcher
         self._gitlab_task = asyncio.create_task(dispatcher.run(), name="gitlab-notifications")
         self._gitlab_task.add_done_callback(self._on_gitlab_task_done)
 
@@ -409,11 +416,12 @@ class SaeBot(commands.Bot):
             repository=self.settings.github_repository,
             dispatcher=dispatcher,
         )
+        dispatcher.restore_pending()  # avant d'ouvrir le port (voir _start_gitlab_webhooks)
         self.github_server = GitHubWebhookServer(app, self.settings.github_webhook_host, self.settings.github_webhook_port)
         if not await self.github_server.start():
             self.github_error = self.github_server.error
             return
-        dispatcher.restore_pending()
+        self._github_queue = dispatcher
         self._github_task = asyncio.create_task(dispatcher.run(), name="github-notifications")
         self._github_task.add_done_callback(self._on_github_task_done)
 
@@ -446,11 +454,12 @@ class SaeBot(commands.Bot):
                 github_setup=self.github_setup,
                 gitlab_setup=self.gitlab_setup,
             )
+            dispatcher.restore_pending()  # avant d'ouvrir le port (voir _start_gitlab_webhooks)
             self.projects_server = ProjectsHttpServer(app, self.settings.projects_http_host, self.settings.projects_http_port)
             if not await self.projects_server.start():
                 self.projects_error = self.projects_server.error
                 return
-            dispatcher.restore_pending()
+            self._projects_queue = dispatcher
             self._projects_task = asyncio.create_task(dispatcher.run(), name="project-notifications")
             self._projects_task.add_done_callback(self._on_projects_task_done)
         except Exception as exc:
@@ -470,8 +479,11 @@ class SaeBot(commands.Bot):
         if channel is None:
             try:
                 channel = await self.fetch_channel(channel_id)
-            except discord.HTTPException:
+            except (discord.NotFound, discord.Forbidden, discord.InvalidData):
                 return None
+            except discord.HTTPException as exc:
+                # Erreur passagère (Discord indisponible, limite de débit) : à réessayer, pas « salon introuvable ».
+                raise ChannelLookupError(f"salon {channel_id} : HTTP {exc.status}") from exc
         guild = getattr(channel, "guild", None)
         return getattr(guild, "id", None)
 
@@ -484,21 +496,22 @@ class SaeBot(commands.Bot):
         self._alert_tasks.clear()
         self._background.clear()
         self._dashboard_task = self._maintenance_task = None
-        if self._gitlab_task is not None:
-            self._gitlab_task.cancel()
-            self._gitlab_task = None
-        if self.gitlab_server is not None:
-            await self.gitlab_server.stop()
-        if self._github_task is not None:
-            self._github_task.cancel()
-            self._github_task = None
-        if self.github_server is not None:
-            await self.github_server.stop()
-        if self._projects_task is not None:
-            self._projects_task.cancel()
-            self._projects_task = None
-        if self.projects_server is not None:
-            await self.projects_server.stop()
+        # Ports fermés d'abord (plus aucun nouvel événement), puis files arrêtées en laissant finir l'envoi
+        # en cours : un message déjà parti sur Discord mais pas encore noté « sent » serait renvoyé au redémarrage.
+        for server in (self.gitlab_server, self.github_server, self.projects_server):
+            if server is not None:
+                await server.stop()
+        await asyncio.gather(
+            *(
+                _stop_queue(queue, task)
+                for queue, task in (
+                    (self._gitlab_queue, self._gitlab_task),
+                    (self._github_queue, self._github_task),
+                    (self._projects_queue, self._projects_task),
+                )
+            )
+        )
+        self._gitlab_task = self._github_task = self._projects_task = None
         for client in (self.ai_provider, self.gitlab_api):
             if client is not None:
                 try:
@@ -1071,3 +1084,11 @@ def install_error_handler(tree: app_commands.CommandTree) -> None:
         else:
             log.error("Erreur pendant /%s : %s", name, type(original).__name__, exc_info=original)
             await send_error(interaction, "Une erreur inattendue est survenue. Les administrateurs en trouveront le détail dans les journaux du bot.")
+
+
+async def _stop_queue(queue: NotificationQueue | None, task: asyncio.Task | None) -> None:
+    """Arrête une file d'envoi (ou annule seulement sa tâche si la file n'a jamais démarré)."""
+    if queue is not None:
+        await queue.stop(task)
+    elif task is not None:
+        task.cancel()

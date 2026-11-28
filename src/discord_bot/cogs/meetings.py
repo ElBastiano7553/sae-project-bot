@@ -19,7 +19,7 @@ from discord.ext import commands
 
 from src.database.meetings import MeetingDetail
 from src.discord_bot.bot import SaeBot, send_error
-from src.discord_bot.embeds import error_embed
+from src.discord_bot.embeds import error_embed, success_embed
 from src.discord_bot.help_ui import HelpView, collect_commands, render_pages
 from src.discord_bot.meeting_ui import (
     MeetingButton,
@@ -30,7 +30,6 @@ from src.discord_bot.meeting_ui import (
     panel_view,
     progress_embed,
     report_embeds,
-    success_embed,
 )
 from src.discord_bot.permissions import is_bot_admin
 from src.discord_bot.views import ConfirmView

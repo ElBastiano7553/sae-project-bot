@@ -31,7 +31,7 @@ annonces, forum, médias et conférence réservés aux serveurs **Communauté**.
 | Fichier | Rôle |
 |---|---|
 | `config/server.toml` | Cible complète : profils, styles, niveaux d'accès, catégories, salons, rôles, politique `[refonte]`. |
-| `src/config.py` | Lecture et validation (emojis, couleurs `#RRGGBB`, permissions connues, jamais `administrator`, permissions sensibles réservées au staff, noms ≤ 100 caractères). |
+| `src/config/files.py` | Lecture et validation (emojis, couleurs `#RRGGBB`, permissions connues, jamais `administrator`, permissions sensibles réservées au staff, noms ≤ 100 caractères). |
 | `src/services/redesign_target.py` | Cible pour un profil et un style : noms affichés, accès hérité de la catégorie, règles de permissions par cible. |
 | `src/services/server_redesign.py` | Moteur de plan **pur** (aucun appel Discord) : inventaire, comparaison, opérations, aperçu, rapport. |
 | `src/services/redesign_rollback.py` | Plan de retour arrière à partir d'un journal. |

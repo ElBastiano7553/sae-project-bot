@@ -24,11 +24,12 @@ from dataclasses import dataclass
 
 from src.database.github import GitHubDeliveryRepository
 from src.github.events import format_event
-from src.gitlab.dispatcher import (
+from src.notifications import (
     DEFAULT_QUEUE_SIZE,
     REPLAY_MAX_AGE_HOURS,
     RETRY_DELAYS,
     EventStatus,
+    NotificationQueue,
     NotificationSender,
     SubmitStatus,
     notification_from_json,
@@ -60,7 +61,9 @@ class _Job:
     notification: Notification
 
 
-class GitHubDispatcher:
+class GitHubDispatcher(NotificationQueue[_Job]):
+    label = "GitHub"
+
     def __init__(
         self,
         repository: GitHubDeliveryRepository,
@@ -76,9 +79,7 @@ class GitHubDispatcher:
         self.sender = sender
         self.channel_key = channel_key
         self._bindings = bindings
-        self._wait_until_ready = wait_until_ready
-        self._retry_delays = tuple(retry_delays)
-        self._queue: asyncio.Queue[_Job] = asyncio.Queue(maxsize=queue_size)
+        super().__init__(wait_until_ready=wait_until_ready, queue_size=queue_size, retry_delays=retry_delays)
 
     def submit(self, delivery: GitHubDelivery) -> SubmitStatus:
         """Met en forme, déduplique et met en file. Lève ``InvalidPayload`` si le JSON est incomplet."""
@@ -105,10 +106,6 @@ class GitHubDispatcher:
             return SubmitStatus.BUSY
         return SubmitStatus.QUEUED
 
-    @property
-    def pending(self) -> int:
-        return self._queue.qsize()
-
     def restore_pending(self) -> int:
         """Remet en file les notifications acceptées mais jamais envoyées (bot arrêté avant l'envoi)."""
         expired = self.repository.expire_queued(REPLAY_MAX_AGE_HOURS)
@@ -130,18 +127,8 @@ class GitHubDispatcher:
             log.info("%d notification(s) GitHub non envoyée(s) avant l'arrêt remise(s) en file", restored)
         return restored
 
-    async def run(self) -> None:
-        """Tâche de fond : envoie les notifications une par une, sans jamais s'arrêter sur une erreur."""
-        if self._wait_until_ready is not None:
-            await self._wait_until_ready()
-        while True:
-            job = await self._queue.get()
-            try:
-                await self.deliver(job)
-            except Exception:  # dernier filet : la tâche ne doit jamais mourir
-                log.exception("Erreur inattendue en traitant la notification GitHub %s", job.key)
-            finally:
-                self._queue.task_done()
+    def describe(self, job: _Job) -> str:
+        return f"GitHub {job.key}"
 
     async def deliver(self, job: _Job) -> EventStatus:
         channel_id = self._bindings().get(self.channel_key)
@@ -154,12 +141,3 @@ class GitHubDispatcher:
             status = await send_with_retries(self.sender, channel_id, job.notification, self._retry_delays, f"GitHub {job.key}")
         self.repository.set_status(job.key, status)
         return status
-
-    async def drain(self) -> None:
-        """Traite immédiatement les notifications en attente (utilisé par les tests)."""
-        while not self._queue.empty():
-            job = self._queue.get_nowait()
-            try:
-                await self.deliver(job)
-            finally:
-                self._queue.task_done()

@@ -24,7 +24,7 @@ from aiohttp import web
 from src.config import SECRET_ENV_VARS, Settings
 from src.database import Database
 from src.database.connection import MIGRATIONS
-from src.database.github_setup import GithubSetupRepository, utcnow
+from src.database.github_setup import GithubSetupRepository
 from src.database.gitlab_setup import GitlabSetupRepository
 from src.discord_bot.project_views import GitlabConnectView
 from src.gitlab import samples as gl
@@ -35,7 +35,6 @@ from src.providers.gitlab_oauth import CALLBACK_PATH, STATE_PURPOSE, STEP, build
 from src.providers.server import create_projects_app
 from src.services.health import ProjectsReceptionSummary, _projects_check
 from tests.fake_guild import FakeGuild
-from tests.test_github_app import CLIENT_SECRET as GITHUB_CLIENT_SECRET
 from tests.test_github_app import APP_ENV as GITHUB_APP_ENV
 from tests.test_github_app import Clock, FakeSender, Listening, click, last_text, quiet_client
 from tests.test_projects import GUILD, OTHER_GUILD, Interaction, Member, embed_text, make_bot  # noqa: F401

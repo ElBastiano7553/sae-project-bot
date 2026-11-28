@@ -336,7 +336,7 @@ class TierListService:
         title = _clean(title, TIERLIST_TITLE_MAX, "Le titre", required=True)
         if idea_ids:
             ideas = [self.ideas.get(i) for i in idea_ids]
-            missing = [str(i) for i, idea in zip(idea_ids, ideas) if idea is None or idea.guild_id != actor.guild_id]
+            missing = [str(i) for i, idea in zip(idea_ids, ideas, strict=True) if idea is None or idea.guild_id != actor.guild_id]
             if missing:
                 raise IdeaError(f"Idée(s) inconnue(s) : #{', #'.join(missing)}.")
             chosen = list(dict.fromkeys(idea_ids))

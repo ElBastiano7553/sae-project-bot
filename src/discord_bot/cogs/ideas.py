@@ -48,7 +48,7 @@ from src.services.meetings import Actor, MeetingError
 log = logging.getLogger(__name__)
 NO_MENTIONS = discord.AllowedMentions.none()
 
-TIER_CHOICES = [app_commands.Choice(name=f"{t} ({s})", value=t) for t, s in zip("SABCDF", (6, 5, 4, 3, 2, 1))]
+TIER_CHOICES = [app_commands.Choice(name=f"{t} ({s})", value=t) for t, s in zip("SABCDF", (6, 5, 4, 3, 2, 1), strict=True)]
 STATUS_CHOICES = [
     app_commands.Choice(name="Retenue", value=RETAINED),
     app_commands.Choice(name="Écartée", value=REJECTED),

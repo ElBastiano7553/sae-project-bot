@@ -103,7 +103,8 @@ sae-project-bot/
 ├── knowledge/                 (lot 3) Notes de l'équipe consultées par /ia question
 ├── src/
 │   ├── main.py                Point d'entrée : charge .env, vérifie la config, lance le bot
-│   ├── config.py              Lecture et validation du .env et des fichiers TOML
+│   ├── config/                Lecture et validation : settings.py (.env), files.py (TOML), base.py (chemins)
+│   ├── notifications.py       Socle commun des trois files de notifications (1.15.0)
 │   ├── logging_setup.py       Journaux console + fichier
 │   ├── database/
 │   │   ├── connection.py      Connexion SQLite et migrations versionnées
@@ -173,7 +174,7 @@ Le dossier `src/ai/` sera créé à son étape (lot 3) pour ne pas livrer de cod
 | Accès à la base de données     | `src/database/`                                    |
 | Intégration IA (V4)            | `src/ai/`                                          |
 | Logique métier                 | `src/services/`                                    |
-| Configuration                  | `src/config.py`, `config/`, `.env`                 |
+| Configuration                  | `src/config/`, `config/`, `.env`                   |
 
 ## 3. Flux des données
 

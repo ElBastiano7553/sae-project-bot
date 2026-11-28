@@ -51,7 +51,7 @@ class SetupCog(commands.Cog):
 
     def status_lines(self, guild: discord.Guild) -> list[tuple[str, str]]:
         """(titre, texte) de chaque partie du bot pour CE serveur : rien d'un autre serveur, aucun secret."""
-        bot, settings = self.bot, self.bot.settings
+        bot = self.bot
         me = guild.me
         sections: list[tuple[str, str]] = []
 

@@ -10,3 +10,15 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore:.audioop. is deprecated:DeprecationWarning"]
+
+# Vérification statique (ruff, dans requirements-dev.txt, lancée par la CI) : erreurs réelles seulement
+# (noms inconnus, imports inutiles, pièges courants), pas de règle de mise en forme.
+[tool.ruff]
+target-version = "py311"
+line-length = 130
+
+[tool.ruff.lint]
+select = ["F", "E9", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["src.services.server_redesign.RedesignOptions"]

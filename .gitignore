@@ -23,3 +23,8 @@ logs/*
 !.vscode/settings.json
 !.vscode/extensions.json
 .idea/
+
+# Paquet installé en mode éditable, fichiers temporaires des tests
+*.egg-info/
+.pytest-tmp*/
+.test-tmp/

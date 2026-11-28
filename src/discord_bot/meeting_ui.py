@@ -15,7 +15,7 @@ import re
 import discord
 
 from src.database.meetings import MeetingDetail
-from src.discord_bot.embeds import add_field, fit_embed, make_embed, success_embed
+from src.discord_bot.embeds import add_field, fit_embed, make_embed
 from src.services import design
 from src.services import text_limits as limits
 from src.services.design import Color, Tone

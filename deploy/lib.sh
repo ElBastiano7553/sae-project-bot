@@ -32,7 +32,7 @@ env_value() {
     printf '%s' "$line"
 }
 
-# Chemin absolu (les chemins relatifs de .env partent du dossier du projet, comme dans src/config.py).
+# Chemin absolu (les chemins relatifs de .env partent du dossier du projet, comme dans src/config/settings.py).
 absolute() {
     case "$1" in
         /*) printf '%s' "$1" ;;

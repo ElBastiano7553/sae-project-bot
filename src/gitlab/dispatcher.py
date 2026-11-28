@@ -19,78 +19,34 @@ Garanties :
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import asdict, dataclass
-from enum import StrEnum
-from typing import Protocol
+from dataclasses import dataclass
 
 from src.database.repositories import EventSummary, GitLabEventRepository, KeyValueRepository
 from src.gitlab.events import Notification, format_event
 from src.gitlab.rules import GitLabRules, history_rules
-from src.services.content import EmbedField
+
+# Socle commun des files (déplacé dans src/notifications.py en 1.15.0), réexporté ici pour les
+# modules et les tests qui l'importent depuis ce fichier.
+from src.notifications import (  # noqa: F401
+    DEFAULT_QUEUE_SIZE,
+    REPLAY_MAX_AGE_HOURS,
+    RETRY_DELAYS,
+    EventStatus,
+    NotificationQueue,
+    NotificationSender,
+    PermanentSendError,
+    SubmitStatus,
+    notification_from_json,
+    notification_to_json,
+    send_with_retries,
+)
 
 log = logging.getLogger(__name__)
 
-DEFAULT_QUEUE_SIZE = 100
-# Au-delà, une notification non envoyée (bot arrêté) n'est plus renvoyée : elle serait périmée.
-REPLAY_MAX_AGE_HOURS = 24
-# Attente (secondes) avant chaque nouvelle tentative d'envoi sur Discord.
-RETRY_DELAYS: tuple[float, ...] = (2.0, 10.0)
 # Clé (kv_store) de la branche principale indiquée par le dernier webhook reçu.
 DEFAULT_BRANCH_KEY = "gitlab:default_branch"
-
-
-class NotificationSender(Protocol):
-    async def send_notification(self, channel_id: int, notification: Notification) -> None:
-        """Publie la notification ; lève une exception en cas d'échec (``PermanentSendError`` s'il est inutile de réessayer)."""
-
-
-class PermanentSendError(Exception):
-    """Envoi refusé pour une raison qu'un nouvel essai ne changera pas (salon supprimé, permission manquante…)."""
-
-
-async def send_with_retries(
-    sender: NotificationSender, channel_id: int, notification: Notification, retry_delays: Sequence[float], label: str
-) -> EventStatus:
-    """Envoie la notification, avec un nouvel essai après chaque attente de ``retry_delays``.
-
-    Commun aux trois files (GitLab, GitHub, projets). Un refus définitif n'est pas retenté :
-    la file étant traitée une notification à la fois, chaque essai inutile retarderait toutes
-    les autres (12 secondes par notification avec les délais par défaut).
-    """
-    for attempt, delay in enumerate((*retry_delays, None), start=1):
-        try:
-            await sender.send_notification(channel_id, notification)
-        except PermanentSendError as exc:
-            log.error("Notification %s abandonnée sans nouvel essai : %s", label, exc)
-            return EventStatus.FAILED
-        except Exception as exc:
-            if delay is None:
-                log.error("Notification %s abandonnée après %d essai(s) : %s", label, attempt, exc)
-                return EventStatus.FAILED
-            log.warning("Envoi de la notification %s impossible (%s), nouvel essai dans %g s", label, exc, delay)
-            await asyncio.sleep(delay)
-        else:
-            return EventStatus.SENT
-    return EventStatus.FAILED  # inatteignable, pour les vérificateurs de types
-
-
-class SubmitStatus(StrEnum):
-    QUEUED = "queued"
-    RECORDED = "recorded"  # conservé dans l'historique, sans notification (branche non suivie…)
-    DUPLICATE = "duplicate"
-    IGNORED = "ignored"
-    BUSY = "busy"
-
-
-class EventStatus(StrEnum):
-    QUEUED = "queued"
-    SENT = "sent"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    RECORDED = "recorded"
 
 
 @dataclass(frozen=True)
@@ -110,7 +66,9 @@ class _Job:
     notification: Notification
 
 
-class NotificationDispatcher:
+class NotificationDispatcher(NotificationQueue[_Job]):
+    label = "GitLab"
+
     def __init__(
         self,
         repository: GitLabEventRepository,
@@ -128,9 +86,7 @@ class NotificationDispatcher:
         self.rules = rules
         self.sender = sender
         self._bindings = bindings
-        self._wait_until_ready = wait_until_ready
-        self._retry_delays = tuple(retry_delays)
-        self._queue: asyncio.Queue[_Job] = asyncio.Queue(maxsize=queue_size)
+        super().__init__(wait_until_ready=wait_until_ready, queue_size=queue_size, retry_delays=retry_delays)
         self._state = state
         self._history_rules = history_rules(rules)
         # Appelé après chaque nouvel événement enregistré (actualisation du tableau de bord).
@@ -175,10 +131,6 @@ class NotificationDispatcher:
         except Exception:  # le tableau de bord ne doit jamais faire échouer la réception
             log.exception("Erreur dans le rappel après un événement GitLab")
 
-    @property
-    def pending(self) -> int:
-        return self._queue.qsize()
-
     def restore_pending(self) -> int:
         """Remet en file les notifications acceptées mais jamais envoyées (bot arrêté avant l'envoi)."""
         expired = self.repository.expire_queued(REPLAY_MAX_AGE_HOURS)
@@ -201,18 +153,8 @@ class NotificationDispatcher:
             log.info("%d notification(s) GitLab non envoyée(s) avant l'arrêt remise(s) en file", restored)
         return restored
 
-    async def run(self) -> None:
-        """Tâche de fond : envoie les notifications une par une, sans jamais s'arrêter sur une erreur."""
-        if self._wait_until_ready is not None:
-            await self._wait_until_ready()
-        while True:
-            job = await self._queue.get()
-            try:
-                await self.deliver(job)
-            except Exception:  # dernier filet : la tâche ne doit jamais mourir
-                log.exception("Erreur inattendue en traitant la notification GitLab %s", job.event_key)
-            finally:
-                self._queue.task_done()
+    def describe(self, job: _Job) -> str:
+        return f"GitLab {job.event_key}"
 
     async def deliver(self, job: _Job) -> EventStatus:
         notification = job.notification
@@ -229,28 +171,6 @@ class NotificationDispatcher:
             status = await send_with_retries(self.sender, channel_id, job.notification, self._retry_delays, f"GitLab {job.event_key}")
         self.repository.set_status(job.event_key, status)
         return status
-
-    async def drain(self) -> None:
-        """Traite immédiatement les notifications en attente (utilisé par les tests)."""
-        while not self._queue.empty():
-            job = self._queue.get_nowait()
-            try:
-                await self.deliver(job)
-            finally:
-                self._queue.task_done()
-
-
-def notification_to_json(notification: Notification) -> str:
-    return json.dumps(asdict(notification), ensure_ascii=False)
-
-
-def notification_from_json(raw: str | None) -> Notification:
-    if raw is None:
-        raise ValueError("notification absente")
-    data = json.loads(raw)
-    data["fields"] = tuple(EmbedField(**field) for field in data.get("fields", ()))
-    return Notification(**data)
-
 
 def summary_of(notification: Notification) -> EventSummary:
     return EventSummary(
