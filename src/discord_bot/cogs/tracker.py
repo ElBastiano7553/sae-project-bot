@@ -7,6 +7,7 @@ avec aperçu et confirmation. L'original du classeur n'est jamais modifié (voir
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 
@@ -25,6 +26,9 @@ from src.services import text_limits as limits
 from src.services.design import escape_markdown as _md
 from src.services.meetings import Actor, MeetingError
 from src.services.tracker import DECISIONS, FEATURES, IDEAS, OPEN_QUESTIONS, RowView, TrackerError
+from src.tracker.checks import Level, Report, finding_line, sheets_from_xlsx, verify_workbook
+from src.tracker.checks import report_markdown as verification_markdown
+from src.tracker.google import GoogleSheetError, download_xlsx
 from src.tracker.workbook import EXPECTED_SHEETS, MAX_WORKBOOK_BYTES, report_markdown
 
 log = logging.getLogger(__name__)
@@ -46,6 +50,23 @@ def _change_line(c: TrackerChange) -> str:
     detail = ", ".join(f"{k} → {v}" for k, v in c.payload.items() if v not in (None, ""))
     state = {"pending": "en attente", "applied": f"appliquée ({c.decider})", "rejected": f"refusée ({c.decider})"}[c.status]
     return f"#{c.id} · {c.sheet} · {what} · {_md(limits.truncate(detail, 160))} · par {_md(c.proposer)} · {state}"
+
+
+VERIFY_SHOWN = 12  # constats affichés dans l'embed (le rapport complet est joint)
+
+
+def verification_embed(report: Report) -> discord.Embed:
+    title = "Classeur cohérent" if report.ok and not report.warnings else ("Classeur à corriger" if not report.ok else "Classeur à revoir")
+    embed = make_embed(f"Vérification · {title}", f"{report.summary()}\nSource : {_md(report.source)}. Rien n'a été modifié.")
+    for level, label in ((Level.ERROR, "Erreurs"), (Level.WARNING, "Avertissements")):
+        items = [f for f in report.findings if f.level is level]
+        if not items:
+            continue
+        lines = [limits.truncate(finding_line(f), 300) for f in items[:VERIFY_SHOWN]]
+        if len(items) > VERIFY_SHOWN:
+            lines.append(f"… et {len(items) - VERIFY_SHOWN} autre(s) : voir le rapport joint.")
+        add_field(embed, f"{label} ({len(items)})", "\n".join(lines))
+    return embed
 
 
 async def key_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -178,6 +199,45 @@ class TrackerCog(commands.Cog):
                  f"{result.skipped_formula_cells} cellule(s) à formule laissée(s) intacte(s)."] + result.warnings
         self.bot.record_admin_action(interaction, "suivi exporter", result.path.name)
         await interaction.followup.send("\n".join(notes), file=discord.File(result.path), ephemeral=True)
+
+    # --- Vérification -------------------------------------------------------------------
+
+    async def _verification_source(self, fichier: discord.Attachment | None) -> tuple[bytes, str]:
+        """Fichier envoyé, sinon Google Sheet configuré (TRACKER_GOOGLE_SHEET), sinon dernier import."""
+        if fichier is not None:
+            if not fichier.filename.lower().endswith((".xlsx", ".xlsm")):
+                raise TrackerError("Envoyez un fichier Excel .xlsx.")
+            if fichier.size > MAX_WORKBOOK_BYTES:
+                raise TrackerError(f"Fichier trop gros (maximum {MAX_WORKBOOK_BYTES // 1024 // 1024} Mio).")
+            return await fichier.read(), fichier.filename
+        sheet_id = self.bot.settings.tracker_google_sheet
+        if sheet_id:
+            return await download_xlsx(sheet_id), "Google Sheet de l'équipe"
+        latest = self.service.latest_original()
+        if latest is None:
+            raise TrackerError("Aucun classeur à vérifier : joignez un fichier .xlsx, importez-le avec /suivi importer, "
+                               "ou indiquez le Google Sheet dans TRACKER_GOOGLE_SHEET (.env).")
+        data, name = latest
+        return data, f"dernier import ({name})"
+
+    @suivi.command(name="verifier", description="Vérifier la cohérence du classeur (statuts, renvois, décisions, DASHBOARD…)")
+    @app_commands.describe(fichier="Facultatif : un fichier .xlsx (sinon le Google Sheet configuré, ou le dernier import)")
+    async def verify(self, interaction: discord.Interaction, fichier: discord.Attachment | None = None) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            data, label = await self._verification_source(fichier)
+            report = await asyncio.to_thread(lambda: verify_workbook(sheets_from_xlsx(data), source=label))
+        except (TrackerError, GoogleSheetError, ValueError, discord.HTTPException) as exc:
+            await interaction.followup.send(embed=make_embed("Vérification impossible", str(exc)), ephemeral=True)
+            return
+        except Exception:  # fichier corrompu ou format inattendu
+            log.exception("Vérification du classeur impossible")
+            await interaction.followup.send(
+                embed=make_embed("Vérification impossible", "Classeur illisible : est-ce bien un fichier .xlsx ?"), ephemeral=True
+            )
+            return
+        file = discord.File(io.BytesIO(verification_markdown(report).encode("utf-8")), filename="verification-classeur.md")
+        await interaction.followup.send(embed=verification_embed(report), file=file, ephemeral=True)
 
     # --- Consultation ---------------------------------------------------------------------
 

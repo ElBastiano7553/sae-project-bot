@@ -44,8 +44,12 @@ from src.tracker.workbook import (
 FEATURES, IDEAS, DECISIONS, OPEN_QUESTIONS, CHANGELOG = "FEATURES", "IDEAS", "DECISIONS", "OPEN_QUESTIONS", "CHANGELOG"
 # Ajouts appliqués sans validation (peu risqués, toujours historisés) ; tout le reste attend un administrateur.
 DIRECT_ADD_SHEETS = (IDEAS, OPEN_QUESTIONS)
-DONE_WORDS = ("termine", "fait", "done", "livre", "valide", "implemente", "fini", "complete", "ok", "100")
-OPEN_WORDS = ("ouvert", "ouverte", "open", "enattente", "aetudier", "nonresolue", "atraiter", "todo", "afaire", "nouveau", "nouvelle")
+# « VALIDÉ » n'en fait pas partie : dans le classeur de l'équipe, VALIDÉ veut dire « accepté par l'équipe »,
+# pas « réalisé » (TERMINÉ). Les questions « EN COURS » restent ouvertes, comme dans le DASHBOARD.
+DONE_WORDS = ("termine", "fait", "done", "livre", "implemente", "fini", "complete", "ok", "100")
+OPEN_WORDS = (
+    "ouvert", "ouverte", "open", "enattente", "aetudier", "nonresolue", "atraiter", "todo", "afaire", "nouveau", "nouvelle", "encours",
+)
 TEXT_MAX = 500
 SEARCH_LIMIT = 15
 BACKUP_SUBDIR = "suivi"
@@ -113,6 +117,16 @@ class TrackerService:
             return _info_from_dict(last.report["workbook"])
         except (KeyError, TypeError):
             return None
+
+    def latest_original(self) -> tuple[bytes, str] | None:
+        """Copie gardée du dernier classeur importé (contenu, nom du fichier), ou None."""
+        info = self.info()
+        if info is None:
+            return None
+        path = self.originals_dir / f"{info.sha256}.xlsx"
+        if not path.is_file():
+            return None
+        return path.read_bytes(), info.filename
 
     def require_info(self) -> WorkbookInfo:
         info = self.info()

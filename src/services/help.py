@@ -192,6 +192,7 @@ HELP_ENTRIES: tuple[HelpEntry, ...] = (
     HelpEntry("debat annuler", "idees", "Annule un débat (auteur ou admin) ; son contenu reste consultable.", "/debat annuler debat:1"),
     HelpEntry("suivi importer", "suivi", "Importe le classeur Excel du projet : aperçu, sauvegarde, confirmation ; l'original n'est jamais modifié.", "/suivi importer fichier:LUNASTEH.xlsx", admin=True),
     HelpEntry("suivi analyse", "suivi", "Rapport de structure du classeur importé : colonnes, formules, identifiants, statuts.", "/suivi analyse", admin=True),
+    HelpEntry("suivi verifier", "suivi", "Vérifie le classeur (Google Sheet, fichier ou dernier import) : statuts, renvois, décisions, DASHBOARD ; ne modifie rien.", "/suivi verifier"),
     HelpEntry("suivi exporter", "suivi", "Nouvelle copie Excel à jour (formules conservées, CHANGELOG complété).", "/suivi exporter", admin=True),
     HelpEntry("suivi progression", "suivi", "Fonctionnalités terminées, répartition par statut, questions ouvertes.", "/suivi progression"),
     HelpEntry("suivi chercher", "suivi", "Recherche dans tout le classeur ou dans un onglet.", "/suivi chercher texte:inventaire"),

@@ -34,6 +34,7 @@ MAX_WELCOME_DELETE_HOURS = 168
 SECRET_ENV_VARS = (
     "DISCORD_BOT_TOKEN", "GITLAB_WEBHOOK_SECRET", "GITLAB_ACCESS_TOKEN", "AI_API_KEY", "ALERT_WEBHOOK_URL", "GITHUB_WEBHOOK_SECRET",
     "GITHUB_APP_WEBHOOK_SECRET", "GITHUB_APP_CLIENT_SECRET", "GITLAB_APP_CLIENT_SECRET", "LAVALINK_PASSWORD",
+    "GITHUB_SYNC_TOKEN",
 )
 # Webhooks GitHub hérités du .env (seulement si GITHUB_WEBHOOK_SECRET est rempli) : dépôt accepté par défaut,
 # gardé pour l'installation existante de l'équipe. Une autre installation indique le sien dans
@@ -81,6 +82,12 @@ class Settings:
     # Assistant de projet (1.14.0) : répondre aussi quand on mentionne @Samae (aucun intent privilégié :
     # Discord transmet le texte des messages qui mentionnent le bot). Désactivé par défaut.
     assistant_on_mention: bool = False
+    # Google Sheet du suivi (1.15.0, /suivi verifier) : identifiant, lu par son lien de partage. Vide = non utilisé.
+    tracker_google_sheet: str = ""
+    # Synchronisation avec le dépôt GitHub (1.15.0, /github synchroniser) : propriétaire/dépôt, jeton facultatif.
+    github_sync_repository: str = ""
+    github_sync_token: str = field(default="", repr=False)
+    github_sync_interval_minutes: int = 0
     gitlab_webhook_secret: str = field(default="", repr=False)
     gitlab_project_id: int | None = None
     webhook_host: str = "127.0.0.1"
@@ -228,6 +235,8 @@ class Settings:
         auto_recreate = _parse_bool(env, "AUTO_RECREATE_DELETED_MESSAGES", True, errors)
         welcome_on_join = _parse_bool(env, "WELCOME_ON_JOIN", False, errors)
         assistant_on_mention = _parse_bool(env, "ASSISTANT_ON_MENTION", False, errors)
+        tracker_google_sheet = _parse_google_sheet(env, errors)
+        github_sync = _parse_github_sync(env, errors)
         welcome_delete_hours = _parse_int(env, "WELCOME_DELETE_AFTER_HOURS", DEFAULT_WELCOME_DELETE_HOURS, 0, errors)
         if welcome_delete_hours > MAX_WELCOME_DELETE_HOURS:
             errors.append(
@@ -313,6 +322,8 @@ class Settings:
             welcome_on_join=welcome_on_join,
             welcome_delete_hours=welcome_delete_hours,
             assistant_on_mention=assistant_on_mention,
+            tracker_google_sheet=tracker_google_sheet,
+            **github_sync,
             gitlab_webhook_secret="" if gitlab_errors else webhook_secret,
             gitlab_config_error=" ; ".join(gitlab_errors) if gitlab_errors else None,
             gitlab_project_id=project_id,
@@ -591,3 +602,40 @@ def _parse_bool(env: Mapping[str, str], key: str, default: bool, errors: list[st
         return False
     errors.append(f"{key} doit valoir true ou false (valeur actuelle : {raw!r}).")
     return default
+
+
+def _parse_google_sheet(env: Mapping[str, str], errors: list[str]) -> str:
+    """TRACKER_GOOGLE_SHEET : adresse ou identifiant du Google Sheet ; seul l'identifiant est gardé."""
+    from src.tracker.google import GoogleSheetError, spreadsheet_id
+
+    raw = env.get("TRACKER_GOOGLE_SHEET", "").strip()
+    if not raw:
+        return ""
+    try:
+        return spreadsheet_id(raw)
+    except GoogleSheetError:
+        errors.append("TRACKER_GOOGLE_SHEET doit être l'adresse https://docs.google.com/spreadsheets/d/… ou l'identifiant du classeur.")
+        return ""
+
+
+MAX_SYNC_INTERVAL_MINUTES = 7 * 24 * 60
+MIN_SYNC_INTERVAL_MINUTES = 15
+
+
+def _parse_github_sync(env: Mapping[str, str], errors: list[str]) -> dict:
+    """GITHUB_SYNC_REPOSITORY (propriétaire/dépôt), GITHUB_SYNC_TOKEN (facultatif), GITHUB_SYNC_INTERVAL_MINUTES (0 = manuel)."""
+    repository = env.get("GITHUB_SYNC_REPOSITORY", "").strip()
+    if repository and not _GITHUB_REPOSITORY.match(repository):
+        errors.append(f"GITHUB_SYNC_REPOSITORY doit être de la forme propriétaire/dépôt (valeur actuelle : {repository!r}).")
+        repository = ""
+    interval = _parse_int(env, "GITHUB_SYNC_INTERVAL_MINUTES", 0, 0, errors)
+    if interval and not MIN_SYNC_INTERVAL_MINUTES <= interval <= MAX_SYNC_INTERVAL_MINUTES:
+        errors.append(
+            f"GITHUB_SYNC_INTERVAL_MINUTES doit valoir 0 (manuel) ou être entre {MIN_SYNC_INTERVAL_MINUTES} et {MAX_SYNC_INTERVAL_MINUTES}."
+        )
+        interval = 0
+    return {
+        "github_sync_repository": repository,
+        "github_sync_token": env.get("GITHUB_SYNC_TOKEN", "").strip(),
+        "github_sync_interval_minutes": interval,
+    }

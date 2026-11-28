@@ -206,3 +206,29 @@ async def test_mentions_are_ignored_unless_enabled(env):
 
     await cog.on_message(Message())  # désactivé par défaut : aucune exception, aucune réponse
     assert not bot.settings.assistant_on_mention
+
+
+async def test_tracker_verify_command_checks_an_attached_file_then_the_last_import(env):
+    from tests import lunasteh_fixture
+
+    bot, channel = env
+    cog = bot.get_cog("TrackerCog")
+    nothing = interaction(bot, BOB, channel)
+    await cog.verify.callback(cog, nothing, fichier=None)
+    assert "Aucun classeur à vérifier" in text_of(nothing.followup.sent[0]["embed"])
+
+    data = lunasteh_fixture.sheets()
+    data["FEATURES"][3][8] = "Fini"  # statut hors liste
+    attached = interaction(bot, BOB, channel)
+    await cog.verify.callback(cog, attached, fichier=FakeAttachment(lunasteh_fixture.xlsx(data), filename="lunasteh.xlsx"))
+    reply = attached.followup.sent[0]
+    assert "Classeur à corriger" in text_of(reply["embed"]) and "FEAT-002" in text_of(reply["embed"])
+    assert reply["file"].filename == "verification-classeur.md" and reply["ephemeral"]
+
+    start = interaction(bot, ADMIN, channel)
+    await cog.import_workbook.callback(cog, start, fichier=FakeAttachment(lunasteh_fixture.xlsx(), filename="lunasteh.xlsx"))
+    await start.followup.sent[0]["view"]._on_confirm(start)
+    latest = interaction(bot, BOB, channel)
+    await cog.verify.callback(cog, latest, fichier=None)
+    embed_text = text_of(latest.followup.sent[0]["embed"])
+    assert "dernier import (lunasteh.xlsx)" in embed_text and "aucune erreur" in embed_text
