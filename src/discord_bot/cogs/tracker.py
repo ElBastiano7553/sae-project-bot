@@ -26,7 +26,7 @@ from src.discord_bot.views import ConfirmView
 from src.services import text_limits as limits
 from src.services.design import escape_markdown as _md
 from src.services.meetings import Actor, MeetingError
-from src.services.repo_sync import SyncResult
+from src.services.repo_sync import PROGRESS_SHEETS, SyncResult
 from src.services.tracker import DECISIONS, FEATURES, IDEAS, OPEN_QUESTIONS, RowView, TrackerError
 from src.tracker.checks import Level, Report, finding_line, sheets_from_xlsx, verify_workbook
 from src.tracker.checks import report_markdown as verification_markdown
@@ -107,6 +107,15 @@ async def key_autocomplete(interaction: discord.Interaction, current: str) -> li
         return []
     text = current.strip().casefold()
     rows = [r for r in bot.tracker.rows(sheet) if not text or text in r.key.casefold() or text in r.title.casefold()]
+    return [app_commands.Choice(name=limits.truncate(f"{r.key} · {r.title}", 100), value=r.key[:100]) for r in rows[:25]]
+
+
+async def code_key_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """Lignes qui ont un avancement (FEATURES, GAMEPLAY, UI_UX, ART_DIRECTION), pour /suivi code."""
+    bot: SaeBot = interaction.client  # type: ignore[assignment]
+    text = current.strip().casefold()
+    rows = [r for sheet in PROGRESS_SHEETS for r in bot.tracker.rows(sheet)
+            if not text or text in r.key.casefold() or text in r.title.casefold()]
     return [app_commands.Choice(name=limits.truncate(f"{r.key} · {r.title}", 100), value=r.key[:100]) for r in rows[:25]]
 
 
@@ -370,6 +379,7 @@ class TrackerCog(commands.Cog):
 
     @suivi.command(name="code", description="Commits et pull requests GitHub qui citent une ligne du suivi")
     @app_commands.describe(cle="Identifiant cité dans les commits ou les PR, par exemple FEAT-002")
+    @app_commands.autocomplete(cle=code_key_autocomplete)
     async def code(self, interaction: discord.Interaction, cle: str) -> None:
         sync = self.bot.repo_sync
         if not sync.enabled:

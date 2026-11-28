@@ -52,7 +52,7 @@ Guide : [docs/installation.md](docs/installation.md).
 `/aide` ne liste que les commandes réellement présentes (liste générée depuis Discord, vérifiée par les tests). Hébergement de l'équipe (VPS, systemd) :
 [docs/deployment-vps.md](docs/deployment-vps.md) ; avec Docker : [docs/deployment-linux.md](docs/deployment-linux.md) ;
 sécurité : [docs/security.md](docs/security.md) ; plan de test manuel : [docs/test-manuel.md](docs/test-manuel.md) ;
-Skills Claude Code du dépôt : [docs/skills.md](docs/skills.md) ; rapport du travail autonome de 1.14.0 : [AUTONOMOUS_WORK_REPORT.md](AUTONOMOUS_WORK_REPORT.md).
+Skills Claude Code du dépôt : [docs/skills.md](docs/skills.md) ; rapports : [AUTONOMOUS_WORK_REPORT.md](AUTONOMOUS_WORK_REPORT.md) (1.14.0) et [RAPPORT_AUDIT_1.15.0.md](RAPPORT_AUDIT_1.15.0.md).
 
 ## Démarrage rapide (Windows, PowerShell)
 
@@ -164,6 +164,28 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - Les commandes d'administration sont protégées deux fois : permission par défaut
   côté Discord et vérification côté bot.
 
+## Pour les développeurs
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) : couches, modules, flux, cartographie des fonctionnalités, décisions techniques.
+- [DEVELOPMENT.md](DEVELOPMENT.md) : installer, lancer, tester, ajouter une commande ou un réglage, Git.
+- [CHANGELOG.md](CHANGELOG.md) : historique des versions. [ROADMAP.md](ROADMAP.md) : prochaines fonctionnalités.
+- Skills Claude Code du projet (`.claude/skills/`) : [docs/skills.md](docs/skills.md).
+
+Structure :
+
+```
+src/config/         réglages (.env) et fichiers TOML        src/services/    logique métier (sans discord.py)
+src/database/       SQLite et migrations                    src/discord_bot/ bot, commandes, affichage
+src/gitlab/, github/, providers/   intégrations Git          src/tracker/     classeur de suivi (Excel, Google Sheet)
+src/notifications.py  files d'envoi des notifications        src/ai/          fournisseurs d'IA (facultatifs)
+config/  content/  knowledge/   contenu versionné            deploy/          VPS (systemd), Docker
+```
+
+Intégrations : Discord (discord.py), webhooks GitLab et GitHub, GitHub App et application OAuth GitLab
+(`/projet`), API GitHub en lecture (synchronisation), Google Sheets par lien de partage (vérification),
+Anthropic (IA, facultative). Variables d'environnement : [.env.example](.env.example) (seul
+`DISCORD_BOT_TOKEN` est obligatoire).
+
 ## Documentation
 
 - [Architecture, flux de données et plan des lots](docs/architecture.md)
@@ -181,10 +203,13 @@ permissions nécessaires : [docs/commands.md](docs/commands.md).
 - [Centre d'aide et identité visuelle (1.2.0)](docs/refonte-et-aide.md)
 - [Héberger Samae sur le VPS (systemd) : installation, mises à jour, retour arrière, sauvegardes, surveillance](docs/deployment-vps.md)
 - [Plan de test manuel sur un serveur Discord de test (dont `/refonte`)](docs/test-manuel.md)
+- [Suivi du projet : classeur Excel, Google Sheet, vérification](docs/suivi-excel.md)
+- [Synchronisation du suivi avec le dépôt GitHub](docs/synchronisation-github.md)
 
 ## Tests
 
 ```powershell
+python -m ruff check src tests
 python -m pytest
 ```
 

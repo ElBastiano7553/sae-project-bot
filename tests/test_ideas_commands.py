@@ -266,3 +266,19 @@ async def test_tracker_sync_commands(env):
     linked = interaction(bot, BOB, channel)
     await cog.code.callback(cog, linked, cle="feat-001")
     assert "animations du saut" in text_of(linked.response.sent[0]["embed"])
+
+
+async def test_remaining_features_exclude_abandoned_ones_and_code_autocomplete(env):
+    from src.discord_bot.cogs.tracker import code_key_autocomplete
+    from src.services.meetings import Actor as _Actor
+    from tests import lunasteh_fixture
+
+    bot, channel = env
+    data = lunasteh_fixture.sheets()
+    data["FEATURES"][3][8] = "ABANDONNÉ"  # FEAT-002
+    bot.tracker.apply_import(lunasteh_fixture.xlsx(data), "lunasteh.xlsx", _Actor(ADMIN.id, "Romain", True, GUILD_ID))
+    remaining = [r.key for r in bot.tracker.by_status("FEATURES", remaining=True)]
+    assert remaining == ["FEAT-001", "FEAT-003"]  # VALIDÉ et EN COURS restent à faire ; ABANDONNÉ non
+    i = interaction(bot, BOB, channel)
+    choices = await code_key_autocomplete(i, "arbre")
+    assert [c.value for c in choices] == ["FEAT-003"]

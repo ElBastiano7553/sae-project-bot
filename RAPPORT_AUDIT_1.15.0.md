@@ -1,104 +1,177 @@
-# Rapport : audit du socle de Samae et version 1.15.0
+# Rapport final : audit, restructuration et fondation de Samae (1.15.0)
 
-Mission du 28/11/2026, faite en autonomie sur le PC de Romain (`D:\Desktop\claude\samae`).
-Branche **`claude/socle-1.15`**, poussée sur GitHub, **sans pull request ouverte** et **rien de déployé**.
+Mission du 28/11/2026, faite en autonomie sur le PC de Romain. Travail sur la branche
+**`claude/socle-1.15`**, poussée sur GitHub, **sans pull request ouverte** et **rien de déployé**.
 
 ## En bref
 
 | | État |
 |---|---|
-| Socle | Files de notifications regroupées, configuration découpée, 4 défauts de l'audit d'octobre corrigés, vérification statique (ruff) ajoutée à la CI |
-| Vérification du classeur | `/suivi verifier` et `python -m src.tracker.verify` ; testé sur la structure du vrai Google Sheet : **0 erreur, 5 avertissements** |
-| Synchronisation GitHub | `/suivi synchroniser` et `/suivi code` : commits et PR reliés aux lignes du suivi, propositions de statut validées par un admin |
-| Tests | **1212 réussis**, 4 ignorés (Python 3.13 sur le PC) ; 1150 au départ sur la branche de la PR #26 |
-| Pas fait | Rien testé sur un vrai serveur Discord ; Python 3.11 et 3.12 seront vérifiés par la CI à l'ouverture de la PR ; aucune skill externe installée |
+| Projet local | `D:\Desktop\claude\samae`, clone complet avec tout l'historique Git ; sauvegarde bundle avant toute modification |
+| Socle | Files de notifications regroupées, configuration découpée, 4 défauts de l'audit d'octobre et 2 défauts du suivi corrigés, ruff dans la CI |
+| Outils demandés ensuite | Vérification du classeur (`/suivi verifier`) et synchronisation avec le dépôt GitHub (`/suivi synchroniser`, `/suivi code`) |
+| Skills | 4 skills Samae créés, 1 skill externe ajouté (`async-python-patterns`), 2 déjà présents conservés ; plugin Discord non installable ici (Bun et token absents) |
+| Documentation | `ARCHITECTURE.md`, `DEVELOPMENT.md`, `CHANGELOG.md`, `ROADMAP.md`, README complété |
+| Tests | **1213 réussis**, 4 ignorés, sur Python 3.13 (1096 sur `main` au départ, 1150 avec la PR #26) ; ruff propre |
+| Pas fait | Rien testé sur un vrai serveur Discord ni sur le VPS ; Python 3.11 et 3.12 seront testés par la CI à l'ouverture de la PR |
 
-## 1. Point de départ
+## A. État initial
 
-- `D:\Desktop\claude\samae` était **vide** : le dépôt y a été cloné depuis GitHub (`main` = 1.13.0, commit `16d90b3`).
-- La **PR #26 (1.14.0) est toujours ouverte** (sa référence `merge` existe encore sur GitHub). Comme la
-  vérification du classeur s'appuie sur le suivi Excel de la 1.14.0, la branche `claude/socle-1.15`
-  part de la branche de la PR #26. **Il faut donc fusionner #26 d'abord**, puis cette branche (ou
-  seulement cette branche, qui contient aussi la 1.14.0).
-- Sauvegarde avant toute modification : `D:\Desktop\claude\samae-sauvegardes\sae-project-bot-<date>.bundle`
-  (toutes les branches du dépôt GitHub, restaurable avec `git clone <fichier>.bundle`).
-- Anciennes copies trouvées dans `D:\Documents\sae-project-bot-v1\` (branche `pr-23-music`, une
-  copie 1.12 et une copie sans Git). **Je n'y ai pas touché.** Elles sont anciennes (1.11 et 1.12) et
-  contiennent des fichiers `.env` : à supprimer quand tu veux, après avoir vérifié qu'il n'y a rien à garder.
+- **Version de référence** : dépôt GitHub `ElBastiano7553/sae-project-bot`, `main` = 1.13.0 (commit `16d90b3`).
+  La **PR #26 (1.14.0 : idées, tier lists, débats, suivi Excel, `/samae`) est ouverte**, non fusionnée.
+- **Architecture** : en couches et saine (métier sans discord.py dans `src/services/`, SQL dans
+  `src/database/`, cogs minces, migrations additives v1 à v14), hébergement VPS systemd prêt, Docker vérifié par la CI.
+- **Taille** : 94 fichiers Python dans `src/` et 53 fichiers de tests sur `main` ; 1096 tests.
+- **Fonctionnalités** : 93 commandes (cartographie complète dans `ARCHITECTURE.md`, section 4).
+- **Problèmes identifiés** :
+  - trois files de notifications recopiées (GitHub et projets dépendaient du module GitLab) ;
+  - arrêt pendant un envoi : notification **renvoyée en double** au redémarrage ;
+  - remise en file au démarrage après l'ouverture du port : doublon possible ;
+  - erreur passagère de Discord sur le salon d'un projet : notification abandonnée à tort ;
+  - limite de débit GitHub affichée comme « accès refusé » ;
+  - `src/config.py` de 1168 lignes mêlant `.env` et TOML ;
+  - 1.14.0 : VALIDÉ compté comme « terminé », ABANDONNÉ compté comme « restant » ;
+  - 4 imports inutiles, 1 variable inutile, aucun contrôle statique dans la CI ;
+  - documentation d'architecture datée (schéma v9, étapes déjà faites présentées comme à venir).
 
-## 2. Audit
+## B. Transfert local
 
-Ce qui est sain : architecture en couches respectée (services sans discord.py, SQL dans `src/database/`,
-cogs minces), migrations uniquement additives avec sauvegarde, secrets masqués, aucune vulnérabilité
-connue dans les dépendances épinglées (`pip-audit`), 1096 tests sur `main`.
+- **Emplacement final** : `D:\Desktop\claude\samae` (le dossier était vide). Clone complet : toutes les
+  branches et l'historique depuis le premier commit.
+- **État Git** : branche `claude/socle-1.15`, partie de la branche de la PR #26
+  (`claude/project-thread-vcge2n`), poussée sur `origin`. Rien d'autre n'a été poussé.
+- **Comparaison local / distant** : trois anciennes copies dans `D:\Documents\sae-project-bot-v1\`
+  (1.11.0 sur une branche `pr-23-music`, une copie 1.12 et une copie sans Git). Elles sont plus
+  anciennes que GitHub et ne contiennent pas de travail absent du dépôt (seulement des fichiers
+  temporaires de tests et un `.egg-info`). **Je n'y ai pas touché.** Elles contiennent des fichiers
+  `.env` avec des secrets : à supprimer quand tu le décideras.
+- **Fichiers ignorés et secrets** : `.env`, `.env.*` (sauf l'exemple), `data/`, `logs/`, `.venv/` sont
+  ignorés ; j'ai ajouté `*.egg-info/` et les dossiers temporaires des tests. Aucun secret dans le dépôt.
+  Je n'ai lu aucun `.env`.
+- **Sauvegarde** : `D:\Desktop\claude\samae-sauvegardes\sae-project-bot-<date>.bundle` (toutes les
+  branches de GitHub, restaurable avec `git clone <fichier>.bundle`).
+- **Dépendances** : venv `.venv` (Python 3.13) avec `requirements-dev.txt` ; `pip-audit` : aucune
+  vulnérabilité connue dans les versions épinglées.
 
-Ce qui a été trouvé et corrigé :
+## C. Skills et outils
 
-| Constat | Correction |
+Inventaire de départ : skills du dépôt `discord-bot-architect`, `python-testing-patterns` (sickn33,
+commit `560a2b0`), `samae-project` ; plugin `cloudflare` seul installé ; catalogue officiel
+`claude-plugins-official` déjà connu de Claude Code.
+
+| Élément | Décision | Lien |
+|---|---|---|
+| `discord-bot-architect` | conservé (Markdown seulement ; exemples Pycord, les skills Samae priment) | https://github.com/sickn33/agentic-awesome-skills |
+| `python-testing-patterns` | conservé | même dépôt |
+| `async-python-patterns` | **installé** (lu en entier, Markdown seulement, MIT / CC BY 4.0, commit `ee8ccaa`) | même dépôt |
+| `python-pro` | refusé : marqué `risk: critical`, vise 3.12+, FastAPI, Django : hors de notre pile | même dépôt |
+| `security-audit-static` | refusé : sain mais redondant avec `/security-review`, et coûteux (sous-agents sur le modèle le plus cher) | même dépôt |
+| `code-review-*`, `git-*`, `github-*` (des dizaines) | refusés : redondants avec les outils intégrés (`/code-review`, `/security-review`, `/simplify`, `git`) | même dépôt |
+| Excel | outil intégré `anthropic-skills:xlsx` + skill `samae-game-design` ; le `xlsx` du catalogue est vide | — |
+| Plugin `discord` | **non installé** : il exige Bun (absent du PC) et un bot Discord dédié avec son token et l'intent « Message Content », à créer par toi. Guide prêt : `docs/claude-code-discord.md`. Il ne marche que pendant une session Claude Code ouverte, et reste distinct de Samae | https://github.com/anthropics/claude-plugins-official |
+| Plugin `security-guidance` | non activé d'office : relecture par un modèle à chaque fin de tour et à chaque commit (consomme l'abonnement), `pip install` automatiques | même dépôt |
+| Plugin `pyright-lsp` | recommandé, facultatif (demande `npm install -g pyright`) | même dépôt |
+| Plugin `github` | non installé : demande un jeton personnel, `git` suffit | même dépôt |
+
+**Skills Samae créés** (`.claude/skills/`) : `samae-project-context` (remplace `samae-project`, mis à
+jour pour 1.15.0), `samae-game-design` (structure réelle du classeur, règles, vérification),
+`samae-discord-ux` (commandes, embeds, composants, erreurs, confirmations), `samae-quality-assurance`
+(tests à écrire, vérifications, revue, compte rendu honnête). Leur en-tête (`name`, `description`) est valide ;
+la détection est à confirmer avec `/skills` dans une nouvelle session. Provenance : `.claude/skills/SOURCES.md` ; décisions : `docs/skills.md`.
+
+## D. Modifications
+
+**Architecture retenue** : je n'ai pas appliqué la structure `core/`, `cogs/`, `integrations/`
+proposée. Les paquets actuels assurent déjà la séparation demandée (métier, données, intégrations,
+Discord) ; déplacer une centaine de fichiers aurait cassé l'historique Git et la PR #26 ouverte sans
+bénéfice. J'ai corrigé les vrais problèmes de structure :
+
+| Amélioration | Fichiers |
 |---|---|
-| Trois files de notifications (GitLab, GitHub, projets) recopiaient la même boucle ; GitHub et projets dépendaient du module GitLab | Socle commun `src/notifications.py` (`NotificationQueue`) ; `src/gitlab/dispatcher.py` le réexporte |
-| Arrêt du bot pendant un envoi : message parti sur Discord mais pas noté envoyé, donc **renvoyé au redémarrage** | Ports fermés d'abord, puis l'envoi en cours peut finir (10 s au plus, systemd en laisse 30) |
-| Remise en file au démarrage faite **après** l'ouverture du port : un webhook reçu entre les deux partait deux fois | Remise en file avant l'ouverture du port |
-| Erreur passagère de Discord en vérifiant le salon d'un projet : notification abandonnée comme « salon introuvable » | Nouvel essai ; échec durable noté `failed`, plus `skipped` |
-| Limite de débit GitHub (B4) affichée comme « accès refusé » | Reconnue (HTTP 429, ou 403 avec `x-ratelimit-remaining: 0`) et présentée comme passagère |
-| `src/config.py` (1168 lignes) mélangeait `.env` et fichiers TOML | Paquet `src/config/` : `settings.py`, `files.py`, `base.py` ; tout reste importable depuis `src.config` |
-| 4 imports inutiles, 1 variable inutile, 2 `zip` sans `strict` | Corrigés ; `ruff check` (règles F, E9, B) ajouté aux dépendances de dev et à la CI |
-| 1.14.0 : un statut **VALIDÉ** était compté comme « terminé » dans `/suivi progression` | VALIDÉ = accepté par l'équipe, pas réalisé ; une question EN COURS reste ouverte (comme dans le DASHBOARD) |
+| Socle commun des notifications (`NotificationQueue`, essais, arrêt propre) | `src/notifications.py` (nouveau), `src/gitlab/dispatcher.py`, `src/github/dispatcher.py`, `src/providers/dispatcher.py` |
+| Arrêt propre, remise en file avant l'ouverture des ports, salon vérifié avec nouvel essai | `src/discord_bot/bot.py` |
+| Limite de débit GitHub reconnue | `src/providers/github_app.py` |
+| Configuration en paquet (`settings.py`, `files.py`, `base.py`), importations inchangées | `src/config/` (remplace `src/config.py`) |
+| VALIDÉ n'est plus « terminé », ABANDONNÉ n'est plus « restant », statuts de référence du classeur | `src/services/tracker.py` |
+| Vérification du classeur | `src/tracker/checks.py`, `src/tracker/google.py`, `src/tracker/verify.py` (nouveaux), `cogs/tracker.py` |
+| Synchronisation avec le dépôt GitHub, migration v16 | `src/github/repo_sync.py`, `src/services/repo_sync.py`, `src/database/repo_sync.py` (nouveaux), `connection.py`, `cogs/tracker.py` |
+| UX : autocomplétion de `/suivi code`, erreurs qui disent quoi faire, rapport complet joint en .md | `cogs/tracker.py` |
+| Contrôle statique dans la CI (ruff F, E9, B) | `pyproject.toml`, `requirements-dev.txt`, `.github/workflows/tests.yml` |
+| Réglages `TRACKER_GOOGLE_SHEET`, `GITHUB_SYNC_*` (jeton masqué) | `src/config/settings.py`, `.env.example` |
+| Documentation | `ARCHITECTURE.md`, `DEVELOPMENT.md`, `CHANGELOG.md`, `ROADMAP.md`, ce rapport (nouveaux) ; README, `docs/commands.md`, `suivi-excel.md`, `synchronisation-github.md` (nouveau), `test-manuel.md`, `deployment-vps.md`, `architecture.md`, `skills.md` |
 
-Restent ouverts (hors périmètre ou à décider) : `/suivi fonctionnalites restantes` compte aussi les lignes
-ABANDONNÉ ; `LAVALINK_PASSWORD` est encore dans la liste des secrets masqués (sans effet) ; 54 blocs
-d'imports non triés et des lignes longues (style seulement, non imposé) ; tout le code de la 1.14.0 et
-de la 1.15.0 n'a été testé qu'avec de faux objets Discord.
+**Revue UX des commandes** : les 93 commandes suivent déjà des conventions cohérentes (groupes par
+domaine, réponses éphémères, confirmations pour les actions sensibles, erreurs expliquées, aide
+générée et testée). Je n'ai donc rien renommé : renommer des commandes que l'équipe connaît coûterait
+plus que cela n'apporte. Points notés pour plus tard : `/reunion` (16 sous-commandes) et le trio
+`/idee`, `/tierlist`, `/debat` (27) sont denses ; `/ia bilan` et `/ia relecture` ne couvrent que GitLab
+(voir `ROADMAP.md`).
 
-## 3. Vérification du classeur (`/suivi verifier`)
+**Vérification du vrai Google Sheet** (lu avec le connecteur Google Sheets) : aucune erreur, DASHBOARD
+exact, CHANGELOG complet, aucun renvoi cassé ; **5 avertissements** : FEAT-002, 003, 004, 007 et 008
+sont VALIDÉ sans décision dans DECISIONS. C'est la question Q-014 du classeur. Je l'ai vérifié sur une
+transcription des identifiants, statuts, dates et renvois, pas sur un export du classeur complet.
 
-Le vrai Google Sheet « GAME DESIGN DATABASE — LUNASTEH » a pu être lu (connecteur Google Sheets) : 9 onglets,
-titre en ligne 1, en-têtes en ligne 2, listes déroulantes de statuts. Les contrôles sont écrits pour
-cette structure (détail des codes dans `docs/suivi-excel.md`) : identifiants, listes, champs
-obligatoires, dates, renvois entre onglets (plages « FEAT-001 à FEAT-008 » comprises), éléments
-VALIDÉ sans décision dans DECISIONS, compteurs du DASHBOARD recalculés, éléments absents du CHANGELOG.
+**Synchronisation GitHub**, telle que je l'ai comprise : relier le code du jeu au classeur. Samae
+relit les commits et les PR, repère les FEAT-xxx cités et **propose** EN COURS ou TERMINÉ. Un admin
+valide ; rien n'est écrit sur GitHub ni dans le classeur. Si tu pensais à autre chose (mettre à jour le
+bot sur le serveur à partir de GitHub, par exemple), le moteur de lecture du dépôt est réutilisable.
 
-**Résultat sur le classeur actuel** (transcription des identifiants, statuts, dates et renvois) :
-aucune erreur, DASHBOARD exact, CHANGELOG complet, aucun renvoi cassé. **5 avertissements** : FEAT-002,
-FEAT-003, FEAT-004, FEAT-007 et FEAT-008 sont VALIDÉ sans décision dans DECISIONS. C'est exactement la
-question Q-014 du classeur ; il reste à l'équipe de trancher.
+## E. Tests
 
-Samae lit le Google Sheet **sans clé d'API** grâce à son lien de partage (export .xlsx). Il ne peut rien y
-écrire. Pour l'activer : `TRACKER_GOOGLE_SHEET=<adresse du classeur>` dans `.env`, classeur partagé en
-lecture à « Tous les utilisateurs disposant du lien ».
+| Étape | Résultat |
+|---|---|
+| `main` (1.13.0) au départ | 1096 réussis, 4 ignorés |
+| Branche de la PR #26 (1.14.0) | 1150 réussis, 4 ignorés |
+| Branche `claude/socle-1.15`, après chaque étape et à la fin | **1213 réussis, 4 ignorés**, aucune régression |
+| `ruff check src tests` | propre |
+| Import sans configuration (`src.main`, `src.discord_bot.bot`) | OK |
+| `pip-audit -r requirements.txt` | aucune vulnérabilité connue |
 
-## 4. Synchronisation avec le dépôt GitHub (`/suivi synchroniser`)
+63 tests ajoutés : `test_socle.py` (arrêt propre, erreur passagère, ordre de démarrage, limite de
+débit), `test_tracker_checks.py` (chaque contrôle, Google, ligne de commande, réglage),
+`test_repo_sync.py` (faux GitHub : propositions, pas de doublon, PR fusionnée, erreurs), tests de
+commandes avec un faux Discord. Deux tests existants rendus indépendants du numéro de migration.
 
-J'ai compris « outil de synchronisation au dépôt GitHub » comme : **relier le code du dépôt du jeu au
-classeur de suivi**. Samae relit le dépôt (commits de la branche principale, pull requests), repère les
-identifiants cités (`FEAT-002` dans un message de commit, un titre de PR ou un nom de branche) et
-**propose** les statuts : EN COURS quand du code arrive sur une ligne VALIDÉ, TERMINÉ quand un commit de
-la branche principale ou une PR fusionnée dit « termine FEAT-002 » ou « Closes FEAT-002 ». Un admin
-valide ou refuse avec `/suivi valider` et `/suivi refuser` ; rien n'est appliqué tout seul, rien n'est
-proposé pour une ligne non validée par l'équipe, rien n'est écrit sur GitHub. `/suivi code cle:FEAT-002`
-liste le code lié à une ligne. Détail : `docs/synchronisation-github.md`.
+**Reste à vérifier** : tout sur un vrai serveur Discord (`docs/test-manuel.md`, sections 1.14.0 et
+1.15.0) ; Python 3.11 et 3.12 (CI) ; la lecture du Google Sheet depuis le VPS ; la synchronisation avec
+le vrai dépôt du jeu.
 
-Si tu pensais à autre chose (par exemple mettre à jour le bot sur le serveur à partir de GitHub), dis-le :
-le moteur de lecture du dépôt est réutilisable.
+## F. État final
 
-## 5. À faire par Romain
+- **Opérationnel (tests automatiques)** : tout l'existant, plus la vérification du classeur et la
+  synchronisation GitHub. Cartographie par domaine : `ARCHITECTURE.md`, section 4.
+- **À améliorer** : `/ia` limité à GitLab ; commandes denses (`/reunion`, idées) ; 54 blocs d'imports
+  non triés et lignes longues (style, non imposé par la CI) ; `docs/architecture.md` reste un
+  historique (la vue à jour est `ARCHITECTURE.md`).
+- **Problèmes encore présents** : GitHub ne renvoie jamais un webhook perdu (la synchronisation
+  enregistre le code manqué mais ne republie pas les notifications, volontairement, pour éviter les
+  doublons) ; `LAVALINK_PASSWORD` reste dans la liste des secrets masqués (sans effet).
+- **Prérequis manquants** (à fournir par toi) : fusion de #26 puis de cette branche ; déploiement ;
+  Google Sheet partagé par lien et `TRACKER_GOOGLE_SHEET` ; `GITHUB_SYNC_REPOSITORY` (et un jeton en
+  lecture seule si le dépôt est privé) ; pour le plugin Discord de Claude Code, Bun et un bot dédié.
+
+## G. Feuille de route
+
+Détail (objectif, fonctionnement, modules, difficultés, tests, contraintes Discord) dans `ROADMAP.md` :
+
+0. Mettre le socle en service (fusion, déploiement, tests manuels, Q-014).
+1. Priorité 1 : résumé des modifications du code GitHub par l'IA ; tableau d'avancement du projet
+   dans un salon ; rappel aux admins des propositions en attente.
+2. Priorité 2 : déconnexion d'un projet (B6) ; sondages ; ressources partagées.
+3. Priorité 3, à décider : écrire les validations dans le Google Sheet (change une règle de l'équipe) ;
+   parler à Claude Code depuis Discord (plugin, sans code dans Samae).
+
+Architecture proposée pour ces ajouts : mêmes couches (service sans discord.py, dépôt SQL, migration
+additive, cog mince, `HelpEntry`), et réutilisation des briques existantes (`repo_sync_items` pour le
+code GitHub, messages permanents pour le tableau d'avancement, `NotificationQueue` pour les envois).
+
+## À faire par Romain
 
 1. Relire et fusionner la PR #26, puis ouvrir et fusionner la PR de `claude/socle-1.15`
-   (https://github.com/ElBastiano7553/sae-project-bot/pull/new/claude/socle-1.15) ; la CI testera 3.11 à 3.13.
-2. Sur le VPS : `bash deploy/update.sh` (migrations v15 puis v16, sauvegardes automatiques avant chacune).
-3. Dans `.env` (facultatif) : `TRACKER_GOOGLE_SHEET`, `GITHUB_SYNC_REPOSITORY=ElBastiano7553/game-project`,
-   `GITHUB_SYNC_TOKEN` en lecture seule si le dépôt est privé, `GITHUB_SYNC_INTERVAL_MINUTES`.
-4. Dérouler `docs/test-manuel.md` (sections 1.14.0 et 1.15.0) sur un serveur de test.
-5. Trancher Q-014 dans le classeur (décisions pour les 5 fonctionnalités VALIDÉ).
-
-## 6. Fichiers
-
-- Nouveaux : `src/notifications.py`, `src/config/` (remplace `src/config.py`), `src/tracker/checks.py`,
-  `src/tracker/google.py`, `src/tracker/verify.py`, `src/github/repo_sync.py`, `src/services/repo_sync.py`,
-  `src/database/repo_sync.py`, `docs/synchronisation-github.md`, tests `test_socle.py`,
-  `test_tracker_checks.py`, `test_repo_sync.py`, `lunasteh_fixture.py` (structure réelle, contenu inventé).
-- Modifiés : les trois files de notifications, `bot.py`, `github_app.py`, `cogs/tracker.py`, `help.py`,
-  `services/tracker.py`, `connection.py` (migration v16), `pyproject.toml` (ruff, version 1.15.0),
-  `requirements-dev.txt`, CI, `.env.example`, README, `commands.md`, `suivi-excel.md`, `test-manuel.md`,
-  `deployment-vps.md`, `architecture.md`.
-- Aucune nouvelle dépendance d'exécution ; `ruff` en dépendance de développement seulement.
+   (https://github.com/ElBastiano7553/sae-project-bot/pull/new/claude/socle-1.15).
+2. Sur le VPS : `bash deploy/update.sh` (migrations v15 puis v16, sauvegardes automatiques).
+3. Dans `.env` : `TRACKER_GOOGLE_SHEET`, `GITHUB_SYNC_REPOSITORY=ElBastiano7553/game-project`, et si besoin
+   `GITHUB_SYNC_TOKEN` (lecture seule) et `GITHUB_SYNC_INTERVAL_MINUTES`.
+4. Dérouler `docs/test-manuel.md` (1.14.0 et 1.15.0) sur un serveur de test.
+5. Trancher Q-014 dans le classeur.

@@ -231,7 +231,8 @@ class TrackerService:
         if status:
             rows = [r for r in rows if norm(r.status) == norm(status)]
         if remaining:
-            rows = [r for r in rows if not is_done(r.status)]
+            # « Restantes » : ni terminées ni abandonnées (une ligne ABANDONNÉ ne reste pas à faire).
+            rows = [r for r in rows if not is_done(r.status) and not norm(r.status).startswith("abandon")]
         if open_only:
             rows = [r for r in rows if is_open_question(r.status)]
         return rows
